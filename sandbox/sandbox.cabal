@@ -1,0 +1,42 @@
+cabal-version:       3.0
+
+name:                sandbox
+version:             0.1.0.0
+license:             BSD-3-Clause
+license-file:        LICENSE
+copyright:           (c) 2020-2021, Kai-Oliver Prott, Finn Teegen
+author:              Kai-Oliver Prott, Finn Teegen
+maintainer:          kai.prott@hotmail.de
+build-type:          Simple
+
+common deps
+  hs-source-dirs:      src
+  default-language:    Haskell2010
+  default-extensions:  TemplateHaskell
+  other-extensions:    NoImplicitPrelude
+  build-depends:
+    base                 ^>=4.14.0.0,
+    inversion-ghc-plugin -any,
+    template-haskell     -any
+
+library
+  import: deps
+  exposed-modules:
+    Example
+    Example0
+    Compression
+    Peano
+    NonLinear
+    Main
+    Arith
+
+    ExampleSubmission
+    MainSubmission
+
+benchmark benchmarks
+  import:        deps
+  build-depends: criterion, mini-egison
+  main-is:       Bench.hs
+  other-modules: App
+  ghc-options:   -O2
+  type:          exitcode-stdio-1.0

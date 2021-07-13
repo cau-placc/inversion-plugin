@@ -1,0 +1,8 @@
+resolver: nightly-2021-03-17
+packages:
+  - .
+  - sandbox
+extra-deps:
+  - tree-monad-0.3.1
+  - sbv-8.15
+  - libBF-0.6.2

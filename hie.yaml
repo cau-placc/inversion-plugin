@@ -1,0 +1,16 @@
+cradle:
+  multi:
+    - path: ./test-examples
+      config: { cradle: { none: } }
+    - path: ./sandbox
+      config: { cradle: { none: } }
+    - path: ./Setup.hs
+      config: { cradle: { none: } }
+    - path: ./
+      config:
+        cradle:
+          stack:
+            - path: ./src
+              component: "inversion-ghc-plugin:lib"
+            - path: ./test
+              component: "inversion-ghc-plugin:test:tests"
