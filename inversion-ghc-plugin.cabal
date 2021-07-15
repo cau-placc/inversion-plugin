@@ -89,6 +89,7 @@ library
   import: deps
   exposed-modules:
     Plugin.InversionPlugin
+    Plugin.NLPlugin
     Plugin.Prelude
     Plugin.BuiltIn
     Plugin.Effect.Monad

@@ -30,8 +30,8 @@ import TcType
 import TcEvidence
 import RnExpr
 
--- | Lift a computation from the 'Q' monad to the type checker monad.
-liftQ :: Q a -> TcM a
+-- | Lift a computation from the 'Q' monad to an IO monad (e.g. the type checker monad).
+liftQ :: MonadIO io => Q a -> io a
 liftQ = liftIO . runQ
 
 -- | Convert a given TemplateHaskell expression into GHC's representation

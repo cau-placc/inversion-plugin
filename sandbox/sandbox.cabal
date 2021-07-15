@@ -29,6 +29,7 @@ library
     NonLinear
     Main
     Arith
+    NLPluginTest
 
     ExampleSubmission
     MainSubmission
