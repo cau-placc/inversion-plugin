@@ -1,12 +1,12 @@
 cabal-version: 3.0
-name:          inversion-ghc-plugin
+name:          inversion-plugin
 synopsis:      A compiler plugin to provide automatic inversion
 version:       1.0
 license:       BSD-3-Clause
 license-file:  LICENSE
-copyright:     (c) 2020-2021, Kai-Oliver Prott, Finn Teegen
+copyright:     (c) 2020-2021, Kai-Oliver Prott, Finn Teegen, Niels Bunkenburg
 maintainer:    kai.prott@hotmail.de
-author:        Kai-Oliver Prott, Finn Teegen
+author:        Kai-Oliver Prott, Finn Teegen, Niels Bunkenburg
 category:      Language
 build-type:    Simple
 stability:     experimental
@@ -114,7 +114,7 @@ test-suite tests
     Plugin.Effect.Monad
     Plugin.Effect.Annotation
   build-depends:
-    inversion-ghc-plugin,
+    inversion-plugin,
     process    ^>= 1.6.5.0,
     filepath   ^>= 1.4.2.1,
     directory  ^>= 1.3.3.0,
