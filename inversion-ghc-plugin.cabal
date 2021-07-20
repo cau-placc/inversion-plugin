@@ -1,7 +1,7 @@
 cabal-version: 3.0
 name:          inversion-ghc-plugin
 synopsis:      A compiler plugin to provide automatic inversion
-version:       0.1.0.0
+version:       1.0
 license:       BSD-3-Clause
 license-file:  LICENSE
 copyright:     (c) 2020-2021, Kai-Oliver Prott, Finn Teegen
@@ -14,6 +14,10 @@ description:   A nice plugin for the GHC that automatically derives inverse func
 
 extra-source-files:
   README.md
+
+source-repository head
+  type:     git
+  location: https://github.com/cau-placc/inversion-plugin
 
 common deps
   hs-source-dirs: src
