@@ -37,6 +37,33 @@ benchmark benchmarks
   import:        deps
   build-depends: criterion, mini-egison
   main-is:       Bench.hs
-  other-modules: App
+  other-modules:
+    App
+    Egison
+    RunEgison
+    Example
+    Example0
+    Compression
+    Peano
+    NonLinear
+    Main
+    Arith
   ghc-options:   -O2
   type:          exitcode-stdio-1.0
+
+executable benchEx
+  import:        deps
+  build-depends: criterion, mini-egison
+  main-is:       Bench.hs
+  other-modules:
+    App
+    Egison
+    RunEgison
+    Example
+    Example0
+    Compression
+    Peano
+    NonLinear
+    Main
+    Arith
+  ghc-options:   -O2 -main-is Bench

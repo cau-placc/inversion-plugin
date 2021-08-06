@@ -22,6 +22,7 @@ main :: IO ()
 main = do
   args <- getArgs
   case args of
+    _       -> return ()
     arg : _ ->
       let n = read arg :: Int
        in print $

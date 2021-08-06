@@ -11,6 +11,7 @@ main :: IO ()
 main = do
   let xs = 5000 : map (+5000) xs :: [Int]
   let ys = 10 : map (+10) ys :: [Int]
+  putStrLn "Benchmarking"
   defaultMainWith
     (defaultConfig {reportFile = Just "benchmarks.html"}) $
     [bgroup "last" (map (\x -> bench (show x) (nf last2 (take x (repeat ())))) (take 10 xs))]
