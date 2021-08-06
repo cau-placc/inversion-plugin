@@ -3,8 +3,9 @@ module Plugin.Effect.Tree
  , dfs, bfs, prettySearchTree, list )
  where
 
-import Control.Monad.SearchTree
-import Data.List
+import           Control.Monad.SearchTree
+import           Data.List
+import qualified Data.Sequence as Seq
 
 list :: [a] -> [a]
 list = id
@@ -18,12 +19,12 @@ dfs t' = dfs' [searchTree t']
                         Choice l r -> dfs' ([l, r] ++ ts)
 
 bfs :: Search a -> [a]
-bfs t' = bfs' [searchTree t']
-  where bfs' [] = []
-        bfs' (t:ts) = case t of
-                        None -> bfs' ts
-                        One x -> x : bfs' ts
-                        Choice l r -> bfs' (ts ++ [l, r])
+bfs t' = bfs' (Seq.singleton (searchTree t'))
+  where bfs' Seq.Empty = []
+        bfs' (t Seq.:<| ts) = case t of
+          None -> bfs' ts
+          One x -> x : bfs' ts
+          Choice l r -> bfs' (ts Seq.:|> l Seq.:|> r)
 
 data Rose a = Rose a [Rose a]
 
