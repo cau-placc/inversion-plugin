@@ -165,3 +165,6 @@ selector2 (RecY2 ) = absurd
 not2 :: Bool -> Bool
 not2 True = False
 not2 False = True
+
+idList :: [a] -> [a]
+idList x = reverse2 . reverse2

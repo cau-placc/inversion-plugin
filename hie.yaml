@@ -11,6 +11,6 @@ cradle:
         cradle:
           stack:
             - path: ./src
-              component: "inversion-ghc-plugin:lib"
+              component: "inversion-plugin:lib"
             - path: ./test
-              component: "inversion-ghc-plugin:test:tests"
+              component: "inversion-plugin:test:tests"

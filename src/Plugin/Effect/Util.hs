@@ -23,8 +23,8 @@ liftFL2 :: (a -> b -> c) -> FL (a --> b --> c)
 liftFL2 f = returnFLF $ \a -> returnFLF $ \b ->
     a >>= \a' -> b >>= \b' -> returnFL' $ f a' b'
 
-assertConstraintND :: Constraint -> ND ()
-assertConstraintND c = lift get >>= \(j, h, cst) -> lift (put (j, h, insertConstraint c cst))
+assertConstraintND :: Constraint -> [ID] -> ND ()
+assertConstraintND c ids = lift get >>= \(j, h, cst) -> lift (put (j, h, insertConstraint c ids cst))
 
 checkConsistencyND :: ND ()
 checkConsistencyND = lift get >>= \(_, _, cst) -> unless (isConsistent cst) mzero

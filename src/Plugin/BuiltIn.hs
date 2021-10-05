@@ -780,8 +780,12 @@ primitive1 f sF = returnFLF $ \x ->
       Val a -> unFL $ returnFL' (f a)
       x'    -> do
         j <- freshIdentifierND
-        assertConstraintND (toSBV (Var j) .=== sF (toSBV x'))
+        assertConstraintND (toSBV (Var j) .=== sF (toSBV x')) (j : varOf x')
+        -- Consistency not necessary, see comment in primitive2
         P.return (Var j)
+        where
+          varOf (Var i) = [i]
+          varOf _       = []
 
 primitive2 :: ( SymVal a, Narrowable a, HasPrimitiveInfo a
               , SymVal b, Narrowable b, HasPrimitiveInfo b
@@ -795,8 +799,19 @@ primitive2 op sOp = returnFLF $ \x -> returnFLF $ \y ->
           (# Val a, Val b #) -> unFL $ returnFL' (a `op` b)
           _                  -> do
             j <- freshIdentifierND
-            assertConstraintND (toSBV (Var j) .=== toSBV x' `sOp` toSBV y')
+            assertConstraintND (toSBV (Var j) .=== toSBV x' `sOp` toSBV y') (j : varsOf x' y')
+            -- Diss: Checking consistency is unnecessary, because "j" is fresh.
+            -- However, it is important to enter x and y in the set of constrained vars, because
+            -- they might get constrained indirectly via "j". Example:
+            -- j <- x + y
+            -- j <- 1
+            -- matchFL 9 x
+            -- matchFL 0 y
             P.return (Var j)
+            where
+              varsOf x'' y'' = varOf x'' P.++ varOf y''
+              varOf (Var i) = [i]
+              varOf _       = []
 
 primitiveOrd2 :: (SymVal a, SymVal b) => (a -> b -> Bool) -> (SBV a -> SBV b -> SBool) -> FL (a --> b --> BoolFL)
 primitiveOrd2 op opS = returnFLF $ \x -> returnFLF $ \y ->
@@ -808,11 +823,14 @@ primitiveOrd2 op opS = returnFLF $ \x -> returnFLF $ \y ->
           _                  -> FL $ (trueBranch P.$> Val True) P.<|> (falseBranch P.$> Val False)
             where
               trueBranch = do
-                assertConstraintND (toSBV x' `opS` toSBV y')
-                checkConsistencyND
+                assertConstraintND (toSBV x' `opS` toSBV y') (varsOf x' y')
+                checkConsistencyND -- DISS: optional, iff x and y were unconstrained
               falseBranch = do
-                assertConstraintND (sNot (toSBV x' `opS` toSBV y'))
-                checkConsistencyND
+                assertConstraintND (sNot (toSBV x' `opS` toSBV y')) (varsOf x' y')
+                checkConsistencyND -- DISS: optional, iff x and y were unconstrained
+              varsOf x'' y'' = varOf x'' P.++ varOf y''
+              varOf (Var i) = [i]
+              varOf _       = []
 
 instance EqFL IntFL where
   (==#) = primitiveOrd2 (P.==) (.===)

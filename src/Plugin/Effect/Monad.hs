@@ -23,6 +23,8 @@ import Control.Monad.Codensity ( Codensity(..) )
 
 import           Data.Map                       (Map)
 import qualified Data.Map           as Map
+import           Data.Set                       (Set)
+import qualified Data.Set           as Set
 import           Data.Maybe
 import           Data.SBV
 import           Data.SBV.Control
@@ -52,17 +54,20 @@ findBinding i = fmap (\ (Untyped x) -> unsafeCoerce x) . Map.lookup i
 
 type Constraint = SBool
 
-type ConstraintStore = [Constraint]
+type ConstraintStore = ([Constraint], Set ID)
 
-insertConstraint :: Constraint -> ConstraintStore -> ConstraintStore
-insertConstraint = (:)
+insertConstraint :: Constraint -> [ID] -> ConstraintStore -> ConstraintStore
+insertConstraint c ids (cs, vs) = (c:cs, Set.fromList ids `Set.union` vs)
 
 isConsistent :: ConstraintStore -> Bool
 isConsistent cst = unsafePerformIO $ runSMT $ do
-  mapM_ constrain cst
+  mapM_ constrain $ fst cst
   query $ checkSat >>= \case
     Sat -> return True
     _   -> return False
+
+isUnconstrained :: ID -> ConstraintStore -> Bool
+isUnconstrained i = Set.notMember i . snd
 
 toSBV :: SymVal a => FLVal a -> SBV a
 toSBV (Var i) = sym $ "x" ++ (if i < 0 then "n" else "") ++ show (abs i)
@@ -118,12 +123,12 @@ class Narrowable a where
 
 narrowPrimitive :: (SymVal a, Narrowable a, HasPrimitiveInfo a) => ID -> ID -> ConstraintStore -> [(a, Integer)]
 narrowPrimitive i j cst = unsafePerformIO $ runSMT $ do
-  mapM_ constrain cst
+  mapM_ constrain $ fst cst
   query $ checkSat >>= \case
     Sat -> do
       v <- getValue (toSBV (Var i))
       let c = toSBV (Var i) ./== toSBV (Val v)
-      return ((v, 0) : narrowPrimitive i j (insertConstraint c cst))
+      return ((v, 0) : narrowPrimitive i j (insertConstraint c [i] cst))
     _   -> return []
 
 instantiateND :: forall a. (Narrowable a, HasPrimitiveInfo a) => ID -> ND a
@@ -135,7 +140,7 @@ instantiateND i = lift get >>= \ (j, h, cst) -> case findBinding i h of
                       NoPrimitive -> cst
                       Primitive   ->
                         let c = toSBV (Var i) .=== toSBV (Val x)
-                        in insertConstraint c cst
+                        in insertConstraint c [i] cst
         in lift (put (j + o, insertBinding i x h, cst')) >> return x
   Just x  -> return x
 
@@ -222,14 +227,21 @@ matchFL x (FL nd) = FL $ nd >>= \case
                   NoPrimitive -> update cst
                   Primitive   ->
                     let c    = toSBV (Var i) .=== toSBV (Val (to x))
-                        cst' = insertConstraint c cst
-                    in if isConsistent cst'
+                        cst' = insertConstraint c [i] cst
+                    in if isUnconstrained i cst || isConsistent cst'
                       then update cst'
                       else unFL failedFL
       where
         update cst' = lift (put (j, insertBinding i (to x) h, cst')) >>
                       return (Val ())
     Just y  -> unFL $ match x y
+  Val y -> unFL $ match x y
+
+linMatchFL :: forall a. (Convertible a, Matchable a) => a -> FL (Lifted a) -> FL ()
+linMatchFL x (FL nd) = FL $ nd >>= \case
+  Var i -> lift get >>= \ (j, h, cst) -> do -- just do "update cst"
+    lift (put (j, insertBinding i (to x) h, cst))
+    return (Val ())
   Val y -> unFL $ match x y
 
 --------------------------------------------------------------------------------

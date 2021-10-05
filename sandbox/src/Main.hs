@@ -35,6 +35,9 @@ deriving instance Show a => Show (Maybe2 a)
 last2 :: Invertible a => [a] -> a
 last2 $(funPat 'E.append [p| _ |] [p| [x] |]) = x
 
+last3 :: Invertible a => [a] -> a
+last3 ((\arg -> [ res | res@(_ , [_]) <- $(inv 'E.append) arg]) -> (_, [x]) : _) = x
+
 absurdPat :: Int -> Int
 absurdPat $(funPat 'absurdIntId [p| (x, _) |]) = x
 
