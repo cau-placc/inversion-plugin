@@ -167,4 +167,10 @@ not2 True = False
 not2 False = True
 
 idList :: [a] -> [a]
-idList x = reverse2 . reverse2
+idList = reverse2 . reverse2
+
+k1 :: [a] -> [a]
+k1 xs = xs +++ reverse2 xs
+
+k2 :: [a] -> a -> [a]
+k2 xs x = xs +++ [x] +++ reverse2 xs

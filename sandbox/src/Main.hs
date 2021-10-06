@@ -22,7 +22,7 @@ main :: IO ()
 main = do
   args <- getArgs
   case args of
-    _       -> return ()
+    []       -> return ()
     arg : _ ->
       let n = read arg :: Int
        in print $
@@ -87,6 +87,11 @@ fPartialFunPat (\arg -> [res | res@(()) <- $(partialInv 'f [1]) [()] arg] -> ():
 
 dropSuffix :: Invertible a => [a] -> [a] -> Maybe [a]
 dropSuffix suff xs = listToMaybe ($(partialInv '(+++) [2]) suff xs)
+
+decomposePalindrom $(funPat 'k1 [p| xs |])          = (Nothing, xs)
+decomposePalindrom $(funPat 'k2 [p| xs |] [p| x |]) = (Just x, xs)
+
+decomposePalindrome $(funPat 'mkPalindrome [p| mx |]  [p| xs |]) = (mx, xs)
 
 -- f2 :: [Int] -> String
 -- f2 $(funPat 'f2Helper [p| x |] [p| _ |] [p| _ |] [p| _ |]) = "matched"
