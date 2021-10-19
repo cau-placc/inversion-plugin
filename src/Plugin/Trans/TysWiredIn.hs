@@ -125,7 +125,7 @@ tupleWithArity n = (tupleTyConName BoxedTuple n, "Tuple" ++ show n ++ "FL")
 -- If this is increased, the new tuples
 -- have to be added to 'Plugin.InversionPlugin.BuiltIn'.
 maxTupleArity :: Int
-maxTupleArity = 3
+maxTupleArity = 4
 
 -- | Name of the module that contains all built-in plugin definitions
 builtInModule :: String

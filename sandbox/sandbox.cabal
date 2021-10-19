@@ -17,7 +17,10 @@ common deps
   build-depends:
     base             ^>=4.14.0.0,
     inversion-plugin -any,
-    template-haskell -any
+    template-haskell -any,
+    parallel         -any,
+    deepseq          -any,
+    containers       -any
 
 library
   import: deps
@@ -29,41 +32,25 @@ library
     NonLinear
     Main
     Arith
+    Par
+    ParUse
+    Eden.Edi
+    Eden.Merge
+    Eden.EdenConcHs
+    Eden.ParPrimConcHs
+    Eden.Map
+    Eden.MapReduce
+    Eden.Auxiliary
+    ParEden
+    ParArr
 
     ExampleSubmission
     MainSubmission
 
-benchmark benchmarks
+executable parEx
   import:        deps
-  build-depends: criterion, mini-egison
-  main-is:       Bench.hs
+  main-is:       ParMain.hs
   other-modules:
-    App
-    Egison
-    RunEgison
-    Example
-    Example0
-    Compression
-    Peano
-    NonLinear
-    Main
-    Arith
-  ghc-options:   -O2
-  type:          exitcode-stdio-1.0
-
-executable benchEx
-  import:        deps
-  build-depends: criterion, mini-egison
-  main-is:       Bench.hs
-  other-modules:
-    App
-    Egison
-    RunEgison
-    Example
-    Example0
-    Compression
-    Peano
-    NonLinear
-    Main
-    Arith
-  ghc-options:   -O2 -main-is Bench
+    Par
+    ParUse
+  ghc-options:   -O2 -threaded -rtsopts -main-is ParMain

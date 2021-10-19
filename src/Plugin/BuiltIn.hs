@@ -143,6 +143,42 @@ instance (Groundable a, Groundable b, Groundable c) => Groundable (Tuple3FL a b 
 
 instance (Invertible a, Invertible b, Invertible c) => Invertible (a, b, c)
 
+data Tuple4FL a b c d = Tuple4FL (FL a) (FL b) (FL c) (FL d)
+
+type instance Lifted (,,,) = Tuple4FL
+
+instance HasPrimitiveInfo (Tuple4FL a b c d)
+
+instance ( Narrowable a, HasPrimitiveInfo a
+         , Narrowable b, HasPrimitiveInfo b
+         , Narrowable c, HasPrimitiveInfo c
+         , Narrowable d, HasPrimitiveInfo d)
+    => Narrowable (Tuple4FL a b c d) where
+  narrow _ j _ = [(Tuple4FL (freeFL j) (freeFL (j P.+ 1)) (freeFL (j P.+ 2)) (freeFL (j P.+ 3)), 4)]
+
+instance (Convertible a, Convertible b, Convertible c, Convertible d) => Convertible (a, b, c, d) where
+  to (x, y, z, zz) = Tuple4FL (toFL x) (toFL y) (toFL z) (toFL zz)
+  from h (Tuple4FL x y z zz) = (fromFL h x, fromFL h y, fromFL h z, fromFL h zz)
+
+instance ( Convertible a, Matchable a, HasPrimitiveInfo (Lifted a)
+         , Convertible b, Matchable b, HasPrimitiveInfo (Lifted b)
+         , Convertible c, Matchable c, HasPrimitiveInfo (Lifted c)
+         , Convertible d, Matchable d, HasPrimitiveInfo (Lifted d))
+    => Matchable (a, b, c, d) where
+  match (x1, x2, x3, x4) (Tuple4FL y1 y2 y3 y4) = matchFL x1 y1 `thenFL` matchFL x2 y2 `thenFL` matchFL x3 y3`thenFL` matchFL x4 y4
+
+instance (Groundable a, Groundable b, Groundable c, Groundable d) => Groundable (Tuple4FL a b c d) where
+  groundFL p =
+    p `bindFL` \case
+      Tuple4FL x y z zz ->
+        groundFL x `bindFL` \x' ->
+          groundFL y `bindFL` \y' ->
+            groundFL z `bindFL` \z' ->
+              groundFL zz `bindFL` \zz' ->
+                M.returnFL (Tuple4FL (M.returnFL x') (M.returnFL y') (M.returnFL z') (M.returnFL zz'))
+
+instance (Invertible a, Invertible b, Invertible c, Invertible d) => Invertible (a, b, c, d)
+
 -- | Lifted defintion for Haskell's 'Ratio' type
 data RatioFL a = FL a :% FL a
 
