@@ -102,6 +102,16 @@ sumZ (a:x) = a `plusZ` sumZ x
 mssZTupled :: [Z] -> (Z, Z, Z, Z)
 mssZTupled xs = (mssZ xs, mpsZ xs, mtsZ xs, sumZ xs)
 
+mpsZTupled :: [Z] -> (Z, Z)
+mpsZTupled xs = (mpsZ xs, sumZ xs)
+
+mpsZTupledWI :: (Z, Z) -> [Z]
+mpsZTupledWI (p, s) = [p, s `minusZ` p]
+
+lengthZ :: [a] -> Z
+lengthZ [] = Zero
+lengthZ (_:xs) = incZ (lengthZ xs)
+
 negateZ :: Z -> Z
 negateZ (Pos n) = Neg n
 negateZ Zero = Zero

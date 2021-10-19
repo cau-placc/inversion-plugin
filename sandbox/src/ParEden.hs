@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveGeneric, StandaloneDeriving #-}
+{-# LANGUAGE DeriveGeneric, StandaloneDeriving, ScopedTypeVariables, ExplicitForAll #-}
 
 module ParEden where
 
@@ -25,7 +25,7 @@ testList = [1,-1,2]
 --testListZ = [Pos I,Neg I,Pos (S I),Neg I,Neg (S I),Pos (S (S I)),Neg (S I),Pos (S (S (S (S I)))),Neg (S (S (S (S I)))),Neg I,Neg (S (S (S (S I)))),Pos (S I),Pos (S I),Neg (S (S (S (S I))))]
 --testList = [1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5,1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5,1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5,1,-1,2,-1,-2,3]
 --testList = concat $ take 5 $ repeat [1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5,1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5,1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5,1,-1,2,-1,-2,3]
-testListZ = map toZ $ concat $ take 4 $ repeat [1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5,1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5,1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5,1,-1,2,-1,-2,3]
+testListZ = take 5000 $ map toZ $ concat $ repeat [1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5,1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5,1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5,1,-1,2,-1,-2,3]
 --testListZ = map toZ [1,-1,2,-1,-2,3,-2,5,-2,-1,-2,2] -- ,2,-5] -- ,1,-1,2] -- ,-1,-2,3,-2,5 ] -- ,-5,-1,-5,2,2,-5,1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5,1,-1,2,-1,-2,3]
 
 toZ :: Integer -> Z
@@ -69,11 +69,28 @@ h4 = (f, c) --mssTupled
   where f a = mssZTupled [a]
         hWI = $(weakInv 'mssZTupled)
         c a b = mssZTupled (hWI a ++ hWI b)
+h5 = (f, c)
+  where f a = mpsZTupled [a]
+        --hWI = mpsZTupledWI
+        hWI = $(weakInv 'mpsZTupled)
+        c a b = mpsZTupled (hWI a ++ hWI b)
+h6 = (f, c)
+  where f a = sumZ [a]
+        hWI = $(weakInv 'sumZ)
+        c a b = sumZ (hWI a ++ hWI b)
+h7 :: forall a. Invertible a => (a -> Z, Z -> Z -> Z)
+h7 = (f, c)
+  where f a = lengthZ [a]
+        hWI = $(weakInv 'lengthZ) :: Z -> [a]
+        c a b = lengthZ (hWI a ++ hWI b)
+
 
 seqTest = (\(a, _, _, _) -> a) $ mssTupled testList
   where (f, c) = h3
 --parTest = (\(a, _, _, _) -> a) $ parMapRedr c (0, 0, 0, 0) f testList
 --  where (f, c) = h3
 --seqTest = (\(a, _, _, _) -> fromZ a) $ mssZTupled testListZ
-parTest = (\(a, _, _, _) -> fromZ a) $ parMapRedr c (Zero, Zero, Zero, Zero) f testListZ
-  where (f, c) = h4
+parTest = (\(a, _) -> fromZ a) $ parMapRedr c (Zero, Zero) f testListZ
+  where (f, c) = h5
+--parTest = fromZ $ parMapRedr c Zero f testListZ
+--  where (f, c) = h7
