@@ -122,3 +122,46 @@ minusZ x y = x `plusZ` negateZ y
 
 mssZTupledWI :: (Z, Z, Z, Z) -> [Z]
 mssZTupledWI (m, p, t, s) = [p, negateZ p `minusZ` t `plusZ` s, m, negateZ m `plusZ` t]
+
+lessZ :: Z -> Z -> Bool
+lessZ Zero (Pos _) = True
+lessZ Zero (Neg _) = False
+lessZ Zero Zero = True
+lessZ (Neg m) (Neg n) = lessN n m
+lessZ (Neg _) _ = True
+lessZ (Pos m) (Pos n) = lessN m n
+lessZ (Pos _) _ = False
+
+lessN :: N -> N -> Bool
+lessN I I = True
+lessN I _ = True
+lessN (S m) (S n) = lessN m n
+lessN (S _) _ = False
+
+ins a [] = [a]
+ins a (b:x) = if a <= b then a : b : x else b : ins a x
+
+--ins' x s = ins s x
+
+mysort [] = []
+mysort (a:xs) = a `ins` mysort xs
+--mysort (xs ++ [a]) = mysort xs `ins'` a
+
+-- Sortierung lässt sich auch parallelisieren (ist nur verdammt ineffizient)
+
+visible :: [Integer] -> Bool
+visible [a] = True
+visible (a:x) = a <= amax x && visible x
+
+visibleZ :: [Z] -> Bool
+visibleZ [a] = True
+visibleZ (a:x) = a <= amax x && visibleZ x
+
+amax [a] = a
+amax (a:x) = mymax a (amax x)
+
+visibleTupled :: [Integer] -> (Bool, Integer)
+visibleTupled x = (visible x, amax x)
+
+visibleZTupled :: [Z] -> (Bool, Z)
+visibleZTupled x = (visibleZ x, amax x)
