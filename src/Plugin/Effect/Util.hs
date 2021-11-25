@@ -1,6 +1,8 @@
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE RecordWildCards #-}
 module Plugin.Effect.Util where
 
+import Control.Applicative
 import Control.Monad
 import Control.Monad.State
 
@@ -9,11 +11,11 @@ import Test.ChasingBottoms.IsBottom
 import Plugin.Effect.Monad
 
 returnFL' :: a -> FL a
-returnFL' x | isBottom x = failedFL
-            | otherwise  = returnFL x
+returnFL' x | isBottom x = empty
+            | otherwise  = return x
 
 returnFLF :: (FL a -> FL b) -> FL (a --> b)
-returnFLF = returnFL . Func
+returnFLF = return . Func
 
 liftFL1 :: (a -> b) -> FL (a --> b)
 liftFL1 f = returnFLF $ \a ->
@@ -23,11 +25,11 @@ liftFL2 :: (a -> b -> c) -> FL (a --> b --> c)
 liftFL2 f = returnFLF $ \a -> returnFLF $ \b ->
     a >>= \a' -> b >>= \b' -> returnFL' $ f a' b'
 
-assertConstraintND :: Constraint -> [ID] -> ND ()
-assertConstraintND c ids = lift get >>= \(j, h, cst) -> lift (put (j, h, insertConstraint c ids cst))
+assertConstraintND :: Constraint -> [ID] -> ND FLState ()
+assertConstraintND c ids = get >>= \FLState { .. } -> put (uncurry (FLState nextID heap) (insertConstraint c ids (constraints, constrainedVars)))
 
-checkConsistencyND :: ND ()
-checkConsistencyND = lift get >>= \(_, _, cst) -> unless (isConsistent cst) mzero
+checkConsistencyND :: ND FLState ()
+checkConsistencyND = get >>= \FLState {..} -> unless (isConsistent (constraints, constrainedVars)) mzero
 
-freshIdentifierND :: ND ID
-freshIdentifierND = lift get >>= \(j, h, cst) -> lift (put (j + 1, h, cst)) >> return j
+freshIdentifierND :: ND FLState ID
+freshIdentifierND = get >>= \FLState {..} -> put (FLState (nextID + 1) heap constraints constrainedVars) >> return nextID

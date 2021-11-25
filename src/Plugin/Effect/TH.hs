@@ -1,6 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Plugin.Effect.TH where
 
+import Control.Applicative
 import Control.Monad
 
 import Data.Bifunctor
@@ -9,10 +10,14 @@ import Data.List ( intercalate, partition, sortOn, subsequences )
 import FastString
 
 import Language.Haskell.TH hiding (match)
+import Language.Haskell.TH.Syntax (Name(..), OccName(..))
 
 import Lexeme
 
 import Plugin.Effect.Monad
+import Plugin.Effect.Tree
+import Plugin.BuiltIn
+
 
 genInverses :: Name -> Type -> String -> DecsQ
 genInverses liftedName originalTy originalString = do
@@ -47,22 +52,30 @@ genInverse originalString originalTy fixedArgs nf liftedName = do
         let originalArity = arrowArity originalTy'
             nonFixedArgs = filter (`notElem` fixedArgs) [0 .. originalArity - 1]
             ids = take (originalArity - length fixedArgs) [-1, -2 ..]
-            freePExps = zip nonFixedArgs $ map (mkFreeP . mkIntExp) ids
+            freePExps = zip nonFixedArgs $ map (mkFreeP . mkIntExp) ids --TODO freeP = freeFL
         fixedArgNames <- replicateM (length fixedArgs) (newName "arg")
         let toPExps = zip fixedArgs $ map (AppE (VarE 'toFL) . VarE) fixedArgNames
             argExps = map snd $ sortOn fst $ freePExps ++ toPExps
         funPatExp <- genLiftedApply (SigE (VarE liftedName) (AppT (ConT ''FL) (mkLifted originalTy'))) argExps
-        hName <- newName "h"
-        hsName <- newName "hs"
         resName <- newName "res"
         let invArgPats = map VarP $ fixedArgNames ++ [resName]
-            lambda = LamE [VarP hName] $ mkTupleE $ map (\i -> applyExp (VarE 'retrieve) [mkIntExp i, VarE hName]) ids
-            body = NormalB $ applyExp (VarE 'fmap) [lambda, VarE hsName]
-            expr = applyExp (VarE 'matchFL) [VarE resName, funPatExp]
-            localDec = ValD (VarP hsName) (NormalB $ AppE (VarE 'execFL) $ foldl (\e (freePExp, nonFixedOriginalArgTy) -> applyExp (VarE 'thenFL) [e, AppE (VarE 'groundFL) (SigE freePExp (AppT (ConT ''FL) $ mkLifted nonFixedOriginalArgTy))]) expr $ if nf then zip (map snd freePExps) nonFixedOriginalArgTys else []) []
-        return $ FunD invName [Clause invArgPats body [localDec]]
+            matchExp = applyExp (VarE 'matchFL) [VarE resName, funPatExp]
+            tupleExp = mkLiftedTupleE (map snd freePExps)
+            returnExp = AppE (VarE (if nf then 'groundNormalFormFL else 'normalFormFL)) (tupleExp)
+        -- evalExp <- [| \m r -> map from $ bfs $ evalFL (m >> r) |]
+        let bodyExp = applyExp (VarE 'map) [VarE 'from, AppE (VarE 'bfs) (AppE (VarE 'evalFL) (applyExp (VarE '(>>)) [matchExp, returnExp]))]
+            body = NormalB bodyExp
+        return $ FunD invName [Clause invArgPats body []]
 
   sequence [genPartialInverseSig, genPartialInverseFun]
+
+mkLiftedTupleE :: [Exp] -> Exp
+mkLiftedTupleE [] = AppE (VarE 'return) (ConE '())
+mkLiftedTupleE [x] = x
+mkLiftedTupleE xs = AppE (VarE 'return) (applyExp liftedTupleConE xs)
+  where 
+    liftedTupleConE = ConE (Name (OccName ("Tuple" ++ show (length xs) ++ "FL")) ns)
+    Name _ ns = 'Tuple2FL
 
 partitionByIndices :: [Int] -> [a] -> ([a], [a])
 partitionByIndices is = bimap (map snd) (map snd) . partition ((`elem` is) . fst) . zip [0 ..]
@@ -92,7 +105,7 @@ unapplyExp (AppE e1 e2) = let (e, es) = unapplyExp e1 in (e, es ++ [e2])
 unapplyExp e            = (e, [])
 
 genLiftedApply :: Exp -> [Exp] -> ExpQ
-genLiftedApply = foldM (\f arg -> newName "v" >>= \vName -> return $ applyExp (VarE 'bindFL) [f, LamE [ConP 'Func [VarP vName]] $ AppE (VarE vName) arg])
+genLiftedApply = foldM (\f arg -> newName "v" >>= \vName -> return $ applyExp (VarE '(>>=)) [f, LamE [ConP 'Func [VarP vName]] $ AppE (VarE vName) arg])
 
 mkTupleE :: [Exp] -> Exp
 mkTupleE [e] = e
@@ -203,15 +216,14 @@ genInstances originalDataDec liftedDataDec = do
               arg <- newName "arg"
               return $ FunD 'to [Clause [VarP arg] (NormalB (CaseE (VarE arg) matches)) []]
             genFrom = do
-              let genMatch hName liftedConInfo originalConInfo = do
+              let genMatch liftedConInfo originalConInfo = do
                     argNames <- replicateM (conArity liftedConInfo) (newName "x")
                     let pat = ConP (conName liftedConInfo) $ map VarP argNames
-                        body = NormalB $ applyExp (ConE $ conName originalConInfo) $ map (AppE (AppE (VarE 'fromFL) (VarE hName)) . VarE) argNames
+                        body = NormalB $ applyExp (ConE $ conName originalConInfo) $ map (AppE (VarE 'fromFL) . VarE) argNames
                     return $ Match pat body []
-              hName <- newName "heap"
               arg <- newName "arg"
-              matches <- zipWithM (genMatch hName) liftedConInfos originalConInfos
-              return $ FunD 'from [Clause [VarP hName, VarP arg] (NormalB (CaseE (VarE arg) matches)) []]
+              matches <- zipWithM genMatch liftedConInfos originalConInfos
+              return $ FunD 'from [Clause [VarP arg] (NormalB (CaseE (VarE arg) matches)) []]
         let ctxt = map mkConvertibleConstraint originalConArgs
         InstanceD Nothing ctxt (mkConvertibleConstraint originalTy) <$>
           sequence [genTo, genFrom]
@@ -223,10 +235,10 @@ genInstances originalDataDec liftedDataDec = do
                     liftedArgNames <- replicateM (conArity liftedConInfo) (newName "y")
                     let originalPat = ConP (conName originalConInfo) $ map VarP originalArgNames
                         liftedPat = ConP (conName liftedConInfo) $ map VarP liftedArgNames
-                        body = NormalB $ foldr (\e1 e2 -> applyExp (VarE 'thenFL) [e1, e2]) (AppE (VarE 'returnFL) (ConE '())) $ zipWith (\originalArgName liftedArgName -> applyExp (VarE 'matchFL) [VarE originalArgName, VarE liftedArgName]) originalArgNames liftedArgNames
+                        body = NormalB $ foldr (\e1 e2 -> applyExp (VarE '(>>)) [e1, e2]) (AppE (VarE 'return) (ConE '())) $ zipWith (\originalArgName liftedArgName -> applyExp (VarE 'matchFL) [VarE originalArgName, VarE liftedArgName]) originalArgNames liftedArgNames
                     return $ Clause [originalPat, liftedPat] body []
               clauses <- zipWithM genClause originalConInfos liftedConInfos
-              let failClause = Clause [WildP, WildP] (NormalB $ VarE 'failedFL) []
+              let failClause = Clause [WildP, WildP] (NormalB $ VarE 'empty) []
               return $ FunD 'match (clauses ++ [failClause])
         dec <- genMatch
         let ctxt = map mkConvertibleConstraint originalConArgs ++
@@ -235,26 +247,26 @@ genInstances originalDataDec liftedDataDec = do
         return $ InstanceD Nothing ctxt (mkMatchableConstraint originalTy) [dec]
 
       genGroundable = do
+        fName <- newName "f"
         let genMatch liftedConInfo = do
               let liftedConName = conName liftedConInfo
                   liftedConArity = conArity liftedConInfo
               liftedArgNames <- replicateM liftedConArity (newName "x")
               freshLiftedArgNames <- replicateM liftedConArity (newName "y")
               let pat = ConP liftedConName $ map VarP liftedArgNames
-                  body = NormalB $ foldr (\ (liftedArgName, freshLiftedArgName) e -> applyExp (VarE 'bindFL) [AppE (VarE 'groundFL) (VarE liftedArgName), LamE [VarP freshLiftedArgName] e]) (AppE (VarE 'returnFL) $ applyExp (ConE liftedConName) $ map (AppE (VarE 'returnFL) . VarE) freshLiftedArgNames) $ zip liftedArgNames freshLiftedArgNames
+                  body = NormalB $ foldr (\ (liftedArgName, freshLiftedArgName) e -> applyExp (VarE '(>>=)) [AppE (VarE fName) (VarE liftedArgName), LamE [VarP freshLiftedArgName] e]) (AppE (VarE 'return) $ applyExp (ConE liftedConName) $ map (AppE (VarE 'return) . VarE) freshLiftedArgNames) $ zip liftedArgNames freshLiftedArgNames
               return $ Match pat body []
 
         matches <- mapM genMatch liftedConInfos
-        pName <- newName "p"
-        let body = NormalB $ applyExp (VarE 'bindFL) [VarE pName, LamCaseE matches]
-            dec = FunD 'groundFL [Clause [VarP pName] body []]
-            ctxt = map mkGroundableConstraint liftedConArgs
-        return $ InstanceD Nothing ctxt (mkGroundableConstraint liftedTy) [dec]
+        let body = NormalB (LamCaseE matches)
+            dec = FunD 'nf [Clause [VarP fName] body []]
+            ctxt = map mkNFConstraint liftedConArgs
+        return $ InstanceD Nothing ctxt (mkNFConstraint liftedTy) [dec]
 
       genInvertible = do
         let ctxt = [ mkConvertibleConstraint originalTy
                    , mkMatchableConstraint originalTy
-                   , mkGroundableConstraint (mkLifted originalTy)
+                   , mkNFConstraint (mkLifted originalTy)
                    ]
         return $ InstanceD Nothing ctxt (mkInvertibleConstraint originalTy) []
 
@@ -279,8 +291,8 @@ mkConvertibleConstraint ty = applyType (ConT ''Convertible) [ty]
 mkMatchableConstraint :: Type -> Type
 mkMatchableConstraint ty = applyType (ConT ''Matchable) [ty]
 
-mkGroundableConstraint :: Type -> Type
-mkGroundableConstraint ty = applyType (ConT ''Groundable) [ty]
+mkNFConstraint :: Type -> Type
+mkNFConstraint ty = applyType (ConT ''NF) [ty]
 
 mkInvertibleConstraint :: Type -> Type
 mkInvertibleConstraint ty = applyType (ConT ''Invertible) [ty]

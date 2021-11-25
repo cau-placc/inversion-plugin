@@ -31,7 +31,7 @@ import TcSimplify
 import Constraint
 import Bag
 
-import Plugin.Effect.Monad ( type (-->)(..), bindFL, returnFL, appFL, fmapFL, unFL, to, toFL, from, Convertible, FL, Lifted )
+import Plugin.Effect.Monad ( type (-->)(..), appFL, unFL, to, toFL, from, Convertible, FL, Lifted )
 import Plugin.Trans.Constr
 import Plugin.Trans.Type
 import Plugin.Trans.Util
@@ -111,7 +111,7 @@ mkAppWith con cts typ args = do
 mkNewReturnTh :: Type -> TcM (LHsExpr GhcTc)
 mkNewReturnTh etype = do
   mtycon <- getMonadTycon
-  th_expr <- liftQ [| returnFL |]
+  th_expr <- liftQ [| return |]
   let mty = mkTyConTy mtycon
   let expType = mkVisFunTy etype $ -- 'e ->
                 mkAppTy mty etype  -- m 'e
@@ -122,7 +122,7 @@ mkNewReturnFunTh :: Type -> TcM (LHsExpr GhcTc)
 mkNewReturnFunTh etype = do
   ftc <- getFunTycon
   mtycon <- getMonadTycon
-  th_expr <- liftQ [| returnFL . Func |]
+  th_expr <- liftQ [| return . Func |]
   let mty = mkTyConTy mtycon
   let (arg, res) = splitFunTy etype
   let eLifted = mkTyConApp ftc [bindingType arg, bindingType res]
@@ -134,7 +134,7 @@ mkNewReturnFunTh etype = do
 mkNewBindTh :: Type -> Type -> TcM (LHsExpr GhcTc)
 mkNewBindTh etype btype = do
   mtycon <- getMonadTycon
-  th_expr <- liftQ [| bindFL |]
+  th_expr <- liftQ [| (>>=) |]
   let mty = mkTyConTy mtycon
   let resty = mkAppTy mty btype
   let expType = mkVisFunTy (mkAppTy mty etype) $    -- m 'e ->
@@ -159,7 +159,7 @@ mkNewAppTh optype argtype = do
 mkNewFmapTh :: Type -> Type -> TcM (LHsExpr GhcTc)
 mkNewFmapTh etype btype = do
   mtycon <- getMonadTycon
-  th_expr <- liftQ [| fmapFL |]
+  th_expr <- liftQ [| fmap |]
   let appMty = mkTyConApp mtycon . (:[])
   let expType = mkVisFunTy (mkVisFunTy etype btype) $     -- ('e -> 'b) ->
                 mkVisFunTy (appMty etype) (appMty btype)  -- m 'e -> m 'b
@@ -184,7 +184,7 @@ mkNewToFL ty1 ty2 = do
 mkNewNfTh :: Type -> Type -> TcM (LHsExpr GhcTc)
 mkNewNfTh ty1 ty2 = do
   mty <- (. (: [])) . mkTyConApp <$> getMonadTycon
-  th_expr <- liftQ [| fmapFL (from mempty) |]
+  th_expr <- liftQ [| fmap from |]
   let expType = mkVisFunTy (mty ty1) (mty ty2) -- m a -> m b
   mkNewAny th_expr expType
 
@@ -222,7 +222,7 @@ mkNewApply2 ty1 ty2 ty3 = do
 mkNewApply2Unlifted :: Type -> Type -> Type -> TcM (LHsExpr GhcTc)
 mkNewApply2Unlifted ty1 ty2 ty3 = do
   mtycon <- getMonadTycon
-  th_expr <- liftQ [| \f a b -> f `appFL` a `appFL` returnFL b |]
+  th_expr <- liftQ [| \f a b -> f `appFL` a `appFL` return b |]
   let expType =
         mkTyConApp mtycon                                    -- Nondet
                   [mkVisFunTy (mkTyConApp mtycon [ty1])      --  ( Nondet a ->
