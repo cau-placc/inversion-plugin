@@ -10,6 +10,8 @@ that is introduced for each record label.
 -}
 module Plugin.Trans.Record (liftRecordSel, mkRecSelFun) where
 
+import Control.Applicative
+
 import Data.Generics.Schemes
 import Data.Generics.Aliases
 import Data.Tuple
@@ -29,7 +31,6 @@ import Plugin.Trans.Pat
 import Plugin.Trans.Constr
 import Plugin.Trans.Util
 import Plugin.Trans.CreateSyntax
-import Plugin.Effect.Monad
 import Plugin.Effect.Util
 import Plugin.Trans.Var
 
@@ -105,7 +106,7 @@ replaceRecErr :: TyConMap -> HsExpr GhcTc -> TcM (HsExpr GhcTc)
 -- something like (recSelError @... "[SomeError]"#)
 replaceRecErr tcs e@(HsApp _ (L _ (HsWrap _ _ (HsVar _ (L _ v)))) (L _ _))
   | v == rEC_SEL_ERROR_ID = do
-    f <- liftQ [| failedFL |]
+    f <- liftQ [| Control.Applicative.empty |]
     ty <- getTypeOrPanic (noLoc e) >>= liftTypeTcM tcs
     unLoc <$> mkApp (mkNewAny f) ty []
 replaceRecErr _   e = return e
@@ -123,7 +124,7 @@ mkRecSelFun tcs v = do
   let mty = mkTyConTy mtc
   us <- getUniqueSupplyM
 
-  th <- liftQ [| \sel -> returnFLF $ \record -> record `bindFL` sel |]
+  th <- liftQ [| \sel -> returnFLF $ \record -> record >>= sel |]
 
   let (pis, ty) = splitForAllTys (varType v)
   let (unliftedArg, unliftedRes) = splitFunTy ty

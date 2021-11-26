@@ -13,7 +13,9 @@ functions and expressions to integrate our effect.
 -}
 module Plugin.Trans.Expr (liftMonadicBinding) where
 
+import Control.Applicative
 import Control.Monad
+
 import Data.Char (isAlpha)
 import Data.Data (Data)
 import Data.List
@@ -188,7 +190,7 @@ liftMonadicBinding _ _ _ tcs _ (VarBind x1 name _ inl)
   -- This is the error binding for an unimplemented type class function.
   -- Anything like $c... = noMethodBindingError @ 'LiftedRep @ ty "..."#,
   | '$':'c':_ <- occNameString (occName name) = do
-    f <- liftQ [| failedFL |]
+    f <- liftQ [| Control.Applicative.empty |]
     ty <- liftTypeTcM tcs (varType name)
     e <- mkApp (mkNewAny f) ty []
     return ([VarBind x1 (setVarType name ty) e inl], [])
@@ -638,8 +640,8 @@ liftVarWithWrapper given tcs w v
     let appliedType = head $ collectTyApps w
     liftedType <- liftTypeTcM tcs appliedType
     --  tagToEnum :: Int# -> tyApp in w
-    -- returnFLF (\flint -> flint `bindFL` \(I64# i) -> toFL (tagToEnum @w i))
-    lam <- liftQ [| \ttenum -> returnFLF (\flint -> bindFL flint (\(I64# i) -> toFL (ttenum i))) |]
+    -- returnFLF (\flint -> flint >>= \(I64# i) -> toFL (tagToEnum @w i))
+    lam <- liftQ [| \ttenum -> returnFLF (\flint -> (>>=) flint (\(I64# i) -> toFL (ttenum i))) |]
     mtycon <- getMonadTycon
     ftycon <- getFunTycon
     hscEnv <- getTopEnv
