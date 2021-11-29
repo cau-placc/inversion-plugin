@@ -10,13 +10,13 @@ import Data.List ( intercalate, partition, sortOn, subsequences )
 import FastString
 
 import Language.Haskell.TH hiding (match)
-import Language.Haskell.TH.Syntax (Name(..), OccName(..))
+import Language.Haskell.TH.Syntax (Name(..), NameFlavour(..), pkgString, mkNameG_v)
 
 import Lexeme
 
 import Plugin.Effect.Monad
 import Plugin.Effect.Tree
-import Plugin.BuiltIn
+import Plugin.Trans.TysWiredIn
 
 
 genInverses :: Name -> Type -> String -> DecsQ
@@ -74,8 +74,10 @@ mkLiftedTupleE [] = AppE (VarE 'return) (ConE '())
 mkLiftedTupleE [x] = x
 mkLiftedTupleE xs = AppE (VarE 'return) (applyExp liftedTupleConE xs)
   where 
-    liftedTupleConE = ConE (Name (OccName ("Tuple" ++ show (length xs) ++ "FL")) ns)
-    Name _ ns = 'Tuple2FL
+    liftedTupleConE = ConE $ mkNameG_v pkgName builtInModule ("Tuple" ++ show (length xs) ++ "FL")
+    pkgName = case 'mkLiftedTupleE of 
+      Name _ (NameG _ p _) -> pkgString p 
+      _                    -> "inversion-plugin"
 
 partitionByIndices :: [Int] -> [a] -> ([a], [a])
 partitionByIndices is = bimap (map snd) (map snd) . partition ((`elem` is) . fst) . zip [0 ..]
@@ -138,6 +140,22 @@ liftedArrowUnapply (AppT (ConT _) (AppT (AppT ArrowT (AppT (ConT _ ) ty1)) ty2))
   where (tys, ty) = liftedArrowUnapply ty2
 liftedArrowUnapply (AppT (ConT _ ) ty) = ([], ty)
 liftedArrowUnapply ty = error $ "liftedArrowUnapply: " ++ show ty
+
+--------------------------------------------------------------------------------
+
+genLiftedTupleDataDecl :: Int -> DecQ
+genLiftedTupleDataDecl ar = do
+  let name = mkName $ "Tuple" ++ show ar ++ "FL"
+  tyVarNames <- replicateM ar (newName "a")
+  let con = NormalC name $ map (\tyVarName -> (Bang NoSourceUnpackedness NoSourceStrictness, AppT (ConT ''FL) (VarT tyVarName))) tyVarNames
+  return $ DataD [] name (map PlainTV tyVarNames) Nothing [con] []
+
+genLiftedTupleDataDeclAndInstances :: Int -> DecsQ
+genLiftedTupleDataDeclAndInstances ar = do
+  TyConI originalDataDecl <- reify $ tupleTypeName ar
+  liftedDataDecl <- genLiftedTupleDataDecl ar
+  instances <- genInstances originalDataDecl liftedDataDecl
+  return $ liftedDataDecl : instances
 
 --------------------------------------------------------------------------------
 
@@ -256,7 +274,6 @@ genInstances originalDataDec liftedDataDec = do
               let pat = ConP liftedConName $ map VarP liftedArgNames
                   body = NormalB $ foldr (\ (liftedArgName, freshLiftedArgName) e -> applyExp (VarE '(>>=)) [AppE (VarE fName) (VarE liftedArgName), LamE [VarP freshLiftedArgName] e]) (AppE (VarE 'return) $ applyExp (ConE liftedConName) $ map (AppE (VarE 'return) . VarE) freshLiftedArgNames) $ zip liftedArgNames freshLiftedArgNames
               return $ Match pat body []
-
         matches <- mapM genMatch liftedConInfos
         let body = NormalB (LamCaseE matches)
             dec = FunD 'nf [Clause [VarP fName] body []]

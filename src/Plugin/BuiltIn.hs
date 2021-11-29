@@ -6,14 +6,15 @@
 {-# LANGUAGE NoStarIsType           #-}
 {-# LANGUAGE PolyKinds              #-}
 {-# LANGUAGE RankNTypes             #-}
+{-# LANGUAGE RecordWildCards        #-}
 {-# LANGUAGE ScopedTypeVariables    #-}
+{-# LANGUAGE TemplateHaskell        #-}
 {-# LANGUAGE TypeFamilies           #-}
 {-# LANGUAGE TypeOperators          #-}
 {-# LANGUAGE UnboxedTuples          #-}
 {-# LANGUAGE UndecidableInstances   #-}
 {-# OPTIONS_GHC -Wno-orphans        #-}
 {-# OPTIONS_GHC -Wno-unused-foralls #-}
-{-# LANGUAGE RecordWildCards #-}
 
 -- |
 -- Module      : Plugin.InversionPlugin.BuiltIn
@@ -31,18 +32,24 @@ module Plugin.BuiltIn where
 import qualified Control.Monad.State as S
 import qualified Control.Monad as P
 import qualified Data.Functor  as P
-import qualified GHC.Base      as P
+import qualified GHC.Base      as P hiding (mapM)
 import qualified GHC.Real      as P
 import qualified GHC.Int       as P
 import qualified GHC.Stack     as P
-import qualified Prelude       as P
+import qualified Prelude       as P hiding (mapM)
 import           GHC.Types (RuntimeRep)
 import           Unsafe.Coerce ( unsafeCoerce )
 import           Prelude ( Bool (..), Double, Float, Int, Integer, Ordering (..), ($) )
 import           Data.SBV (SymVal, (.===), (./==), (.>=), (.<=), (.>), (.<), SDivisible (..), SBV, SBool, sNot)
 
 import           Plugin.Effect.Monad as M
+import           Plugin.Effect.TH
 import           Plugin.Effect.Util  as M
+import           Plugin.Trans.TysWiredIn
+
+-- * Lifted tuple types and internal instances
+    
+P.concat P.<$> P.mapM genLiftedTupleDataDeclAndInstances [2 .. maxTupleArity]
 
 -- * Lifted list type and internal instances
 
@@ -77,64 +84,6 @@ instance NF a => NF (ListFL a) where
             P.return (ConsFL (P.return y) (P.return ys))
 
 instance Invertible a => Invertible [a]
-
-data Tuple2FL a b = Tuple2FL (FL a) (FL b)
-
-type instance Lifted (,) = Tuple2FL
-
-instance HasPrimitiveInfo (Tuple2FL a b)
-
-instance (Narrowable a, HasPrimitiveInfo a, Narrowable b, HasPrimitiveInfo b) => Narrowable (Tuple2FL a b) where
-  narrow _ j _ = [(Tuple2FL (freeFL j) (freeFL (j P.+ 1)), 2)]
-
-instance (Convertible a, Convertible b) => Convertible (a, b) where
-  to (x, y) = Tuple2FL (toFL x) (toFL y)
-  from (Tuple2FL x y) = (fromFL x, fromFL y)
-
-instance ( Convertible a, Matchable a, HasPrimitiveInfo (Lifted a)
-         , Convertible b, Matchable b, HasPrimitiveInfo (Lifted b))
-    => Matchable (a, b) where
-  match (x1, x2) (Tuple2FL y1 y2) = matchFL x1 y1 P.>> matchFL x2 y2
-
-instance (NF a, NF b) => NF (Tuple2FL a b) where
-  nf f = \case
-      Tuple2FL x y ->
-        f x P.>>= \x' ->
-          f y P.>>= \y' ->
-            P.return (Tuple2FL (P.return x') (P.return y'))
-
-instance (Invertible a, Invertible b) => Invertible (a, b)
-
-data Tuple3FL a b c = Tuple3FL (FL a) (FL b) (FL c)
-
-type instance Lifted (,,) = Tuple3FL
-
-instance HasPrimitiveInfo (Tuple3FL a b c)
-
-instance ( Narrowable a, HasPrimitiveInfo a
-         , Narrowable b, HasPrimitiveInfo b
-         , Narrowable c, HasPrimitiveInfo c)
-    => Narrowable (Tuple3FL a b c) where
-  narrow _ j _ = [(Tuple3FL (freeFL j) (freeFL (j P.+ 1)) (freeFL (j P.+ 2)), 3)]
-
-instance (Convertible a, Convertible b, Convertible c) => Convertible (a, b, c) where
-  to (x, y, z) = Tuple3FL (toFL x) (toFL y) (toFL z)
-  from (Tuple3FL x y z) = (fromFL x, fromFL y, fromFL z)
-
-instance ( Convertible a, Matchable a, HasPrimitiveInfo (Lifted a)
-         , Convertible b, Matchable b, HasPrimitiveInfo (Lifted b)
-         , Convertible c, Matchable c, HasPrimitiveInfo (Lifted c))
-    => Matchable (a, b, c) where
-  match (x1, x2, x3) (Tuple3FL y1 y2 y3) = matchFL x1 y1 P.>> matchFL x2 y2 P.>> matchFL x3 y3
-
-instance (NF a, NF b, NF c) => NF (Tuple3FL a b c) where
-  nf f = \(Tuple3FL x y z) ->
-        f x P.>>= \x' ->
-          f y P.>>= \y' ->
-            f z P.>>= \z' ->
-              P.return (Tuple3FL (P.return x') (P.return y') (P.return z'))
-
-instance (Invertible a, Invertible b, Invertible c) => Invertible (a, b, c)
 
 -- | Lifted defintion for Haskell's 'Ratio' type
 data RatioFL a = FL a :% FL a

@@ -8,7 +8,7 @@ This module contains the function to load the initial type constructor map that
 connects lifted and unlifted versions of a type constructor.
 The map is initialized with some of GHC's built-in types.
 -}
-module Plugin.Trans.TysWiredIn (loadDefaultTyConMap, builtInModule) where
+module Plugin.Trans.TysWiredIn (loadDefaultTyConMap, builtInModule, maxTupleArity) where
 
 import Data.IORef
 import Data.Tuple
@@ -125,7 +125,7 @@ tupleWithArity n = (tupleTyConName BoxedTuple n, "Tuple" ++ show n ++ "FL")
 -- If this is increased, the new tuples
 -- have to be added to 'Plugin.InversionPlugin.BuiltIn'.
 maxTupleArity :: Int
-maxTupleArity = 3
+maxTupleArity = 15
 
 -- | Name of the module that contains all built-in plugin definitions
 builtInModule :: String
