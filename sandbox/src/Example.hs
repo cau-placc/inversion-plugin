@@ -9,6 +9,7 @@ class C a where
   some :: a
 
 instance C X where
+  some = A
 
 enumAlias :: X -> [X]
 enumAlias = enumFrom

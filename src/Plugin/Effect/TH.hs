@@ -21,20 +21,20 @@ import Plugin.Trans.TysWiredIn
 
 genInverses :: Name -> Type -> String -> DecsQ
 genInverses liftedName originalTy originalString = do
-  concat <$> sequence [genInverse originalString originalTy fixedArgs nf liftedName | fixedArgs <- fixedArgss, nf <- [False ..]]
+  concat <$> sequence [genInverse originalString originalTy fixedArgs useGNF liftedName | fixedArgs <- fixedArgss, useGNF <- [False ..]]
   where
     (_ ,_ , originalTy') = decomposeForallT originalTy
     arity = arrowArity originalTy'
     fixedArgss = subsequences [0.. arity - 1]
 
 mkInverseName :: String -> [Int] -> Bool -> Name
-mkInverseName originalName fixedArgs nf
-  | isLexVarSym (mkFastString originalName) = mkName $ originalName ++ "$$$" ++ concat ["-%" | nf] ++ intercalate "$" (map ((`replicate` '+') . succ) fixedArgs)
-  | otherwise                               = mkName $ originalName ++ "Inv" ++ concat ["NF" | nf] ++ intercalate "_" (map show fixedArgs)
+mkInverseName originalName fixedArgs useGNF
+  | isLexVarSym (mkFastString originalName) = mkName $ originalName ++ "$$$" ++ concat ["-%" | useGNF] ++ intercalate "$" (map ((`replicate` '+') . succ) fixedArgs)
+  | otherwise                               = mkName $ originalName ++ "Inv" ++ concat ["NF" | useGNF] ++ intercalate "_" (map show fixedArgs)
 
 genInverse :: String -> Type -> [Int] -> Bool -> Name -> DecsQ
-genInverse originalString originalTy fixedArgs nf liftedName = do
-  let invName = mkInverseName originalString fixedArgs nf
+genInverse originalString originalTy fixedArgs useGNF liftedName = do
+  let invName = mkInverseName originalString fixedArgs useGNF
       (originalTyVarBndrs, originalCxt, originalTy') = decomposeForallT originalTy
       (originalArgTys, originalResTy) = arrowUnapply originalTy'
       (fixedOriginalArgTys, nonFixedOriginalArgTys) = partitionByIndices fixedArgs originalArgTys
@@ -61,7 +61,7 @@ genInverse originalString originalTy fixedArgs nf liftedName = do
         let invArgPats = map VarP $ fixedArgNames ++ [resName]
             matchExp = applyExp (VarE 'matchFL) [VarE resName, funPatExp]
             tupleExp = mkLiftedTupleE (map snd freePExps)
-            returnExp = AppE (VarE (if nf then 'groundNormalFormFL else 'normalFormFL)) (tupleExp)
+            returnExp = AppE (VarE (if useGNF then 'groundNormalFormFL else 'normalFormFL)) tupleExp
         -- evalExp <- [| \m r -> map from $ bfs $ evalFL (m >> r) |]
         let bodyExp = applyExp (VarE 'map) [VarE 'from, AppE (VarE 'bfs) (AppE (VarE 'evalFL) (applyExp (VarE '(>>)) [matchExp, returnExp]))]
             body = NormalB bodyExp
@@ -69,6 +69,7 @@ genInverse originalString originalTy fixedArgs nf liftedName = do
 
   sequence [genPartialInverseSig, genPartialInverseFun]
 
+--TODO: lift to q and throw error when length of list is > maxTupleArity
 mkLiftedTupleE :: [Exp] -> Exp
 mkLiftedTupleE [] = AppE (VarE 'return) (ConE '())
 mkLiftedTupleE [x] = x

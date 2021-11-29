@@ -28,7 +28,7 @@ partialInv :: Name -> [Int] -> ExpQ
 partialInv name fixedArgs = genericInv name fixedArgs True
 
 genericInv :: Name -> [Int] -> Bool -> ExpQ
-genericInv name fixedArgs nf = do
+genericInv name fixedArgs useGNF = do
   info <- reify name
   (_, _, ty) <- decomposeForallT <$> case info of
     VarI _ ty' _     -> return ty'
@@ -39,7 +39,7 @@ genericInv name fixedArgs nf = do
   when (any (`notElem` validFixedArgs) fixedArgs) $ fail $
     "Invalid argument index sequence for partial inverse provided (" ++ hint ++ ")."
   vs <- replicateM (length fixedArgs + 1) (newName "p")
-  let invE = VarE $ mkNameG_v (fromMaybe "" $ namePackage name) (fromMaybe "" $ nameModule name) $ nameBase $ mkInverseName (nameBase name) (sort $ nub $ map pred fixedArgs) nf
+  let invE = VarE $ mkNameG_v (fromMaybe "" $ namePackage name) (fromMaybe "" $ nameModule name) $ nameBase $ mkInverseName (nameBase name) (sort $ nub $ map pred fixedArgs) useGNF
   return $ LamE (map VarP vs) (applyExp invE (map VarE vs))
 
 weakInv :: Name -> ExpQ
