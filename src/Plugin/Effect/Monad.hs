@@ -296,11 +296,6 @@ infixr 0 -->
 
 type instance Lifted (->) = (-->)
 
-instance HasPrimitiveInfo (a --> b)
-
-instance Narrowable (a --> b) where
-  narrow _ = error "cannot narrow functions"
-
 instance (Invertible a, Convertible b) => Convertible (a -> b) where
   to f = HaskellFunc f
 
