@@ -58,14 +58,14 @@ liftConstr :: Bool                -- ^ True iff the type constructor should not 
            -> DynFlags            -- ^ Compiler flags
            -> FamInstEnvs         -- ^ Family Instance Environments, both home and external
            -> TyCon               -- ^ 'Fun' type constructor
-           -> TyCon               -- ^ 'Nondet' type constructor
+           -> Var                 -- ^ 'Monad' type variable
            -> UniqMap TyCon TyCon -- ^ Map of old TyCon's from this module to lifted ones
            -> TyConMap            -- ^ Map of imported old TyCon's to lifted ones
            -> TyCon               -- ^ Lifted declaration type constructor
            -> UniqSupply          -- ^ Supply of fresh unique keys
            -> DataCon             -- ^ Constructor to be lifted
            -> IO DataCon          -- ^ Lifted constructor
-liftConstr noRename dflags instEnvs ftycon mtycon tcs tcsM tycon s cn = do
+liftConstr noRename dflags instEnvs ftycon mvar tcs tcsM tycon s cn = do
 
   -- Create all required unique keys.
   let (s1, tmp1) = splitUniqSupply s
@@ -73,6 +73,7 @@ liftConstr noRename dflags instEnvs ftycon mtycon tcs tcsM tycon s cn = do
       (s3, tmp3) = splitUniqSupply tmp2
       (s4, s5  ) = splitUniqSupply tmp3
       ss = listSplitUniqSupply s4
+      mty = mkTyVarTy mvar
 
   -- Lift all constructor arguments and update any type constructors.
   argtys <- liftIO (zipWithM liftAndReplaceType ss (dataConOrigArgTys cn))
@@ -91,7 +92,9 @@ liftConstr noRename dflags instEnvs ftycon mtycon tcs tcsM tycon s cn = do
   let fs = zipWith liftField (dataConFieldLabels cn) us
 
   -- Update the type constructor of the constructor result.
-  resty <- liftIO (replaceCon (dataConOrigResTy cn))
+  let origResTy = dataConOrigResTy cn
+  let (tcTy, args) = splitAppTys origResTy
+  resty <- liftIO (replaceCon (mkAppTys tcTy (mty:args)))
 
   -- Create the new constructor.
   let rep = case dataConWrapId_maybe cn of
@@ -105,8 +108,8 @@ liftConstr noRename dflags instEnvs ftycon mtycon tcs tcsM tycon s cn = do
       -- Create the new constructor.
       dc = mkDataCon
         name1 (dataConIsInfix cn) (tyConName $ promoteDataCon cn)
-        (dataConSrcBangs cn) fs (dataConUnivTyVars cn)
-        (dataConExTyCoVars cn) (dataConUserTyVarBinders cn) (dataConEqSpec cn)
+        (dataConSrcBangs cn) fs (mvar : dataConUnivTyVars cn)
+        (dataConExTyCoVars cn) (Bndr mvar Specified : dataConUserTyVarBinders cn) (dataConEqSpec cn)
         (dataConTheta cn) argtys resty NoRRI tycon
         (dataConTag cn) (dataConStupidTheta cn) worker rep
       -- let the worker be created by GHC,
@@ -114,11 +117,9 @@ liftConstr noRename dflags instEnvs ftycon mtycon tcs tcsM tycon s cn = do
       worker = mkDataConWorkId name2 dc
   return dc
   where
-    mty = mkTyConTy mtycon
-    -- Use the inner type lifting for constructors from newtype declarations,
-    -- because we otherwise get a 'Nondet' too much if we coerce its type.
+    mtype = mkTyVarTy mvar
     liftAndReplaceType us = fmap (replaceTyconTyPure tcs)
-                          . liftType ftycon mty us tcsM
+                          . liftType ftycon mtype us tcsM
     replaceCon = fmap (replaceTyconTyPure tcs) . replaceTyconTy tcsM
 
 -- | Lift a record field by renaming its labels.

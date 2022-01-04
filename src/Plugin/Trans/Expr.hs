@@ -295,7 +295,7 @@ liftMonadicExpr _    _    e@(L _ (HsLit _ (HsIntPrim _ _))) = do
   mkApp mkNewReturnTh retty [noLoc (HsPar noExtField lit)]
 liftMonadicExpr _    tcs e@(L _ HsLit{}) = do
   ty <- getTypeOrPanic e
-  ty' <- liftIO (replaceTyconTy tcs ty)
+  ty' <- liftInnerTyTcM tcs ty
   res <- mkApp (mkNewToFL ty) ty' [e]
   return $ noLoc $ HsPar noExtField res
 liftMonadicExpr given tcs (L l (HsOverLit _ lit)) =
@@ -337,7 +337,8 @@ liftMonadicExpr _ tcs (L _ (HsWrap _ w (HsConLikeOut _ (RealDataCon c)))) = do
   c' <- liftIO (getLiftedCon c tcs)
   w' <- liftWrapperTcM tcs w
   let apps = collectTyApps w'
-  let tys = conLikeInstOrigArgTys (RealDataCon c') apps
+  mty <- mkTyConTy <$> getMonadTycon
+  let tys = conLikeInstOrigArgTys (RealDataCon c') (mty : apps)
   e <- fst <$> mkConLam (Just w') c' tys []
   return $ noLoc $ HsPar noExtField e
 liftMonadicExpr given tcs (L _ (OpApp _ e1 op e2)) = do
@@ -360,7 +361,7 @@ liftMonadicExpr given tcs (L _ (HsApp _ fn ex)) = do
   -- -> e1 `appFL` e2
   fn' <- liftMonadicExpr given tcs fn
   funty' <- getTypeOrPanic fn
-  funty <- liftTypeIfRequiredTcM tcs funty'
+  funty <- liftTypeTcM tcs funty'
   ex' <- liftMonadicExpr given tcs ex
   ftc <- getFunTycon
   mtc <- getMonadTycon

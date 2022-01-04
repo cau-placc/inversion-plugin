@@ -43,10 +43,11 @@ mkConLam :: Maybe HsWrapper -> DataCon -> [Type] -> [Id]
      -> TcM (LHsExpr GhcTc, Type)
 -- list of types is empty -> apply the collected variables.
 mkConLam mw c [] vs = do
+    mtycon <- getMonadTycon
     -- Use the given wrapper for the constructor.
     let wrap = case mw of
-          Just w  -> HsWrap noExtField w
-          Nothing -> id
+          Just w  -> HsWrap noExtField (WpTyApp (mkTyConTy mtycon) <.> w)
+          Nothing -> HsWrap noExtField (WpTyApp (mkTyConTy mtycon))
     -- Apply all variables in reverse to the constructor.
     let e = foldl ((noLoc .) . HsApp noExtField)
             (noLoc (wrap (HsConLikeOut noExtField (RealDataCon c))))
@@ -125,7 +126,7 @@ mkNewReturnFunTh etype = do
   th_expr <- liftQ [| return . Func |]
   let mty = mkTyConTy mtycon
   let (arg, res) = splitFunTy etype
-  let eLifted = mkTyConApp ftc [bindingType arg, bindingType res]
+  let eLifted = mkTyConApp ftc [mty, bindingType arg, bindingType res]
   let expType = mkVisFunTy etype $ -- 'e ->
                 mkAppTy mty eLifted  -- m 'e
   mkNewAny th_expr expType
@@ -378,8 +379,10 @@ toLetExpr b e = noLoc
 
 splitMyFunTy :: TyCon -> TyCon -> Type -> (Type, Type)
 splitMyFunTy ftc mtc (coreView -> Just ty)    = splitMyFunTy ftc mtc ty
-splitMyFunTy ftc mtc (TyConApp tc [ty1, ty2])
+splitMyFunTy ftc mtc (TyConApp tc [mty, ty1, ty2])
   | tc == ftc = (mkTyConApp mtc [ty1], mkTyConApp mtc [ty2])
+  | otherwise = error $ showSDocUnsafe $ ppr (tc, ftc, mty, ty1, ty2)
+splitMyFunTy _   _   ty@((TyConApp _ xs)) = error $ showSDocUnsafe $ ppr (ty, length xs)
 splitMyFunTy _   _   ty = error $ showSDocUnsafe $ ppr ty
 
 {- HLINT ignore "Reduce duplication "-}

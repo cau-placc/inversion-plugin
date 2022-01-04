@@ -50,10 +50,12 @@ liftTycon dflags instEnvs ftycon mtycon supply tcs tcsM tc
   | isVanillaAlgTyCon tc || isClassTyCon tc = mdo
     -- The tycon definition is cyclic, so we use this let-construction.
     let u = uniqFromSupply supply
-        (supply', other) = splitUniqSupply supply
+        (supply1, other) = splitUniqSupply supply
+        (supply2, supply3) = splitUniqSupply supply1
     -- Lift the rhs of the underlying datatype definition.
     -- For classes, this lifts the implicit datatype for its dictionary.
-    (us2, rhs) <- liftAlgRhs (isJust (tyConClass_maybe tc)) dflags instEnvs ftycon mtycon tcs tcsM tycon other
+    let mVar = mkTyVar (mkInternalName (uniqFromSupply supply2) (mkVarOcc "m") noSrcSpan) (mkVisFunTy liftedTypeKind liftedTypeKind)
+    (us2, rhs) <- liftAlgRhs (isJust (tyConClass_maybe tc)) dflags instEnvs ftycon mVar tcs tcsM tycon other
       (algTyConRhs tc)
     -- Potentially lift any class information
     flav <- case (tyConRepName_maybe tc, tyConClass_maybe tc) of
@@ -63,12 +65,13 @@ liftTycon dflags instEnvs ftycon mtycon supply tcs tcsM tc
           _                 ->
             panicAnyUnsafe "Unknown flavour of type constructor" tc
     -- Create the new TyCon.
+    let mBinder = mkAnonTyConBinder VisArg mVar
     let name = liftName (tyConName tc) u
         tycon = mkAlgTyCon
-          name (tyConBinders tc) (tyConResKind tc)
-          (tyConRoles tc) (tyConCType tc) (tyConStupidTheta tc)
+          name (mBinder : tyConBinders tc) (tyConResKind tc)
+          (Representational : tyConRoles tc) Nothing []
           rhs flav (isGadtSyntaxTyCon tc)
-    return (supply', (tc, Just tycon))
+    return (supply3, (tc, Just tycon))
   | isTypeSynonymTyCon tc = do
     let u = uniqFromSupply supply
         (supply1, supply2) = splitUniqSupply supply
@@ -144,7 +147,7 @@ liftAlgRhs :: Bool                -- ^ Is it a class definition or not
            -> DynFlags            -- ^ Compiler flags
            -> FamInstEnvs         -- ^ Family Instance Environments, both home and external
            -> TyCon               -- ^ 'Fun' type constructor
-           -> TyCon               -- ^ 'Monad' type constructor
+           -> Var                 -- ^ 'Monad' type variable
            -> UniqMap TyCon TyCon -- ^ Map of old TyCon's from this module to lifted ones
            -> TyConMap            -- ^ Map of imported old TyCon's to lifted ones
            -> TyCon               -- ^ Lifted TyCon of this rhs
@@ -152,22 +155,23 @@ liftAlgRhs :: Bool                -- ^ Is it a class definition or not
            -> AlgTyConRhs         -- ^ Rhs to be lifted
            -> IO (UniqSupply, AlgTyConRhs)
           -- ^ Next fresh unique key supply and lifted rhs
-liftAlgRhs _       dflags instEnvs ftycon mtycon tcs tcsM tycon us
+liftAlgRhs _       dflags instEnvs ftycon mvar tcs tcsM tycon us
   -- Just lift all constructors of a data decl.
   (DataTyCon cns size ne) = do
     let uss = listSplitUniqSupply us
     cns' <- zipWithM
-      (liftConstr False dflags instEnvs ftycon mtycon tcs tcsM tycon) (tail uss) cns
+      (liftConstr False dflags instEnvs ftycon mvar tcs tcsM tycon) (tail uss) cns
     return (head uss, DataTyCon cns' size ne)
-liftAlgRhs isClass dflags instEnvs ftycon mtycon tcs tcsM tycon us
+liftAlgRhs isClass dflags instEnvs ftycon mvar tcs tcsM tycon us
   -- Depending on the origin of this newtype declaration (class or not),
   -- Perform a full lifting or just and inner lifting.
   (NewTyCon dc rhs _ co lev) = do
     let (u1, tmp1) = splitUniqSupply us
         (u2, tmp2) = splitUniqSupply tmp1
         (u3, u4  ) = splitUniqSupply tmp2
-    dc' <- liftConstr False dflags instEnvs ftycon mtycon tcs tcsM tycon u1 dc
-    rhs' <- replaceTyconTyPure tcs <$> liftType ftycon (mkTyConTy mtycon) u2 tcsM rhs
+    dc' <- liftConstr False dflags instEnvs ftycon mvar tcs tcsM tycon u1 dc
+    let mtype = mkTyVarTy mvar
+    rhs' <- replaceTyconTyPure tcs <$> liftType ftycon mtype u2 tcsM rhs
 
     -- Only switch unique and name for datatypes, etc.
     -- (see comment above liftTycon)

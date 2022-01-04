@@ -82,20 +82,20 @@ removeNondet = removeNondet' . expandTypeSynonyms
       (ty1', b1) <- removeNondet' ty1
       (ty2', b2) <- removeNondet' ty2
       return (AppTy ty1' ty2', b1 || b2)
-    removeNondet' (TyConApp tc [ty1, ty2]) = do
+    removeNondet' (TyConApp tc [mty, ty1, ty2]) = do
         ftc <- getFunTycon
         ([ty1', ty2'], bs) <- unzip <$> mapM removeNondet' [ty1, ty2]
-        if tc == ftc
+        if tc == ftc && mty `eqType` mkTyConTy tc
           then return (FunTy VisArg ty1' ty2', or bs)
-          else return (TyConApp tc  [ty1', ty2'], or bs)
-    removeNondet' (TyConApp tc [ty]) = do
+          else return (TyConApp tc  [mty, ty1', ty2'], or bs)
+    removeNondet' (TyConApp tc [mty, ty]) = do
         mtc <- getMonadTycon
         ftc <- getFunTycon
-        if tc == mtc
+        if tc == mtc && mty `eqType` mkTyConTy tc
           then removeNondet' ty
-          else if tc == ftc
+          else if tc == ftc && mty `eqType` mkTyConTy tc
             then first (TyConApp funTyCon . (:[])) <$> removeNondet' ty
-            else first (TyConApp tc       . (:[])) <$> removeNondet' ty
+            else (\(x, b1) (y, b2) -> (TyConApp tc [x, y], b1 || b2)) <$> removeNondet' mty <*> removeNondet' ty
     removeNondet' (TyConApp tc args) = do
       (args', bs) <- unzip <$> mapM removeNondet' args
       return (TyConApp tc args', or bs)
@@ -154,7 +154,7 @@ liftType ftc mty s tcs t
         let (u1, u2) = splitUniqSupply us
         ty1' <- liftInnerTy ftc mty u1 tcs ty1
         ty2' <- liftInnerTy ftc mty u2 tcs ty2
-        return (mkAppTy mty (mkTyConApp ftc [ty1', ty2']))
+        return (mkAppTy mty (mkTyConApp ftc [mty, ty1', ty2']))
     liftType' us (CastTy ty kc) =
       flip CastTy kc <$> liftType' us ty
     liftType' _ (CoercionTy c) =
@@ -177,7 +177,7 @@ liftType ftc mty s tcs t
       | otherwise       = do
         tc' <- lookupTyConMap GetNew tcs tc
         tys' <- mapM (liftInnerTy ftc mty us tcs) tys
-        return (mkAppTy mty (TyConApp tc' tys'))
+        return (mkAppTy mty (TyConApp tc' (mty:tys')))
     liftType' _ ty@(TyVarTy _) =
       return (mkAppTy mty ty)
 

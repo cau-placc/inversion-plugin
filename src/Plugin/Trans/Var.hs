@@ -10,7 +10,7 @@ stuff to deal with variables.
 module Plugin.Trans.Var where
 
 import Data.Data (Data)
-import Data.List 
+import Data.List
 import Data.Generics.Schemes
 
 import OccName hiding (varName)
@@ -30,7 +30,7 @@ freshMonadTVar :: TcM TyVar
 freshMonadTVar = do
   u <- getUniqueM
   let k = liftedTypeKind
-  return $ mkTyVar (mkSystemName u (mkTyVarOcc "a")) (mkFunTy VisArg k k)
+  return $ mkTyVar (mkSystemName u (mkTyVarOcc "m")) (mkFunTy VisArg k k)
 
 -- | Create a fresh variable of the given type.
 freshVar :: Type -> TcM Var

@@ -255,7 +255,7 @@ preprocessExpr e@(L l1 (HsVar x (L l2 v))) = do
           let definiteName = addNameSuffix (occName nm)
           mv <- lift $ lookupByOccName definiteMdl definiteName
           lift $ case mv of
-            Just v' -> return (L l1 (HsVar x (L l2 v')))
+            Just v' -> return (L l1 (HsVar x (L l2 (v' `setVarType` varType v))))
             Nothing -> failWithTc ("No inverse available for:" <+> ppr nm)
       _   -> return e
 preprocessExpr e@(L _ HsLit{}) =

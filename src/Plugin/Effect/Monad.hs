@@ -14,6 +14,9 @@
 {-# LANGUAGE CPP                       #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeFamilyDependencies #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 module Plugin.Effect.Monad where
 
 import Control.Exception
@@ -31,12 +34,14 @@ import           Data.SBV
 import           Data.SBV.Control
 #ifdef TYPED
 import           Data.Typeable (Typeable)
-#endif 
+#endif
 import           Test.ChasingBottoms.IsBottom (isBottom)
+import           Data.Coerce
 import           Unsafe.Coerce
 import           System.IO.Unsafe
 
 import           Plugin.Effect.Tree
+import Data.Typeable
 
 type ND s = Codensity (ReaderT s Search)
 
@@ -73,13 +78,13 @@ instance Monad FL where
       Var i -> instantiateND i >>= unFL . f
       Val x -> unFL (f x)
 
-instance Alternative FL where 
+instance Alternative FL where
   empty = FL empty
   FL a1 <|> FL a2 = FL (a1 <|> a2)
 
 instance MonadPlus FL
 
-instance MonadFail FL where 
+instance MonadFail FL where
   fail s = FL (fail s)
 
 #ifdef TYPED
@@ -92,11 +97,11 @@ freeFL i = FL (return (Var i))
 --------------------------------------------------------------------------------
 
 data FLState = FLState {
-    nextID :: ID,  
+    nextID :: ID,
     heap   :: Heap,
     constraints :: [Constraint],
     constrainedVars :: Set ID
-  } 
+  }
 
 initFLState :: FLState
 initFLState = FLState {
@@ -154,14 +159,14 @@ isConsistent cst = unsafePerformIO $
 isUnconstrained :: ID -> ConstraintStore -> Bool
 isUnconstrained i = Set.notMember i . snd
 
-toSBV :: SymVal a => FLVal a -> SBV a
+toSBV :: (Coercible a b, SymVal b) => FLVal a -> SBV b
 toSBV (Var i) = sym $ "x" ++ (if i < 0 then "n" else "") ++ show (abs i)
-toSBV (Val a) = literal a
+toSBV (Val a) = literal (coerce a)
 
 --------------------------------------------------------------------------------
 
 data PrimitiveInfo a = NoPrimitive
-                     | SymVal a => Primitive
+                     | forall b. (Coercible a b, SymVal b) => Primitive (Proxy (a, b))
 
 class HasPrimitiveInfo a where
   primitiveInfo :: PrimitiveInfo a
@@ -173,17 +178,15 @@ class Narrowable a where
   -- TODO: somehow we only want one ID, but have not figured out how to to that yet.
   -- Thus, for now the first is the variable to be narrowed and the second is the next fresh ID
   narrow :: ID -> ID -> ConstraintStore -> [(a, Integer)]
-  default narrow :: (Bounded a, Enum a) => ID -> ID -> ConstraintStore -> [(a, Integer)]
-  narrow _ _ _ = [(x, 0) | x <- [minBound .. maxBound]]
 
-narrowPrimitive :: (SymVal a, Narrowable a, HasPrimitiveInfo a) => ID -> ID -> ConstraintStore -> [(a, Integer)]
+narrowPrimitive :: forall a b. (HasPrimitiveInfo a, Narrowable a, Coercible a b, SymVal b) => ID -> ID -> ConstraintStore -> [(a, Integer)]
 narrowPrimitive i j cst = unsafePerformIO $ runSMT $ do
   mapM_ constrain $ fst cst
   query $ checkSat >>= \case
     Sat -> do
-      v <- getValue (toSBV (Var i))
-      let c = toSBV (Var i) ./== toSBV (Val v)
-      return ((v, 0) : narrowPrimitive i j (insertConstraint c [i] cst))
+      v <- coerce @b @a <$> getValue (toSBV @a @b (Var i))
+      let c = toSBV @a @b (Var i) ./== toSBV (Val v)
+      return ((v, 0) : narrowPrimitive @a @b i j (insertConstraint c [i] cst))
     _   -> return []
 
 -- TODO: combine narrowable typeable and hasprimitiveinfo
@@ -196,49 +199,43 @@ instantiateND i = get >>= \ FLState {..} -> case findBinding i heap of
   Nothing -> msum (map update (narrow i nextID (constraints, constrainedVars)))
     where
       update (x, o) =
-        let cst' = case primitiveInfo @a of
-                      NoPrimitive -> (constraints, constrainedVars)
-                      Primitive   ->
-                        let c = toSBV (Var i) .=== toSBV (Val x)
+        let cst' = case primitiveInfo of
+                      NoPrimitive                     -> (constraints, constrainedVars)
+                      Primitive (_ :: (Proxy (a, b))) ->
+                        let c = toSBV @a @b (Var i) .=== toSBV @a @b (Val x)
                         in insertConstraint c [i] (constraints, constrainedVars)
         in put (FLState (nextID + o) (insertBinding i x heap) (fst cst') (snd cst')) >> return x
   Just x  -> return x
 
-class (Narrowable a, HasPrimitiveInfo a) => NF a where 
-  nf :: (forall x. NF x => FL x -> FL x) -> a -> FL a 
-  nf _ = return 
+class (Narrowable a, HasPrimitiveInfo a) => NF a where
+  nf :: (forall x. NF x => FL x -> FL x) -> a -> FL a
+  nf _ = return
 
 groundNormalFormFL :: NF a => FL a -> FL a
 groundNormalFormFL x = x >>= nf groundNormalFormFL
 
 normalFormFL :: NF a => FL a -> FL a
-normalFormFL (FL nd) = FL $ nd >>= \case 
+normalFormFL (FL nd) = FL $ nd >>= \case
   Val x -> unFL $ nf normalFormFL x
-  Var i -> get >>= \FLState { .. } -> case findBinding i heap of 
-    Nothing -> return (Var i) 
+  Var i -> get >>= \FLState { .. } -> case findBinding i heap of
+    Nothing -> return (Var i)
     Just x  -> unFL $ nf normalFormFL x
 
 --------------------------------------------------------------------------------
 
 -- Unfortunately, this type family cannot be declared as injective in GHC (although it is).
-type family Lifted (a :: k) :: k
-
-type instance Lifted (f a) = (Lifted f) (Lifted a)
+type family Lifted (m :: * -> *) (a :: k) = (b :: k) | b -> m a
 
 --------------------------------------------------------------------------------
 
 class Convertible a where
-  to :: a -> Lifted a
-  default to :: (a ~ Lifted a) => a -> Lifted a
-  to !x = x
+  to :: a -> Lifted FL a
 
-  from :: Lifted a -> a
-  default from :: (a ~ Lifted a) => Lifted a -> a
-  from !x = x
+  from :: Lifted FL a -> a
 
 -- This function already incorporates the improvement from the paper for
 -- partial values in the context of partial inversion with higher-order functions.
-toFL :: Convertible a => a -> FL (Lifted a)
+toFL :: Convertible a => a -> FL (Lifted FL a)
 toFL x | isBottom x = empty
        | otherwise  = return (to x)
 
@@ -249,23 +246,21 @@ instance Show FreeVariableException where
 
 instance Exception FreeVariableException
 
-fromFL :: Convertible a => FL (Lifted a) -> a
+fromFL :: Convertible a => FL (Lifted FL a) -> a
 fromFL = from . head . bfs . evalFL
 
 --------------------------------------------------------------------------------
 
 class Matchable a where
-  match :: a -> Lifted a -> FL ()
-  default match :: (a ~ Lifted a, Eq a) => a -> Lifted a -> FL ()
-  match x y = if x == y then pure () else empty -- TODO use unless?
+  match :: a -> Lifted FL a -> FL ()
 
-matchFL :: forall a. (Convertible a, Matchable a, HasPrimitiveInfo (Lifted a)) => a -> FL (Lifted a) -> FL ()
+matchFL :: forall a. (Convertible a, Matchable a, HasPrimitiveInfo (Lifted FL a)) => a -> FL (Lifted FL a) -> FL ()
 matchFL x (FL nd) = FL $ nd >>= \case
   Var i -> get >>= \ FLState { .. } -> case findBinding i heap of
-    Nothing -> case primitiveInfo @(Lifted a) of
-                  NoPrimitive -> update (constraints, constrainedVars)
-                  Primitive   ->
-                    let c    = toSBV (Var i) .=== toSBV (Val (to x))
+    Nothing -> case primitiveInfo @(Lifted FL a) of
+                  NoPrimitive                               -> update (constraints, constrainedVars)
+                  Primitive (_ :: (Proxy (Lifted FL a, b))) ->
+                    let c    = toSBV @(Lifted FL a) @b (Var i) .=== toSBV @(Lifted FL a) @b (Val (to x))
                         cst' = insertConstraint c [i] (constraints, constrainedVars)
                     in if isUnconstrained i (constraints, constrainedVars) || isConsistent (constraints, constrainedVars)
                       then update cst'
@@ -284,17 +279,23 @@ matchFL x (FL nd) = FL $ nd >>= \case
 
 --------------------------------------------------------------------------------
 
-class (Matchable a, Convertible a, NF (Lifted a)) => Invertible a
+class (Matchable a, Convertible a, NF (Lifted FL a)) => Invertible a
 
 --------------------------------------------------------------------------------
 
-data (-->) a b where
-  Func        :: (FL a -> FL b) -> (a --> b)
-  HaskellFunc :: (Invertible c, Convertible d) => (c -> d) -> (Lifted c --> Lifted d)
+
+infixr 0 :-->
+type (:-->) = (-->) FL
+
+data (-->) (m :: * -> *) (a :: *) (b :: *) where
+  Func        :: (FL a -> FL b) -> (-->) m a b
+  HaskellFunc :: (Invertible c, Convertible d) => (c -> d) -> (-->) m (Lifted FL c) (Lifted FL d)
 
 infixr 0 -->
 
-type instance Lifted (->) = (-->)
+type instance Lifted m (->) = (-->) m
+type instance Lifted m ((->) a) = (-->) m (Lifted m a)
+type instance Lifted m ((->) a b) = (-->) m (Lifted m a) (Lifted m b)
 
 instance (Invertible a, Convertible b) => Convertible (a -> b) where
   to f = HaskellFunc f
@@ -302,7 +303,7 @@ instance (Invertible a, Convertible b) => Convertible (a -> b) where
   from (HaskellFunc f) = unsafeCoerce f
   from (Func        _) = error "Cannot convert function type"
 
-appFL :: FL (a --> b) -> FL a -> FL b
+appFL :: FL ((-->) FL a b) -> FL a -> FL b
 mf `appFL` x = mf >>= \case
   Func f        -> f x
   HaskellFunc f -> groundNormalFormFL x >>= (toFL . f . from)

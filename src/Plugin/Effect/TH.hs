@@ -42,7 +42,7 @@ genInverse originalString originalTy fixedArgs useGNF liftedName = do
   let genPartialInverseSig = do
         let invArgTys = fixedOriginalArgTys ++ [originalResTy]
             invResTy = applyType ListT [mkTupleT nonFixedOriginalArgTys]
-            invCxt = originalCxt ++ map mkLifted originalCxt ++
+            invCxt = originalCxt ++ map (mkLifted (ConT ''FL)) originalCxt ++
               map mkInvertibleConstraint  (originalResTy : nonFixedOriginalArgTys) ++
               map mkConvertibleConstraint fixedOriginalArgTys
             invTy = ForallT originalTyVarBndrs invCxt $ foldr mkArrowT invResTy invArgTys
@@ -56,7 +56,7 @@ genInverse originalString originalTy fixedArgs useGNF liftedName = do
         fixedArgNames <- replicateM (length fixedArgs) (newName "arg")
         let toPExps = zip fixedArgs $ map (AppE (VarE 'toFL) . VarE) fixedArgNames
             argExps = map snd $ sortOn fst $ freePExps ++ toPExps
-        funPatExp <- genLiftedApply (SigE (VarE liftedName) (AppT (ConT ''FL) (mkLifted originalTy'))) argExps
+        funPatExp <- genLiftedApply (SigE (VarE liftedName) (AppT (ConT ''FL) (mkLifted (ConT ''FL) originalTy'))) argExps
         resName <- newName "res"
         let invArgPats = map VarP $ fixedArgNames ++ [resName]
             matchExp = applyExp (VarE 'matchFL) [VarE resName, funPatExp]
@@ -71,13 +71,14 @@ genInverse originalString originalTy fixedArgs useGNF liftedName = do
 
 --TODO: lift to q and throw error when length of list is > maxTupleArity
 mkLiftedTupleE :: [Exp] -> Exp
-mkLiftedTupleE [] = AppE (VarE 'return) (ConE '())
+mkLiftedTupleE [] = AppE (VarE 'return) (AppE (VarE 'to) (ConE '()))
 mkLiftedTupleE [x] = x
 mkLiftedTupleE xs = AppE (VarE 'return) (applyExp liftedTupleConE xs)
-  where 
+  where
+    -- TODO does this really work?
     liftedTupleConE = ConE $ mkNameG_v pkgName builtInModule ("Tuple" ++ show (length xs) ++ "FL")
-    pkgName = case 'mkLiftedTupleE of 
-      Name _ (NameG _ p _) -> pkgString p 
+    pkgName = case 'mkLiftedTupleE of
+      Name _ (NameG _ p _) -> pkgString p
       _                    -> "inversion-plugin"
 
 partitionByIndices :: [Int] -> [a] -> ([a], [a])
@@ -136,20 +137,15 @@ arrowUnapply ty                           = ([], ty)
 arrowArity :: Type -> Int
 arrowArity = length . fst . arrowUnapply
 
-liftedArrowUnapply :: Type -> ([Type], Type)
-liftedArrowUnapply (AppT (ConT _) (AppT (AppT ArrowT (AppT (ConT _ ) ty1)) ty2)) = (ty1 : tys, ty)
-  where (tys, ty) = liftedArrowUnapply ty2
-liftedArrowUnapply (AppT (ConT _ ) ty) = ([], ty)
-liftedArrowUnapply ty = error $ "liftedArrowUnapply: " ++ show ty
-
 --------------------------------------------------------------------------------
 
 genLiftedTupleDataDecl :: Int -> DecQ
 genLiftedTupleDataDecl ar = do
   let name = mkName $ "Tuple" ++ show ar ++ "FL"
+  mVar <- newName "m"
   tyVarNames <- replicateM ar (newName "a")
-  let con = NormalC name $ map (\tyVarName -> (Bang NoSourceUnpackedness NoSourceStrictness, AppT (ConT ''FL) (VarT tyVarName))) tyVarNames
-  return $ DataD [] name (map PlainTV tyVarNames) Nothing [con] []
+  let con = NormalC name $ map (\tyVarName -> (Bang NoSourceUnpackedness NoSourceStrictness, AppT (VarT mVar) (VarT tyVarName))) tyVarNames
+  return $ DataD [] name (map PlainTV (mVar : tyVarNames)) Nothing [con] []
 
 genLiftedTupleDataDeclAndInstances :: Int -> DecsQ
 genLiftedTupleDataDeclAndInstances ar = do
@@ -165,9 +161,9 @@ data ConInfo = ConInfo { conName :: Name, conArgs :: [Type] }
 conArity :: ConInfo -> Int
 conArity = length . conArgs
 
-extractConInfo :: Con -> ConInfo
-extractConInfo (NormalC n btys) = ConInfo n (map (innerType . snd) btys)
-extractConInfo _ = error "mkConInfo: unsupported"
+extractConInfo :: (Type -> Type) -> Con -> ConInfo
+extractConInfo f (NormalC n btys) = ConInfo n (map (f . snd) btys)
+extractConInfo _ _ = error "mkConInfo: unsupported"
 --TODO: missing constructors
 
 data TcInfo = TcInfo { tcName :: Name, tcVarNames :: [Name], tcConInfos :: [ConInfo] }
@@ -175,10 +171,10 @@ data TcInfo = TcInfo { tcName :: Name, tcVarNames :: [Name], tcConInfos :: [ConI
 tcArity :: TcInfo -> Int
 tcArity = length . tcVarNames
 
-extractTcInfo :: Dec -> TcInfo
-extractTcInfo (DataD _ tcNm tyVars _ cons _) = TcInfo tcNm (map getTyVarBndrName tyVars) (map extractConInfo cons)
-extractTcInfo (NewtypeD _ tcNm tyVars _ con _) = TcInfo tcNm (map getTyVarBndrName tyVars) [extractConInfo con]
-extractTcInfo _ = error "extractTcInfo: unsupported"
+extractTcInfo :: (Type -> Type) -> Dec -> TcInfo
+extractTcInfo f (DataD _ tcNm tyVars _ cons _) = TcInfo tcNm (map getTyVarBndrName tyVars) (map (extractConInfo f) cons)
+extractTcInfo f (NewtypeD _ tcNm tyVars _ con _) = TcInfo tcNm (map getTyVarBndrName tyVars) [extractConInfo f con]
+extractTcInfo _ _ = error "extractTcInfo: unsupported"
 
 mkNarrowEntry :: Name -> ConInfo -> Exp
 mkNarrowEntry idName conInfo = mkTupleE [conExp, mkIntExp (conArity conInfo)]
@@ -187,32 +183,39 @@ mkNarrowEntry idName conInfo = mkTupleE [conExp, mkIntExp (conArity conInfo)]
 mkPlus :: Exp -> Exp -> Exp
 mkPlus e1 e2 = applyExp (VarE '(+)) [e1, e2]
 
+genMTy :: Q Type
+genMTy = VarT <$> newName "m"
+
 genInstances :: Dec -> Dec -> DecsQ
 genInstances (ClassD _ originalName _ _ _) (ClassD _ liftedName _ _ _) = do
   let originalTc = ConT originalName
-  let liftedTc = ConT liftedName
-  return [TySynInstD $ TySynEqn Nothing (mkLifted originalTc) liftedTc]
+  mTy <- genMTy
+  let liftedTc = AppT (ConT liftedName) mTy --TODO: generate all applications of the typeconstructor
+  return [TySynInstD $ TySynEqn Nothing (mkLifted mTy originalTc) liftedTc]
 genInstances (TySynD originalName _ _) (TySynD liftedName _ _) = do
   let originalTc = ConT originalName
-  let liftedTc = ConT liftedName
-  return [TySynInstD $ TySynEqn Nothing (mkLifted originalTc) liftedTc]
+  mTy <- genMTy
+  let liftedTc = AppT (ConT liftedName) mTy
+  return [TySynInstD $ TySynEqn Nothing (mkLifted mTy originalTc) liftedTc]
 genInstances originalDataDec liftedDataDec = do
-  let originalTcInfo = extractTcInfo originalDataDec
+  mTy <- genMTy
+
+  let originalTcInfo = extractTcInfo id originalDataDec
       originalTc = ConT $ tcName originalTcInfo
       originalTyVarNames = tcVarNames originalTcInfo
       originalTyVars = map VarT originalTyVarNames
       originalTy = applyType (ConT $ tcName originalTcInfo) originalTyVars
       originalConInfos = tcConInfos originalTcInfo
       originalConArgs = concatMap conArgs originalConInfos
-  let liftedTcInfo = extractTcInfo liftedDataDec
-      liftedTc = ConT $ tcName liftedTcInfo
-      liftedTyVarNames = tcVarNames liftedTcInfo
+  let liftedTcInfo = extractTcInfo innerType liftedDataDec
+      liftedTc = AppT (ConT $ tcName liftedTcInfo) mTy
+      liftedTyVarNames = tail $ tcVarNames liftedTcInfo -- Discard the monad parameter here
       liftedTyVars = map VarT liftedTyVarNames
-      liftedTy = applyType (ConT $ tcName liftedTcInfo) liftedTyVars
+      liftedTy = applyType (ConT $ tcName liftedTcInfo) $ ConT ''FL : liftedTyVars
       liftedConInfos = tcConInfos liftedTcInfo
       liftedConArgs = concatMap conArgs liftedConInfos
 
-  let genHasPrimitiveInfo = return $ InstanceD Nothing [] (mkHasPrimitiveInfoConstraint liftedTy) []
+  let genHasPrimitiveInfo = return $ InstanceD Nothing [] (mkHasPrimitiveInfoConstraint liftedTy) [] :: Q Dec
 
       genNarrowable = do
         jName <- newName "j"
@@ -222,7 +225,11 @@ genInstances originalDataDec liftedDataDec = do
             ctxt = map mkNarrowableConstraint liftedConArgs ++ map mkHasPrimitiveInfoConstraint liftedConArgs
         return $ InstanceD Nothing ctxt (mkNarrowableConstraint liftedTy) [dec]
 
-      genLifted = return $ TySynInstD $ TySynEqn Nothing (mkLifted originalTc) liftedTc
+      genLifted = do
+        let genOne n =
+              let relevantVars = take n liftedTyVars
+              in TySynInstD $ TySynEqn Nothing (mkLifted mTy (applyType originalTc relevantVars)) (applyType liftedTc (map (mkLifted mTy) relevantVars))
+        return $ map genOne [0 .. length liftedTyVars] :: DecsQ
 
       genConvertible = do
         let genTo = do
@@ -262,7 +269,7 @@ genInstances originalDataDec liftedDataDec = do
         dec <- genMatch
         let ctxt = map mkConvertibleConstraint originalConArgs ++
                      map mkMatchableConstraint originalConArgs ++
-                     map (mkHasPrimitiveInfoConstraint . mkLifted) originalConArgs
+                     map (mkHasPrimitiveInfoConstraint . mkLifted (ConT ''FL)) originalConArgs
         return $ InstanceD Nothing ctxt (mkMatchableConstraint originalTy) [dec]
 
       genGroundable = do
@@ -284,18 +291,18 @@ genInstances originalDataDec liftedDataDec = do
       genInvertible = do
         let ctxt = [ mkConvertibleConstraint originalTy
                    , mkMatchableConstraint originalTy
-                   , mkNFConstraint (mkLifted originalTy)
+                   , mkNFConstraint (mkLifted (ConT ''FL) originalTy)
                    ]
-        return $ InstanceD Nothing ctxt (mkInvertibleConstraint originalTy) []
+        return $ InstanceD Nothing ctxt (mkInvertibleConstraint originalTy) [] :: Q Dec
 
-  sequence [genHasPrimitiveInfo, genNarrowable, genLifted, genConvertible, genMatchable, genGroundable, genInvertible]
+  (++) <$> genLifted <*> sequence [genHasPrimitiveInfo, genNarrowable, genConvertible, genMatchable, genGroundable, genInvertible]
 
 innerType :: Type -> Type
-innerType (AppT (ConT n) ty) | n == ''FL = ty
-innerType ty = ty
+innerType (AppT (VarT _) ty) = ty
+innerType ty = error $ "Plugin.Effect.TH.innerType: incorrect usage on -> " ++ show ty
 
-mkLifted :: Type -> Type
-mkLifted ty = applyType (ConT ''Lifted) [ty]
+mkLifted :: Type -> Type -> Type
+mkLifted mty ty = applyType (ConT ''Lifted) [mty, ty]
 
 mkHasPrimitiveInfoConstraint :: Type -> Type
 mkHasPrimitiveInfoConstraint ty = applyType (ConT ''HasPrimitiveInfo) [ty]

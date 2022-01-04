@@ -117,8 +117,9 @@ liftPat' tcs p@ConPatOut{ pat_args = args
   -- The tys are basically type applications for the tyvars of con,
   -- so we have to use liftInnerTy.
   tys' <- mapM (liftInnerTyTcM tcs) tys
+  mty <- mkTyConTy <$> getMonadTycon
   con' <- L l . RealDataCon <$> liftIO (getLiftedCon con tcs)
-  let p' = p { pat_args = args', pat_arg_tys = tys', pat_con = con' }
+  let p' = p { pat_args = args', pat_arg_tys = mty:tys', pat_con = con' }
   return (p', varsS)
 liftPat' _ p@ConPatOut{ } = do
   flags <- getDynFlags
