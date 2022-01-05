@@ -1,8 +1,10 @@
+{-# LANGUAGE BangPatterns           #-}
 {-# LANGUAGE DataKinds              #-}
 {-# LANGUAGE FlexibleContexts       #-}
 {-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE LambdaCase             #-}
 {-# LANGUAGE MagicHash              #-}
+{-# LANGUAGE MultiParamTypeClasses  #-}
 {-# LANGUAGE NoStarIsType           #-}
 {-# LANGUAGE PolyKinds              #-}
 {-# LANGUAGE RankNTypes             #-}
@@ -29,6 +31,7 @@
 -- 'Plugin.InversionPlugin.Prelude' instead.
 module Plugin.BuiltIn where
 
+import qualified Control.Monad.State as S
 import qualified Control.Monad as P
 import qualified GHC.Base      as P hiding (mapM)
 import qualified GHC.Real      as P
@@ -40,6 +43,7 @@ import           GHC.Int   (Int64(..), Int(..))
 import           Unsafe.Coerce ( unsafeCoerce )
 import           Prelude ( Bool (..), Double, Float, Integer, Ordering (..), ($) )
 import           Data.Proxy
+import           Data.SBV (SymVal, SBool, SBV, sNot, (.===), (.>), (.<), (.<=), (.>=))
 import           Plugin.Effect.Monad as M
 import           Plugin.Effect.Util  as M
 import           Plugin.Effect.TH
@@ -60,27 +64,27 @@ type instance Lifted m [a] = ListFL m (Lifted m a)
 
 instance HasPrimitiveInfo (ListFL FL a)
 
-instance (Narrowable a, HasPrimitiveInfo a) => Narrowable (ListFL FL a) where
-  narrow _ j _ = [(NilFL, 0), (ConsFL (freeFL j) (freeFL (j P.+ 1)), 2)]
+instance (Narrowable a) => Narrowable (ListFL FL a) where
+  narrow _ j _ = [(NilFL, P.Left 0), (ConsFL (freeFL j) (freeFL (j P.+ 1)), P.Left 2)]
 
 instance (Convertible a) => Convertible [a] where
   to [] = NilFL
   to (x : xs) = ConsFL (toFL x) (toFL xs)
-  from NilFL = []
-  from (ConsFL x xs) = fromFL x : fromFL xs
+  fromWith _ NilFL = []
+  fromWith ff (ConsFL x xs) = ff x : ff xs
 
 instance (Convertible a, Matchable a, HasPrimitiveInfo (Lifted FL a)) => Matchable [a] where
   match [] NilFL = P.return ()
   match (x : xs) (ConsFL y ys) = matchFL x y P.>> matchFL xs ys
   match _ _ = P.empty
 
-instance NF a => NF (ListFL FL a) where
-  nf f = \case
-      NilFL -> P.return NilFL
+instance NF a a' => NF [a] (ListFL FL a') where
+  normalFormWith nf = \case
+      NilFL -> P.return (P.pure NilFL)
       ConsFL x xs ->
-        f x P.>>= \y ->
-          f xs P.>>= \ys ->
-            P.return (ConsFL (P.return y) (P.return ys))
+        nf x P.>>= \y ->
+          nf xs P.>>= \ys ->
+            P.return (P.pure (ConsFL y ys))
 
 instance Invertible a => Invertible [a]
 
@@ -89,15 +93,26 @@ data RatioFL m a = m a :%# m a
 type instance Lifted m P.Ratio = RatioFL m
 type instance Lifted m (P.Ratio a) = RatioFL m (Lifted m a)
 
-instance (Narrowable a, HasPrimitiveInfo a) => Narrowable (RatioFL FL a) where
-  narrow _ j _ = [(freeFL j :%# freeFL (j P.+ 1), 2)]
+instance HasPrimitiveInfo (RatioFL FL a)
+
+instance (Narrowable a) => Narrowable (RatioFL FL a) where
+  narrow _ j _ = [(freeFL j :%# freeFL (j P.+ 1), P.Left 2)]
 
 instance (Convertible a) => Convertible (P.Ratio a) where
   to (a P.:% b) = toFL a :%# toFL b
-  from (a :%# b) = fromFL a P.:% fromFL b
+  fromWith ff (a :%# b) = ff a P.:% ff b
 
 instance (Convertible a, Matchable a, HasPrimitiveInfo (Lifted FL a)) => Matchable (P.Ratio a) where
   match (a P.:% b) (x :%# y) = matchFL a x P.>> matchFL b y
+
+-- TODO NF Ratio
+-- instance NF a => NF (ListFL FL a) where
+--   normalFormWith nf = \case
+--       NilFL -> P.return (P.pure NilFL)
+--       ConsFL x xs ->
+--         nf x P.>>= \y ->
+--           nf xs P.>>= \ys ->
+--             P.return (P.pure (ConsFL y ys))
 
 type RationalFL m = RatioFL m (IntegerFL m)
 
@@ -207,16 +222,17 @@ type instance Lifted m Bool = BoolFL m
 instance HasPrimitiveInfo (BoolFL FL)
 
 instance Narrowable (BoolFL FL) where
-  narrow _ _ _ = P.coerce [(False, 0 :: Integer), (True, 0)]
+  narrow _ _ _ = [(BoolFL False, P.Left 0), (BoolFL True, P.Left 0)]
 
 instance Convertible Bool where
   to = P.coerce
-  from = P.coerce
+  fromWith _ = P.coerce
 
 instance Matchable Bool where
   match x y = P.guard (x P.== P.coerce y)
 
-instance NF (BoolFL FL)
+instance NF Bool (BoolFL FL) where
+  normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
 instance Invertible Bool
 
@@ -227,16 +243,17 @@ type instance Lifted m () = UnitFL m
 instance HasPrimitiveInfo (UnitFL FL)
 
 instance Narrowable (UnitFL FL) where
-  narrow _ _ _ = P.coerce [((), 0 :: Integer)]
+  narrow _ _ _ = [(UnitFL (), P.Left 0)]
 
 instance Convertible () where
   to = P.coerce
-  from = P.coerce
+  fromWith _ = P.coerce
 
 instance Matchable () where
   match x y = P.guard (x P.== P.coerce y)
 
-instance NF (UnitFL FL)
+instance NF () (UnitFL FL) where
+  normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
 instance Invertible ()
 
@@ -247,16 +264,17 @@ type instance Lifted m Ordering = OrderingFL m
 instance HasPrimitiveInfo (OrderingFL FL)
 
 instance Narrowable (OrderingFL FL) where
-  narrow _ _ _ = P.coerce [(LT , 0 :: Integer), (EQ, 0), (GT, 0)]
+  narrow _ _ _ = [(OrderingFL LT , P.Left 0), (OrderingFL EQ, P.Left 0), (OrderingFL GT, P.Left 0)]
 
 instance Convertible Ordering where
   to = P.coerce
-  from = P.coerce
+  fromWith _ = P.coerce
 
 instance Matchable Ordering where
   match x y = P.guard (x P.== P.coerce y)
 
-instance NF (OrderingFL FL)
+instance NF Ordering (OrderingFL FL) where
+  normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
 instance Invertible Ordering
 
@@ -272,12 +290,13 @@ instance Narrowable (IntegerFL FL) where
 
 instance Convertible Integer where
   to = P.coerce
-  from = P.coerce
+  fromWith _ = P.coerce
 
 instance Matchable Integer where
   match x y = P.guard (x P.== P.coerce y)
 
-instance NF (IntegerFL FL)
+instance NF Integer (IntegerFL FL) where
+  normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
 instance Invertible Integer
 
@@ -293,12 +312,13 @@ instance Narrowable (IntFL FL) where
 
 instance Convertible Int where
   to (I# i) = IntFL (I64# i)
-  from (IntFL (I64# i)) = I# i
+  fromWith _ (IntFL (I64# i)) = I# i
 
 instance Matchable Int where
   match (I# i1) (IntFL (I64# i2)) = P.guard (I# i1 P.== I# i2)
 
-instance NF (IntFL FL)
+instance NF Int (IntFL FL) where
+  normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
 instance Invertible Int
 
@@ -314,12 +334,13 @@ instance Narrowable (FloatFL FL) where
 
 instance Convertible Float where
   to = P.coerce
-  from = P.coerce
+  fromWith _ = P.coerce
 
 instance Matchable Float where
   match x y = P.guard (x P.== P.coerce y)
 
-instance NF (FloatFL FL)
+instance NF Float (FloatFL FL) where
+  normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
 instance Invertible Float
 
@@ -335,12 +356,13 @@ instance Narrowable (DoubleFL FL) where
 
 instance Convertible Double where
   to = P.coerce
-  from = P.coerce
+  fromWith _ = P.coerce
 
 instance Matchable Double where
   match x y = P.guard (x P.== P.coerce y)
 
-instance NF (DoubleFL FL)
+instance NF Double (DoubleFL FL) where
+  normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
 instance Invertible Double
 
@@ -356,12 +378,13 @@ instance Narrowable (CharFL FL) where
 
 instance Convertible P.Char where
   to = P.coerce
-  from = P.coerce
+  fromWith _ = P.coerce
 
 instance Matchable P.Char where
   match x y = P.guard (x P.== P.coerce y)
 
-instance NF (CharFL FL)
+instance NF P.Char (CharFL FL) where
+  normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
 instance Invertible P.Char
 
@@ -557,7 +580,10 @@ instance OrdFL (IntFL FL) where
   compare = liftFL2Convert P.compare
 
 instance OrdFL (IntegerFL FL) where
-  compare = liftFL2Convert P.compare
+  (>=) = primitiveOrd2 @_ @Integer @_ @Integer (P.>=) (.>=)
+  (<=) = primitiveOrd2 @_ @Integer @_ @Integer (P.<=) (.<=)
+  (>) = primitiveOrd2 @_ @Integer @_ @Integer (P.>) (.>)
+  (<) = primitiveOrd2 @_ @Integer @_ @Integer (P.<) (.<)
 
 instance OrdFL (FloatFL FL) where
   compare = liftFL2Convert P.compare
@@ -591,10 +617,10 @@ class NumFL a where
   fromInteger :: FL (IntegerFL FL :--> a)
 
 instance NumFL (IntFL FL) where
-  (+) = liftFL2Convert (P.+)
+  (+) = primitive2 @_ @Int64 @_ @Int64 (P.+) (P.+)
   (-) = liftFL2Convert (P.-)
   (*) = liftFL2Convert (P.*)
-  negate = liftFL1Convert P.negate
+  negate = primitive1 @_ @Int64 P.negate P.negate
   abs    = liftFL1Convert P.abs
   signum = liftFL1Convert P.signum
   fromInteger = liftFL1Convert P.fromInteger
@@ -910,3 +936,73 @@ class IsStringFL a where
 
 instance (a ~ CharFL FL) => IsStringFL (ListFL FL a) where
   fromString = returnFLF P.id
+
+
+withFLVal :: ND FLState (FLVal a) -> (FLVal a -> ND FLState b) -> ND FLState b
+withFLVal nd f = nd P.>>= \case
+  Var i -> S.get P.>>= \FLState {..} -> f (P.maybe (Var i) Val $ findBinding i heap)
+  Val a -> f (Val a)
+
+primitive1 :: forall a' a b' b.
+              ( P.Coercible a' a, Constrainable a, Narrowable a', HasPrimitiveInfo a'
+              , P.Coercible b' b, Constrainable b, Narrowable b', HasPrimitiveInfo b')
+           => (a -> b) -> (SBV a -> SBV b) -> FL (a' :--> b')
+primitive1 f sF = returnFLF $ \x ->
+  FL $
+    unFL x `withFLVal` \case
+      Val a -> unFL $ returnFL' (coerce (f (coerce a)))
+      Var i -> do
+        j <- freshIdentifierND
+        assertConstraintND (varToSBV j .=== sF (varToSBV i)) [j, i]
+        -- Consistency not necessary, see comment in primitive2
+        P.return (Var j)
+
+primitive2 :: forall a' a b' b c' c.
+              ( P.Coercible a' a, Constrainable a, Narrowable a', HasPrimitiveInfo a'
+              , P.Coercible b' b, Constrainable b, Narrowable b', HasPrimitiveInfo b'
+              , P.Coercible c' c, Constrainable c, Narrowable c', HasPrimitiveInfo c')
+           => (a -> b -> c) -> (SBV a -> SBV b -> SBV c) -> FL (a' :--> b' :--> c')
+primitive2 op sOp = returnFLF $ \x -> returnFLF $ \y ->
+  FL $
+    unFL x `withFLVal` \x' ->
+      unFL y `withFLVal` \y' ->
+        case (# x', y' #) of
+          (# Val a, Val b #) -> unFL $ returnFL' $ coerce (coerce a `op` coerce b)
+          _                  -> do
+            j <- freshIdentifierND
+            assertConstraintND (varToSBV j .=== toSBV x' `sOp` toSBV y') (j : varsOf x' y')
+            -- Diss: Checking consistency is unnecessary, because "j" is fresh.
+            -- However, it is important to enter x and y in the set of constrained vars, because
+            -- they might get constrained indirectly via "j". Example:
+            -- j <- x + y
+            -- j <- 1
+            -- matchFL 9 x
+            -- matchFL 0 y
+            P.return (Var j)
+            where
+              varsOf x'' y'' = varOf x'' P.++ varOf y''
+              varOf (Var i) = [i]
+              varOf _       = []
+
+primitiveOrd2 :: forall a' a b' b.
+                 (P.Coercible a' a, SymVal a, P.Coercible b' b, SymVal b)
+              => (a -> b -> Bool) -> (SBV a -> SBV b -> SBool) -> FL (a' :--> b' :--> BoolFL FL)
+primitiveOrd2 op opS = returnFLF $ \x -> returnFLF $ \y ->
+  FL $
+    unFL x `withFLVal` \x' ->
+      unFL y `withFLVal` \y' ->
+        unFL $ case (# x', y' #) of
+          (# Val a, Val b #) -> P.return (BoolFL (coerce a `op` coerce b))
+          _                  -> FL (trueBranch P.<|> falseBranch)
+            where
+              trueBranch = do
+                assertConstraintND (toSBV x' `opS` toSBV y') (varsOf x' y')
+                checkConsistencyND -- DISS: optional, iff x and y were unconstrained
+                P.return (Val (BoolFL True))
+              falseBranch = do
+                assertConstraintND (sNot (toSBV x' `opS` toSBV y')) (varsOf x' y')
+                checkConsistencyND -- DISS: optional, iff x and y were unconstrained
+                P.return (Val (BoolFL False))
+              varsOf x'' y'' = varOf x'' P.++ varOf y''
+              varOf (Var i) = [i]
+              varOf _       = []

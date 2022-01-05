@@ -448,4 +448,5 @@ requiredExtensions =
   , UndecidableInstances
   , IncoherentInstances
   , EmptyCase
+  , MultiParamTypeClasses
   ]

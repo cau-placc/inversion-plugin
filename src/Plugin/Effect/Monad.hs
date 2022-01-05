@@ -17,6 +17,9 @@
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE QuantifiedConstraints #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE UnboxedTuples #-}
 module Plugin.Effect.Monad where
 
 import Control.Exception
@@ -36,12 +39,12 @@ import           Data.SBV.Control
 import           Data.Typeable (Typeable)
 #endif
 import           Test.ChasingBottoms.IsBottom (isBottom)
-import           Data.Coerce
-import           Unsafe.Coerce
-import           System.IO.Unsafe
-
-import           Plugin.Effect.Tree
-import Data.Typeable
+import           Data.Either (fromRight)
+import           Data.Coerce (coerce, Coercible )
+import           Data.Typeable (Proxy, type (:~:)(..))
+import           Unsafe.Coerce (unsafeCoerce )
+import           System.IO.Unsafe (unsafePerformIO)
+import           Control.Monad.Identity
 
 type ND s = Codensity (ReaderT s Search)
 
@@ -55,15 +58,12 @@ data FLVal a = (Narrowable a, Typeable a, HasPrimitiveInfo a) => Var ID | Val a
 data FLVal a = (Narrowable a, HasPrimitiveInfo a) => Var ID | Val a
 #endif
 
-unVal :: FLVal a -> a
-unVal (Val x) = x
-unVal (Var _) = throw FreeVariableException
 --------------------------------------------------------------------------------
 
 newtype FL a = FL { unFL :: ND FLState (FLVal a) }
 
-evalFL :: FL a -> Search a
-evalFL (FL nd) = unVal <$> evalND nd initFLState
+evalWith :: NF a (Lifted FL a) => (forall b. NF b (Lifted FL b) => FL (Lifted FL b) -> ND FLState (m (Lifted m b))) -> FL (Lifted FL a) -> Search (m (Lifted m a))
+evalWith nf fl = evalND (nf fl) initFLState
 
 instance Functor FL where
   fmap = liftM
@@ -74,7 +74,7 @@ instance Applicative FL where
 
 instance Monad FL where
   (FL nd) >>= f = FL $
-    nd >>= \case
+    nd >>= resolveND >>= \case
       Var i -> instantiateND i >>= unFL . f
       Val x -> unFL (f x)
 
@@ -97,9 +97,13 @@ freeFL i = FL (return (Var i))
 --------------------------------------------------------------------------------
 
 data FLState = FLState {
-    nextID :: ID,
-    heap   :: Heap,
-    constraints :: [Constraint],
+    nextID          :: ID,
+    heap            :: Heap,
+    constraintStore :: ConstraintStore
+  }
+
+data ConstraintStore = CStore {
+    constraints     :: [Constraint],
     constrainedVars :: Set ID
   }
 
@@ -107,8 +111,10 @@ initFLState :: FLState
 initFLState = FLState {
     nextID = 0,
     heap = Map.empty,
-    constraints = [],
-    constrainedVars = Set.empty
+    constraintStore = CStore {
+      constraints = [],
+      constrainedVars = Set.empty
+    }
   }
 
 --------------------------------------------------------------------------------
@@ -141,32 +147,37 @@ findBinding i = fmap (\(Untyped x) -> unsafeCoerce x) . Map.lookup i
 --------------------------------------------------------------------------------
 
 type Constraint = SBool
-
-type ConstraintStore = ([Constraint], Set ID)
+type Constrainable b = SymVal b
 
 insertConstraint :: Constraint -> [ID] -> ConstraintStore -> ConstraintStore
-insertConstraint c ids (cs, vs) = (c : cs, Set.fromList ids `Set.union` vs)
+insertConstraint c ids (CStore cs vs) = CStore (c : cs) (Set.fromList ids `Set.union` vs)
 
 isConsistent :: ConstraintStore -> Bool
 isConsistent cst = unsafePerformIO $
   runSMT $ do
-    mapM_ constrain $ fst cst
-    query $
-      checkSat >>= \case
-        Sat -> return True
-        _ -> return False
+    mapM_ constrain (constraints cst)
+    query $ checkSat >>= \case
+      Sat -> return True
+      _ -> return False
 
 isUnconstrained :: ID -> ConstraintStore -> Bool
-isUnconstrained i = Set.notMember i . snd
+isUnconstrained i = Set.notMember i . constrainedVars
 
+{-# DEPRECATED toSBV "use specialized" #-}
 toSBV :: (Coercible a b, SymVal b) => FLVal a -> SBV b
 toSBV (Var i) = sym $ "x" ++ (if i < 0 then "n" else "") ++ show (abs i)
 toSBV (Val a) = literal (coerce a)
 
+varToSBV :: Constrainable a => ID -> SBV a
+varToSBV i = sym $ "x" ++ (if i < 0 then "n" else "") ++ show (abs i)
+
+valToSBV :: Constrainable b => b -> SBV b
+valToSBV = literal
+
 --------------------------------------------------------------------------------
 
 data PrimitiveInfo a = NoPrimitive
-                     | forall b. (Coercible a b, SymVal b) => Primitive (Proxy (a, b))
+                     | forall b. (Coercible a b, Constrainable b) => Primitive (Proxy (a, b))
 
 class HasPrimitiveInfo a where
   primitiveInfo :: PrimitiveInfo a
@@ -174,52 +185,55 @@ class HasPrimitiveInfo a where
 
 --------------------------------------------------------------------------------
 
-class Narrowable a where
+class HasPrimitiveInfo a => Narrowable a where
   -- TODO: somehow we only want one ID, but have not figured out how to to that yet.
   -- Thus, for now the first is the variable to be narrowed and the second is the next fresh ID
-  narrow :: ID -> ID -> ConstraintStore -> [(a, Integer)]
+  narrow :: ID -> ID -> ConstraintStore -> [(a, Either Integer Constraint)]
 
-narrowPrimitive :: forall a b. (HasPrimitiveInfo a, Narrowable a, Coercible a b, SymVal b) => ID -> ID -> ConstraintStore -> [(a, Integer)]
-narrowPrimitive i j cst = unsafePerformIO $ runSMT $ do
-  mapM_ constrain $ fst cst
-  query $ checkSat >>= \case
-    Sat -> do
-      v <- coerce @b @a <$> getValue (toSBV @a @b (Var i))
-      let c = toSBV @a @b (Var i) ./== toSBV (Val v)
-      return ((v, 0) : narrowPrimitive @a @b i j (insertConstraint c [i] cst))
-    _   -> return []
+narrowPrimitive :: forall a b. (Coercible a b, Constrainable b) => ID -> ID -> ConstraintStore -> [(a, Either Integer Constraint)]
+narrowPrimitive i j cst = unsafePerformIO $
+  runSMT $  do
+    mapM_ constrain (constraints cst)
+    query $ checkSat >>= \case
+      Sat -> do
+        v <- getValue (varToSBV i)
+        let c = varToSBV i ./== valToSBV v
+        return ((coerce @b @a v, Right c) : narrowPrimitive @a @b i j (insertConstraint c [i] cst))
+      _   -> return []
+
+--TODO: rename
+resolveND :: FLVal a -> ND FLState (FLVal a)
+resolveND (Val x) = return (Val x)
+resolveND (Var i) = get >>= \ FLState {..} -> case findBinding i heap of
+  Nothing -> return (Var i)
+  Just x  -> return (Val x)
+
+--TODO: nd >>= resolveND is very common
 
 -- TODO: combine narrowable typeable and hasprimitiveinfo
 #ifdef TYPED
 instantiateND :: forall a. (Narrowable a, Typeable a, HasPrimitiveInfo a) => ID -> ND FLState a
 #else
-instantiateND :: forall a. (Narrowable a, HasPrimitiveInfo a) => ID -> ND FLState a
+instantiateND :: forall a. Narrowable a => ID -> ND FLState a
 #endif
-instantiateND i = get >>= \ FLState {..} -> case findBinding i heap of
-  Nothing -> msum (map update (narrow i nextID (constraints, constrainedVars)))
-    where
-      update (x, o) =
-        let cst' = case primitiveInfo of
-                      NoPrimitive                     -> (constraints, constrainedVars)
-                      Primitive (_ :: (Proxy (a, b))) ->
-                        let c = toSBV @a @b (Var i) .=== toSBV @a @b (Val x)
-                        in insertConstraint c [i] (constraints, constrainedVars)
-        in put (FLState (nextID + o) (insertBinding i x heap) (fst cst') (snd cst')) >> return x
-  Just x  -> return x
+instantiateND i = get >>= \ FLState {..} ->
+    let
+      update (x, Left  o) = put (FLState (nextID + o) (insertBinding i x heap) constraintStore) >> return x
+      update (x, Right c) = put (FLState nextID (insertBinding i x heap) (insertConstraint c [i] constraintStore)) >> return x
+    in msum (map update (narrow i nextID constraintStore))
 
-class (Narrowable a, HasPrimitiveInfo a) => NF a where
-  nf :: (forall x. NF x => FL x -> FL x) -> a -> FL a
-  nf _ = return
+class (b ~ Lifted FL a, Narrowable b) => NF a b | a -> b, b -> a where
+  normalFormWith :: Applicative m => (forall c. NF c (Lifted FL c) => FL (Lifted FL c) -> ND FLState (m (Lifted m c))) -> b -> ND FLState (m (Lifted m a))
 
-groundNormalFormFL :: NF a => FL a -> FL a
-groundNormalFormFL x = x >>= nf groundNormalFormFL
+groundNormalFormFL :: NF a (Lifted FL a) => FL (Lifted FL a) -> ND FLState (Identity (Lifted Identity a))
+groundNormalFormFL (FL nd) = nd >>= resolveND >>= \case
+  Val x -> normalFormWith groundNormalFormFL x
+  Var i -> instantiateND i >>= normalFormWith groundNormalFormFL
 
-normalFormFL :: NF a => FL a -> FL a
-normalFormFL (FL nd) = FL $ nd >>= \case
-  Val x -> unFL $ nf normalFormFL x
-  Var i -> get >>= \FLState { .. } -> case findBinding i heap of
-    Nothing -> return (Var i)
-    Just x  -> unFL $ nf normalFormFL x
+normalFormFL :: NF a (Lifted FL a) => FL (Lifted FL a) -> ND FLState (Either ID (Lifted (Either ID) a))
+normalFormFL (FL nd) = nd >>= resolveND >>= \case
+  Val x -> normalFormWith normalFormFL x
+  Var i -> return (Left i)
 
 --------------------------------------------------------------------------------
 
@@ -231,13 +245,19 @@ type family Lifted (m :: * -> *) (a :: k) = (b :: k) | b -> m a
 class Convertible a where
   to :: a -> Lifted FL a
 
-  from :: Lifted FL a -> a
+  fromWith :: (forall b. Convertible b => m (Lifted m b) -> b) -> Lifted m a -> a
 
 -- This function already incorporates the improvement from the paper for
 -- partial values in the context of partial inversion with higher-order functions.
 toFL :: Convertible a => a -> FL (Lifted FL a)
 toFL x | isBottom x = empty
        | otherwise  = return (to x)
+
+fromM :: Convertible a => (forall b. m b -> b) -> m (Lifted m a) -> a
+fromM unM = fromWith (fromM unM) . unM
+
+fromIdentity :: Convertible a => Identity (Lifted Identity a) -> a
+fromIdentity = fromM runIdentity
 
 data FreeVariableException = FreeVariableException
 
@@ -246,8 +266,11 @@ instance Show FreeVariableException where
 
 instance Exception FreeVariableException
 
-fromFL :: Convertible a => FL (Lifted FL a) -> a
-fromFL = from . head . bfs . evalFL
+fromEither :: Convertible a => Either ID (Lifted (Either ID) a) -> a
+fromEither = fromM (fromRight (throw FreeVariableException))
+
+unsafeFrom :: Convertible a => Lifted FL a -> a
+unsafeFrom = fromWith (error "Used 'unsafeFrom' on non-primitive value")
 
 --------------------------------------------------------------------------------
 
@@ -255,20 +278,18 @@ class Matchable a where
   match :: a -> Lifted FL a -> FL ()
 
 matchFL :: forall a. (Convertible a, Matchable a, HasPrimitiveInfo (Lifted FL a)) => a -> FL (Lifted FL a) -> FL ()
-matchFL x (FL nd) = FL $ nd >>= \case
-  Var i -> get >>= \ FLState { .. } -> case findBinding i heap of
-    Nothing -> case primitiveInfo @(Lifted FL a) of
-                  NoPrimitive                               -> update (constraints, constrainedVars)
-                  Primitive (_ :: (Proxy (Lifted FL a, b))) ->
-                    let c    = toSBV @(Lifted FL a) @b (Var i) .=== toSBV @(Lifted FL a) @b (Val (to x))
-                        cst' = insertConstraint c [i] (constraints, constrainedVars)
-                    in if isUnconstrained i (constraints, constrainedVars) || isConsistent (constraints, constrainedVars)
-                      then update cst'
-                      else unFL empty
-      where
-        update (cst, vs) = put (FLState nextID (insertBinding i (to x) heap) cst vs) >> return (Val ())
-    Just y  -> unFL $ match x y
-  Val y -> unFL $ match x y
+matchFL x (FL nd) = FL $ nd >>= resolveND >>= \case
+  Var i -> get >>= \ FLState { .. } ->
+    let update cst = put (FLState nextID (insertBinding i (to x) heap) cst) >> return (Val ())
+    in case primitiveInfo @(Lifted FL a) of
+        NoPrimitive                               -> update constraintStore
+        Primitive (_ :: (Proxy (Lifted FL a, b))) ->
+          let c    = toSBV @(Lifted FL a) @b (Var i) .=== toSBV @(Lifted FL a) @b (Val (to x))
+              cst' = insertConstraint c [i] constraintStore
+          in if isUnconstrained i constraintStore || isConsistent cst'
+            then update cst'
+            else unFL empty
+  Val y  -> unFL $ match x y
 
 -- linMatchFL :: forall a. (Convertible a, Matchable a) => a -> FL (Lifted a) -> FL ()
 -- linMatchFL x (FL nd) = FL $ nd >>= \case
@@ -279,7 +300,7 @@ matchFL x (FL nd) = FL $ nd >>= \case
 
 --------------------------------------------------------------------------------
 
-class (Matchable a, Convertible a, NF (Lifted FL a)) => Invertible a
+class (Matchable a, Convertible a, NF a (Lifted FL a)) => Invertible a
 
 --------------------------------------------------------------------------------
 
@@ -288,8 +309,8 @@ infixr 0 :-->
 type (:-->) = (-->) FL
 
 data (-->) (m :: * -> *) (a :: *) (b :: *) where
-  Func        :: (FL a -> FL b) -> (-->) m a b
-  HaskellFunc :: (Invertible c, Convertible d) => (c -> d) -> (-->) m (Lifted FL c) (Lifted FL d)
+  Func        :: (m a -> m b) -> (-->) m a b
+  HaskellFunc :: (Convertible c, NF c (Lifted FL c), Convertible d) => (c -> d) -> (-->) FL (Lifted FL c) (Lifted FL d)
 
 infixr 0 -->
 
@@ -297,13 +318,20 @@ type instance Lifted m (->) = (-->) m
 type instance Lifted m ((->) a) = (-->) m (Lifted m a)
 type instance Lifted m ((->) a b) = (-->) m (Lifted m a) (Lifted m b)
 
-instance (Invertible a, Convertible b) => Convertible (a -> b) where
+-- TODO: GHC injectivity check cannot do decomposition, https://gitlab.haskell.org/ghc/ghc/-/issues/10833
+-- Thus, we create the proof manually using unsafeCoerce
+decomposeInjectivity :: Lifted m a ~ Lifted m b => a :~: b
+decomposeInjectivity = unsafeCoerce Refl
+
+instance (Convertible a, NF a (Lifted FL a), Convertible b) => Convertible (a -> b) where
   to f = HaskellFunc f
 
-  from (HaskellFunc f) = unsafeCoerce f
-  from (Func        _) = error "Cannot convert function type"
+  -- from (HaskellFunc f) = unsafeCoerce f -- TODO: GHC injectivity check cannot do decomposition, https://gitlab.haskell.org/ghc/ghc/-/issues/10833
+  fromWith _ (HaskellFunc (f :: c -> d)) x = case (# decomposeInjectivity @FL @a @c, decomposeInjectivity @FL @b @d #) of
+      (# Refl, Refl #) -> f x
+  fromWith _ (Func        _) _ = error "Cannot convert function type"
 
 appFL :: FL ((-->) FL a b) -> FL a -> FL b
 mf `appFL` x = mf >>= \case
   Func f        -> f x
-  HaskellFunc f -> groundNormalFormFL x >>= (toFL . f . from)
+  HaskellFunc f -> FL $ groundNormalFormFL x >>= (unFL . toFL . f . fromIdentity)

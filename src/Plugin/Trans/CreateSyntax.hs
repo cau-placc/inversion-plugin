@@ -31,7 +31,7 @@ import TcSimplify
 import Constraint
 import Bag
 
-import Plugin.Effect.Monad ( type (-->)(..), appFL, unFL, to, toFL, from, Convertible, FL, Lifted )
+import Plugin.Effect.Monad ( type (-->)(..), appFL, unFL, to, toFL, Convertible, FL, Lifted )
 import Plugin.Trans.Constr
 import Plugin.Trans.Type
 import Plugin.Trans.Util
@@ -179,14 +179,6 @@ mkNewToFL ty1 ty2 = do
   mtycon <- getMonadTycon
   th_expr <- liftQ [| toFL |]
   let expType = mkVisFunTy ty1 (mkTyConApp mtycon [ty2])
-  mkNewAny th_expr expType
-
--- | Create a 'nf' for the given argument types.
-mkNewNfTh :: Type -> Type -> TcM (LHsExpr GhcTc)
-mkNewNfTh ty1 ty2 = do
-  mty <- (. (: [])) . mkTyConApp <$> getMonadTycon
-  th_expr <- liftQ [| fmap from |]
-  let expType = mkVisFunTy (mty ty1) (mty ty2) -- m a -> m b
   mkNewAny th_expr expType
 
 -- | Create a 'apply1' for the given argument types.
