@@ -164,7 +164,7 @@ isUnconstrained :: ID -> ConstraintStore -> Bool
 isUnconstrained i = Set.notMember i . constrainedVars
 
 {-# DEPRECATED toSBV "use specialized" #-}
-toSBV :: (Coercible a b, SymVal b) => FLVal a -> SBV b
+toSBV :: (Coercible a b, Constrainable b) => FLVal a -> SBV b
 toSBV (Var i) = sym $ "x" ++ (if i < 0 then "n" else "") ++ show (abs i)
 toSBV (Val a) = literal (coerce a)
 

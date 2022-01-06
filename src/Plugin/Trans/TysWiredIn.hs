@@ -20,6 +20,8 @@ import UniqMap
 import Finder
 import IfaceEnv
 import TcRnMonad
+import PrelNames
+
 
 import Plugin.Trans.Type
 
@@ -51,14 +53,14 @@ load (n, s) = do
   new <- getTyCon builtInModule s
   return (old, new)
 
--- | Get the lifted and unlifted TyCons of type constructors that are
--- not in 'PrelNames' for some reason.
 loadAdditional :: TcM [(TyCon, TyCon)]
 loadAdditional = do
   -- AlternativeClassName in PrelNames is incorrect, so we look it up manually
   hscEnv <- getTopEnv
   Found _ bse <- liftIO $
     findImportedModule hscEnv (mkModuleName "GHC.Base") Nothing
+  altA <- lookupTyCon =<< lookupOrig bse ( mkTcOcc "Alternative" )
+  newA <- getTyCon builtInModule "AlternativeFL"
 
   -- String is not in PrelNames, so we do the same.
   altS <- lookupTyCon =<< lookupOrig bse ( mkTcOcc "String" )
@@ -67,13 +69,25 @@ loadAdditional = do
   let altF = funTyCon
   newF <- getFunTycon
 
+  -- And again for ShowS.
+  Found _ shw  <- liftIO $
+    findImportedModule hscEnv (mkModuleName "GHC.Show") Nothing
+  altH <- lookupTyCon =<< lookupOrig shw ( mkTcOcc "ShowS" )
+  newH <- getTyCon builtInModule "ShowSFL"
+
+  -- And again for Real.
+  Found _ real <- liftIO $
+    findImportedModule hscEnv (mkModuleName "GHC.Real") Nothing
+  altR <- lookupTyCon =<< lookupOrig real ( mkTcOcc "Real" )
+  newR <- getTyCon builtInModule "RealFL"
+
   -- And again for Int# -> Int64
   Found _ int <- liftIO $
     findImportedModule hscEnv (mkModuleName "GHC.Int") Nothing
   newIntPrim <- lookupTyCon =<< lookupOrig int ( mkTcOcc "Int64" )
 
-  return [
-    (altS, newS), (altF, newF), (intPrimTyCon, newIntPrim)]
+  return [ (altH, newH), (altR, newR), (altA, newA)
+         , (altS, newS), (altF, newF), (intPrimTyCon, newIntPrim)]
 
 
 -- | A list of GHC's built-in type constructor names and the names of
@@ -82,11 +96,25 @@ originalNamesToLoad :: [(Name, String)]
 originalNamesToLoad = names
   where
     names =
-      [ (listTyConName        , "ListFL")
+      [ (eqClassName          , "EqFL")
+      , (ordClassName         , "OrdFL")
+      , (showClassName        , "ShowFL")
+      , (enumClassName        , "EnumFL")
+      , (numClassName         , "NumFL")
+      , (integralClassName    , "IntegralFL")
+      , (boundedClassName     , "BoundedFL")
+      , (functorClassName     , "FunctorFL")
+      , (applicativeClassName , "ApplicativeFL")
+      , (monadClassName       , "MonadFL")
+      , (monadFailClassName   , "MonadFailFL")
+      , (isStringClassName    , "IsStringFL")
+      , (listTyConName        , "ListFL")
+      , (rationalTyConName    , "RationalFL")
+      , (ratioTyConName       , "RatioFL")
       , (charTyConName        , "CharFL")
       , (intTyConName         , "IntFL")
       ]  ++
-      map tupleWithArity [100 .. maxTupleArity]
+      map tupleWithArity [2 .. maxTupleArity]
 
 -- | Create the GHC and plugin names for a tuple of given arity.
 tupleWithArity :: Int -> (Name, String)

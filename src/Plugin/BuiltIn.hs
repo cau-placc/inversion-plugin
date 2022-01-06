@@ -43,7 +43,7 @@ import           GHC.Int   (Int64(..), Int(..))
 import           Unsafe.Coerce ( unsafeCoerce )
 import           Prelude ( Bool (..), Double, Float, Integer, Ordering (..), ($) )
 import           Data.Proxy
-import           Data.SBV (SymVal, SBool, SBV, sNot, (.===), (.>), (.<), (.<=), (.>=))
+import           Data.SBV (SymVal, SBool, SBV, sNot, (.===), (.>), (.<), (.<=), (.>=), sMod, sDiv, sRem, sQuot)
 import           Plugin.Effect.Monad as M
 import           Plugin.Effect.Util  as M
 import           Plugin.Effect.TH
@@ -105,14 +105,12 @@ instance (Convertible a) => Convertible (P.Ratio a) where
 instance (Convertible a, Matchable a, HasPrimitiveInfo (Lifted FL a)) => Matchable (P.Ratio a) where
   match (a P.:% b) (x :%# y) = matchFL a x P.>> matchFL b y
 
--- TODO NF Ratio
--- instance NF a => NF (ListFL FL a) where
---   normalFormWith nf = \case
---       NilFL -> P.return (P.pure NilFL)
---       ConsFL x xs ->
---         nf x P.>>= \y ->
---           nf xs P.>>= \ys ->
---             P.return (P.pure (ConsFL y ys))
+instance NF a a' => NF (P.Ratio a) (RatioFL FL a') where
+   normalFormWith nf = \case
+       a :%# b ->
+         nf a P.>>= \x ->
+           nf b P.>>= \y ->
+             P.return (P.pure (x :%# y))
 
 type RationalFL m = RatioFL m (IntegerFL m)
 
@@ -169,6 +167,14 @@ eqCharFL = liftFL1Convert (P.==)
     op (I# i1) (I# i2) = I# (i1 P.==# i2)
 
 -- * Prelude stuff
+
+fstFL :: FL (Tuple2FL FL a b :--> a)
+fstFL = returnFLF $ \x -> x P.>>= \case
+  Tuple2FL a _ -> a
+
+sndFL :: FL (Tuple2FL FL a b :--> b)
+sndFL = returnFLF $ \x -> x P.>>= \case
+  Tuple2FL _ b -> b
 
 undefinedFL :: forall (r :: RuntimeRep) . forall (a :: P.Type) . P.HasCallStack => FL a
 undefinedFL = P.empty
@@ -394,16 +400,16 @@ type ShowSFL m = (-->) m (StringFL m) (StringFL m)
 
 -- | Lifted Show type class
 class ShowFL a where
-  {-# MINIMAL showsPrec | show #-}
-  showsPrec :: FL (IntFL FL :--> a :--> ShowSFL FL)
-  showsPrec = returnFLF $ \_ -> returnFLF $ \x -> returnFLF $ \s ->
-    apply2FL appendFL (show `appFL` x) s
+  {-# MINIMAL showsPrecFL | showFL #-}
+  showsPrecFL :: FL (IntFL FL :--> a :--> ShowSFL FL)
+  showsPrecFL = returnFLF $ \_ -> returnFLF $ \x -> returnFLF $ \s ->
+    apply2FL appendFL (showFL `appFL` x) s
 
-  show :: FL (a :--> StringFL FL)
-  show = returnFLF $ \x -> apply2FL shows x (P.return NilFL)
+  showFL :: FL (a :--> StringFL FL)
+  showFL = returnFLF $ \x -> apply2FL shows x (P.return NilFL)
 
-  showList :: FL (ListFL FL a :--> ShowSFL FL)
-  showList = returnFLF $ \ls -> returnFLF $ \s -> apply3FL showsList__ shows ls s
+  showListFL :: FL (ListFL FL a :--> ShowSFL FL)
+  showListFL = returnFLF $ \ls -> returnFLF $ \s -> apply3FL showsList__ shows ls s
 
 showsList__ :: FL ((a :--> ShowSFL FL) :--> ListFL FL a :--> ShowSFL FL)
 showsList__ = returnFLF $ \showx -> returnFLF $ \list -> returnFLF $ \s ->
@@ -421,7 +427,7 @@ showsList__ = returnFLF $ \showx -> returnFLF $ \list -> returnFLF $ \s ->
             (apply2FL showx y (apply3FL showl showx ys s)))
 
 shows :: ShowFL a => FL (a :--> ShowSFL FL)
-shows = showsPrec `appFL` toFL 0
+shows = showsPrecFL `appFL` toFL 0
 
 showString :: FL (StringFL FL :--> ShowSFL FL)
 showString = appendFL
@@ -439,71 +445,71 @@ showParen = returnFLF $ \b -> returnFLF $ \s -> b P.>>= \case
   BoolFL False -> s
 
 instance ShowFL (BoolFL FL) where
-  show = liftFL1Convert P.show
+  showFL = liftFL1Convert P.show
 
 instance ShowFL (UnitFL FL) where
-  show = liftFL1Convert P.show
+  showFL = liftFL1Convert P.show
 
 instance ShowFL (IntFL FL) where
-  show = liftFL1Convert P.show
+  showFL = liftFL1Convert P.show
 
 instance ShowFL (IntegerFL FL) where
-  show = liftFL1Convert P.show
+  showFL = liftFL1Convert P.show
 
 instance ShowFL (FloatFL FL) where
-  show = liftFL1Convert P.show
+  showFL = liftFL1Convert P.show
 
 instance ShowFL (DoubleFL FL) where
-  show = liftFL1Convert P.show
+  showFL = liftFL1Convert P.show
 
 instance ShowFL (CharFL FL) where
-  show = liftFL1Convert P.show
-  showList = liftFL1Convert P.showList
+  showFL = liftFL1Convert P.show
+  showListFL = returnFLF $ \x -> FL $ groundNormalFormFL x P.>>= \v -> unFL (toFL (P.showList (fromIdentity v)))
 
 instance ShowFL a => ShowFL (ListFL FL a) where
-  show = returnFLF $ \xs -> apply2FL showList xs (P.return NilFL)
+  showFL = returnFLF $ \xs -> apply2FL showListFL xs (P.return NilFL)
 
 
 -- * Lifted Eq type class, instances and functions
 
 -- | Lifted Eq type class
 class EqFL a where
-  (==) :: FL (a :--> a :--> BoolFL FL)
-  (==) = returnFLF $ \a1 -> returnFLF $ \a2 -> notFL `appFL` apply2FL(/=) a1 a2
+  (==#) :: FL (a :--> a :--> BoolFL FL)
+  (==#) = returnFLF $ \a1 -> returnFLF $ \a2 -> notFL `appFL` apply2FL (/=#) a1 a2
 
-  (/=) :: FL (a :--> a :--> BoolFL FL)
-  (/=) = returnFLF $ \a1 -> returnFLF $ \a2 -> notFL `appFL` apply2FL(==) a1 a2
+  (/=#) :: FL (a :--> a :--> BoolFL FL)
+  (/=#) = returnFLF $ \a1 -> returnFLF $ \a2 -> notFL `appFL` apply2FL (==#) a1 a2
 
 instance EqFL (BoolFL FL) where
-  (==) = liftFL2Convert (P.==)
-  (/=) = liftFL2Convert (P./=)
+  (==#) = liftFL2Convert (P.==)
+  (/=#) = liftFL2Convert (P./=)
 
 instance EqFL (UnitFL FL) where
-  (==) = liftFL2Convert (P.==)
-  (/=) = liftFL2Convert (P./=)
+  (==#) = liftFL2Convert (P.==)
+  (/=#) = liftFL2Convert (P./=)
 
 instance EqFL (IntFL FL) where
-  (==) = liftFL2Convert (P.==)
-  (/=) = liftFL2Convert (P./=)
+  (==#) = liftFL2Convert (P.==)
+  (/=#) = liftFL2Convert (P./=)
 
 instance EqFL (IntegerFL FL) where
-  (==) = liftFL2Convert (P.==)
-  (/=) = liftFL2Convert (P./=)
+  (==#) = liftFL2Convert (P.==)
+  (/=#) = liftFL2Convert (P./=)
 
 instance EqFL (FloatFL FL) where
-  (==) = liftFL2Convert (P.==)
-  (/=) = liftFL2Convert (P./=)
+  (==#) = liftFL2Convert (P.==)
+  (/=#) = liftFL2Convert (P./=)
 
 instance EqFL (DoubleFL FL) where
-  (==) = liftFL2Convert (P.==)
-  (/=) = liftFL2Convert (P./=)
+  (==#) = liftFL2Convert (P.==)
+  (/=#) = liftFL2Convert (P./=)
 
 instance EqFL (CharFL FL) where
-  (==) = liftFL2Convert (P.==)
-  (/=) = liftFL2Convert (P./=)
+  (==#) = liftFL2Convert (P.==)
+  (/=#) = liftFL2Convert (P./=)
 
 instance EqFL a => EqFL (ListFL FL a) where
-  (==) = returnFLF $ \a1 -> returnFLF $ \a2 -> a1 P.>>= \case
+  (==#) = returnFLF $ \a1 -> returnFLF $ \a2 -> a1 P.>>= \case
     NilFL       -> a2 P.>>= \case
       NilFL       -> P.return $ BoolFL True
       ConsFL _ _  -> P.return $ BoolFL False
@@ -512,411 +518,414 @@ instance EqFL a => EqFL (ListFL FL a) where
       ConsFL y ys -> eqOn2 x y xs ys
 
 instance EqFL a => EqFL (RatioFL FL a) where
-  (==) = returnFLF $ \x1 -> returnFLF $ \x2 -> do
+  (==#) = returnFLF $ \x1 -> returnFLF $ \x2 -> do
     (a1 :%# b1) <- x1
     (a2 :%# b2) <- x2
     eqOn2 a1 a2 b1 b2
 
 eqOn2 :: (EqFL a1, EqFL a2)
       => FL a1 -> FL a1 -> FL a2 -> FL a2 -> FL (BoolFL FL)
-eqOn2 x y xs ys = apply2FL (&&#) (apply2FL(==) x y) (apply2FL(==) xs ys)
+eqOn2 x y xs ys = apply2FL (&&#) (apply2FL(==#) x y) (apply2FL(==#) xs ys)
 
 -- * Lifted Ord type class, instances and functions
 
 -- | Lifted Ord type class
 class EqFL a => OrdFL a where
-  {-# MINIMAL compare | (<=) #-}
-  compare :: FL (a :--> a :--> OrderingFL FL)
-  compare = returnFLF $ \a1 -> returnFLF $ \a2 ->
-    apply2FL(==) a1 a2 P.>>= \(BoolFL b1) -> if b1
+  {-# MINIMAL compareFL | (<=#) #-}
+  compareFL :: FL (a :--> a :--> OrderingFL FL)
+  compareFL = returnFLF $ \a1 -> returnFLF $ \a2 ->
+    apply2FL (==#) a1 a2 P.>>= \(BoolFL b1) -> if b1
       then P.return (OrderingFL EQ)
-      else apply2FL(<=) a1 a2 P.>>= \(BoolFL b2) -> if b2
+      else apply2FL (<=#) a1 a2 P.>>= \(BoolFL b2) -> if b2
         then P.return $ OrderingFL LT
         else P.return $ OrderingFL GT
 
-  (<) :: FL (a :--> a :--> BoolFL FL)
-  (<) = returnFLF $ \a1 -> returnFLF $ \a2 ->
-    apply2FL compare a1 a2 P.>>= \case
+  (<#) :: FL (a :--> a :--> BoolFL FL)
+  (<#) = returnFLF $ \a1 -> returnFLF $ \a2 ->
+    apply2FL compareFL a1 a2 P.>>= \case
       OrderingFL LT -> P.return $ BoolFL True
       _             -> P.return $ BoolFL False
 
-  (<=) :: FL (a :--> a :--> BoolFL FL)
-  (<=) = returnFLF $ \a1 -> returnFLF $ \a2 ->
-    apply2FL compare a1 a2 P.>>= \case
+  (<=#) :: FL (a :--> a :--> BoolFL FL)
+  (<=#) = returnFLF $ \a1 -> returnFLF $ \a2 ->
+    apply2FL compareFL a1 a2 P.>>= \case
       OrderingFL GT -> P.return $ BoolFL False
       _             -> P.return $ BoolFL True
 
-  (>) :: FL (a :--> a :--> BoolFL FL)
-  (>) = returnFLF $ \a1 -> returnFLF $ \a2 ->
-    apply2FL compare a1 a2 P.>>= \case
+  (>#) :: FL (a :--> a :--> BoolFL FL)
+  (>#) = returnFLF $ \a1 -> returnFLF $ \a2 ->
+    apply2FL compareFL a1 a2 P.>>= \case
       OrderingFL GT -> P.return $ BoolFL True
       _             -> P.return $ BoolFL False
 
-  (>=) :: FL (a :--> a :--> BoolFL FL)
-  (>=) = returnFLF $ \a1 -> returnFLF $ \a2 ->
-    apply2FL compare a1 a2 P.>>= \case
+  (>=#) :: FL (a :--> a :--> BoolFL FL)
+  (>=#) = returnFLF $ \a1 -> returnFLF $ \a2 ->
+    apply2FL compareFL a1 a2 P.>>= \case
       OrderingFL LT -> P.return $ BoolFL False
       _             -> P.return $ BoolFL True
 
-  max :: FL (a :--> a :--> a)
-  max = returnFLF $ \a1 -> returnFLF $ \a2 ->
-    apply2FL(>=) a1 a2 P.>>= \case
+  maxFL :: FL (a :--> a :--> a)
+  maxFL = returnFLF $ \a1 -> returnFLF $ \a2 ->
+    apply2FL (>=#) a1 a2 P.>>= \case
       BoolFL True -> a1
       _           -> a2
 
-  min :: FL (a :--> a :--> a)
-  min = returnFLF $ \a1 -> returnFLF $ \a2 ->
-    apply2FL(<=) a1 a2 P.>>= \case
+  minFL :: FL (a :--> a :--> a)
+  minFL = returnFLF $ \a1 -> returnFLF $ \a2 ->
+    apply2FL (<=#) a1 a2 P.>>= \case
       BoolFL True -> a1
       _           -> a2
 
 instance OrdFL (BoolFL FL) where
-  compare = liftFL2Convert P.compare
+  compareFL = liftFL2Convert P.compare
 
 instance OrdFL (UnitFL FL) where
-  compare = liftFL2Convert P.compare
+  compareFL = liftFL2Convert P.compare
 
 instance OrdFL (IntFL FL) where
-  compare = liftFL2Convert P.compare
+  (>=#) = primitiveOrd2 @_ @Int64 @_ @Int64 (P.>=) (.>=)
+  (<=#) = primitiveOrd2 @_ @Int64 @_ @Int64 (P.<=) (.<=)
+  (>#) = primitiveOrd2 @_ @Int64 @_ @Int64 (P.>) (.>)
+  (<#) = primitiveOrd2 @_ @Int64 @_ @Int64 (P.<) (.<)
+
 
 instance OrdFL (IntegerFL FL) where
-  (>=) = primitiveOrd2 @_ @Integer @_ @Integer (P.>=) (.>=)
-  (<=) = primitiveOrd2 @_ @Integer @_ @Integer (P.<=) (.<=)
-  (>) = primitiveOrd2 @_ @Integer @_ @Integer (P.>) (.>)
-  (<) = primitiveOrd2 @_ @Integer @_ @Integer (P.<) (.<)
+  (>=#) = primitiveOrd2 @_ @Integer @_ @Integer (P.>=) (.>=)
+  (<=#) = primitiveOrd2 @_ @Integer @_ @Integer (P.<=) (.<=)
+  (>#) = primitiveOrd2 @_ @Integer @_ @Integer (P.>) (.>)
+  (<#) = primitiveOrd2 @_ @Integer @_ @Integer (P.<) (.<)
 
 instance OrdFL (FloatFL FL) where
-  compare = liftFL2Convert P.compare
+  (>=#) = primitiveOrd2 @_ @Float @_ @Float (P.>=) (.>=)
+  (<=#) = primitiveOrd2 @_ @Float @_ @Float (P.<=) (.<=)
+  (>#) = primitiveOrd2 @_ @Float @_ @Float (P.>) (.>)
+  (<#) = primitiveOrd2 @_ @Float @_ @Float (P.<) (.<)
 
 instance OrdFL (DoubleFL FL) where
-  compare = liftFL2Convert P.compare
+  compareFL = liftFL2Convert P.compare
+  (>=#) = primitiveOrd2 @_ @Double @_ @Double (P.>=) (.>=)
+  (<=#) = primitiveOrd2 @_ @Double @_ @Double (P.<=) (.<=)
+  (>#) = primitiveOrd2 @_ @Double @_ @Double (P.>) (.>)
+  (<#) = primitiveOrd2 @_ @Double @_ @Double (P.<) (.<)
 
 instance (OrdFL a) => OrdFL (ListFL FL a) where
-  compare = returnFLF $ \x -> returnFLF $ \y ->
+  compareFL = returnFLF $ \x -> returnFLF $ \y ->
     x P.>>= \x' -> y P.>>= \y' -> case (x', y') of
       (NilFL      , NilFL      ) -> P.return (OrderingFL EQ)
       (NilFL      , ConsFL _ _ ) -> P.return (OrderingFL LT)
       (ConsFL _ _ , NilFL      ) -> P.return (OrderingFL GT)
-      (ConsFL a as, ConsFL b bs) -> apply2FL compare a b P.>>= \case
-        OrderingFL EQ -> apply2FL compare as bs
+      (ConsFL a as, ConsFL b bs) -> apply2FL compareFL a b P.>>= \case
+        OrderingFL EQ -> apply2FL compareFL as bs
         o  -> P.return o
 
 -- * Lifted Num type class, instances and functions
 
 -- | Lifted Num type class
 class NumFL a where
-  (+) :: FL (a :--> a :--> a)
-  (-) :: FL (a :--> a :--> a)
-  (-) = returnFLF $ \a -> returnFLF $ \b ->
-    (+) `appFL` a `appFL` (negate `appFL` b)
-  (*) :: FL (a :--> a :--> a)
-  negate :: FL (a :--> a)
-  negate = returnFLF $ \a -> (-) `appFL` (fromInteger `appFL` toFL 0) `appFL` a
-  abs    :: FL (a :--> a)
-  signum :: FL (a :--> a)
-  fromInteger :: FL (IntegerFL FL :--> a)
+  (+#) :: FL (a :--> a :--> a)
+  (-#) :: FL (a :--> a :--> a)
+  (-#) = returnFLF $ \a -> returnFLF $ \b ->
+    (+#) `appFL` a `appFL` (negateFL `appFL` b)
+  (*#) :: FL (a :--> a :--> a)
+  negateFL :: FL (a :--> a)
+  negateFL = returnFLF $ \a -> (-#) `appFL` (fromIntegerFL `appFL` toFL 0) `appFL` a
+  absFL    :: FL (a :--> a)
+  signumFL :: FL (a :--> a)
+  fromIntegerFL :: FL (IntegerFL FL :--> a)
 
 instance NumFL (IntFL FL) where
-  (+) = primitive2 @_ @Int64 @_ @Int64 (P.+) (P.+)
-  (-) = liftFL2Convert (P.-)
-  (*) = liftFL2Convert (P.*)
-  negate = primitive1 @_ @Int64 P.negate P.negate
-  abs    = liftFL1Convert P.abs
-  signum = liftFL1Convert P.signum
-  fromInteger = liftFL1Convert P.fromInteger
+  (+#) = primitive2 @_ @Int64 @_ @Int64 (P.+) (P.+)
+  (-#) = primitive2 @_ @Int64 @_ @Int64 (P.-) (P.-)
+  (*#) = primitive2 @_ @Int64 @_ @Int64 (P.*) (P.*)
+  negateFL = primitive1 @_ @Int64 P.negate P.negate
+  absFL    = primitive1 @_ @Int64 P.abs P.abs
+  signumFL = primitive1 @_ @Int64 P.signum P.signum
+  fromIntegerFL = liftFL1Convert P.fromInteger
 
 instance NumFL (IntegerFL FL) where
-  (+) = liftFL2Convert (P.+)
-  (-) = liftFL2Convert (P.-)
-  (*) = liftFL2Convert (P.*)
-  negate = liftFL1Convert P.negate
-  abs    = liftFL1Convert P.abs
-  signum = liftFL1Convert P.signum
-  fromInteger = liftFL1Convert P.fromInteger
+  (+#) = primitive2 @_ @Integer @_ @Integer (P.+) (P.+)
+  (-#) = primitive2 @_ @Integer @_ @Integer (P.-) (P.-)
+  (*#) = primitive2 @_ @Integer @_ @Integer (P.*) (P.*)
+  negateFL = primitive1 @_ @Integer P.negate P.negate
+  absFL    = primitive1 @_ @Integer P.abs P.abs
+  signumFL = primitive1 @_ @Integer P.signum P.signum
+  fromIntegerFL = liftFL1Convert P.fromInteger
 
 instance NumFL (FloatFL FL) where
-  (+) = liftFL2Convert (P.+)
-  (-) = liftFL2Convert (P.-)
-  (*) = liftFL2Convert (P.*)
-  negate = liftFL1Convert P.negate
-  abs    = liftFL1Convert P.abs
-  signum = liftFL1Convert P.signum
-  fromInteger = liftFL1Convert P.fromInteger
+  (+#) = primitive2 @_ @Float @_ @Float (P.+) (P.+)
+  (-#) = primitive2 @_ @Float @_ @Float (P.-) (P.-)
+  (*#) = primitive2 @_ @Float @_ @Float (P.*) (P.*)
+  negateFL = primitive1 @_ @Float P.negate P.negate
+  absFL    = primitive1 @_ @Float P.abs P.abs
+  signumFL = primitive1 @_ @Float P.signum P.signum
+  fromIntegerFL = liftFL1Convert P.fromInteger
 
 instance NumFL (DoubleFL FL) where
-  (+) = liftFL2Convert (P.+)
-  (-) = liftFL2Convert (P.-)
-  (*) = liftFL2Convert (P.*)
-  negate = liftFL1Convert P.negate
-  abs    = liftFL1Convert P.abs
-  signum = liftFL1Convert P.signum
-  fromInteger = liftFL1Convert P.fromInteger
-
+  (+#) = primitive2 @_ @Double @_ @Double (P.+) (P.+)
+  (-#) = primitive2 @_ @Double @_ @Double (P.-) (P.-)
+  (*#) = primitive2 @_ @Double @_ @Double (P.*) (P.*)
+  negateFL = primitive1 @_ @Double P.negate P.negate
+  absFL    = primitive1 @_ @Double P.abs P.abs
+  signumFL = primitive1 @_ @Double P.signum P.signum
+  fromIntegerFL = liftFL1Convert P.fromInteger
 -- * Lifted Fractional type class, instances and functions
 
 -- | Lifted Fractional type class
 class NumFL a => FractionalFL a where
-  {-# MINIMAL fromRational, (recip | (/)) #-}
+  {-# MINIMAL fromRationalFL, (recipFL | (/#)) #-}
 
-  (/) :: FL (a :--> a :--> a)
-  (/) = returnFLF $ \x -> returnFLF $ \y -> apply2FL(*) x  (recip `appFL` y)
+  (/#) :: FL (a :--> a :--> a)
+  (/#) = returnFLF $ \x -> returnFLF $ \y -> apply2FL (*#) x  (recipFL `appFL` y)
 
-  recip :: FL (a :--> a)
-  recip = returnFLF $ \x -> apply2FL(/) (fromInteger `appFL` toFL 1) x
+  recipFL :: FL (a :--> a)
+  recipFL = returnFLF $ \x -> apply2FL (/#) (fromIntegerFL `appFL` toFL 1) x
 
-  fromRational :: FL (RationalFL FL :--> a)
+  fromRationalFL :: FL (RationalFL FL :--> a)
 
 instance FractionalFL (FloatFL FL) where
-  (/) = liftFL2Convert (P./)
-  fromRational = liftFL1Convert P.fromRational
+  (/#) = primitive2 @_ @Float @_ @Float (P./) (P./)
+  fromRationalFL = liftFL1Convert P.fromRational
 
 instance FractionalFL (DoubleFL FL) where
-  (/) = liftFL2Convert (P./)
-  fromRational = liftFL1Convert P.fromRational
+  (/#) = primitive2 @_ @Double @_ @Double (P./) (P./)
+  fromRationalFL = liftFL1Convert P.fromRational
 
 -- * Lifted Real type class, instances and functions
 
 -- | Lifted Real type class
 class (NumFL a, OrdFL a) => RealFL a where
-  toRational :: FL (a :--> RationalFL FL)
+  toRationalFL :: FL (a :--> RationalFL FL)
 
 instance RealFL (IntFL FL) where
-  toRational = liftFL1Convert P.toRational
+  toRationalFL = liftFL1Convert P.toRational
 
 instance RealFL (IntegerFL FL) where
-  toRational = liftFL1Convert P.toRational
+  toRationalFL = liftFL1Convert P.toRational
 
 instance RealFL (FloatFL FL) where
-  toRational = liftFL1Convert P.toRational
+  toRationalFL = liftFL1Convert P.toRational
 
 instance RealFL (DoubleFL FL) where
-  toRational = liftFL1Convert P.toRational
+  toRationalFL = liftFL1Convert P.toRational
 
 -- * Lifted Integral type class, instances and functions
 
 -- | Lifted Integral type class
 class (RealFL a, EnumFL a) => IntegralFL a where
-  quot      :: FL (a :--> a :--> a)
-  rem       :: FL (a :--> a :--> a)
-  div       :: FL (a :--> a :--> a)
-  mod       :: FL (a :--> a :--> a)
-  --quotRem   :: FL (a :--> a :--> Tuple2ND FL a a)
-  --divMod    :: FL (a :--> a :--> Tuple2ND FL a a)
-  toInteger :: FL (a :--> IntegerFL FL)
+  quotFL      :: FL (a :--> a :--> a)
+  remFL       :: FL (a :--> a :--> a)
+  divFL       :: FL (a :--> a :--> a)
+  modFL       :: FL (a :--> a :--> a)
+  quotRemFL   :: FL (a :--> a :--> Tuple2FL FL a a)
+  divModFL    :: FL (a :--> a :--> Tuple2FL FL a a)
+  toIntegerFL :: FL (a :--> IntegerFL FL)
 
-  -- quot   = returnFLF $ \n -> returnFLF $ \d -> fst `appFL` apply2FLquotRem n d
-  -- rem    = returnFLF $ \n -> returnFLF $ \d -> snd `appFL` apply2FLquotRem n d
-  -- div    = returnFLF $ \n -> returnFLF $ \d -> fst `appFL` apply2FLdivMod n d
-  -- mod    = returnFLF $ \n -> returnFLF $ \d -> snd `appFL` apply2FLdivMod n d
+  quotFL   = returnFLF $ \n -> returnFLF $ \d -> fstFL `appFL` apply2FL quotRemFL n d
+  remFL    = returnFLF $ \n -> returnFLF $ \d -> sndFL `appFL` apply2FL quotRemFL n d
+  divFL    = returnFLF $ \n -> returnFLF $ \d -> fstFL `appFL` apply2FL divModFL n d
+  modFL    = returnFLF $ \n -> returnFLF $ \d -> sndFL `appFL` apply2FL divModFL n d
 
-  -- This default implementation is replaced at compile-time with divModDefault
-  -- divMod = returnFLF $ \n -> returnFLF $ \d ->
-  --   let qr = apply2FLquotRem n d
-  --   in qr P.>>= \(Tuple2 q r) -> apply2FL(==) (signum `appFL` r)
-  --                                           (negate `appFL` (signum `appFL` d))
-  --         P.>>= \(BoolFL b) -> if b
-  --           then P.return (Tuple2 (apply2FL(-) q
-  --                                   (fromInteger `appFL` (liftE (P.return 1))))
-  --                                   (apply2FL(+) r d))
-  --           else qr
+  divModFL = returnFLF $ \n -> returnFLF $ \d ->
+    let qr = apply2FL quotRemFL n d
+    in qr P.>>= \(Tuple2FL q r) -> apply2FL (==#) (signumFL `appFL` r)
+                                            (negateFL `appFL` (signumFL `appFL` d))
+          P.>>= \(BoolFL b) -> if b
+            then P.return (Tuple2FL (apply2FL (-#) q
+                                    (fromIntegerFL `appFL` toFL 1))
+                                    (apply2FL (+#) r d))
+            else qr
 
 instance IntegralFL (IntFL FL) where
-  quot = liftFL2Convert P.quot
-  rem  = liftFL2Convert P.rem
-  div  = liftFL2Convert P.div
-  mod  = liftFL2Convert P.mod
+  quotFL = primitive2 @_ @Int64 @_ @Int64 P.quot sQuot
+  remFL  = primitive2 @_ @Int64 @_ @Int64 P.rem sRem
+  divFL  = primitive2 @_ @Int64 @_ @Int64 P.div sDiv
+  modFL  = primitive2 @_ @Int64 @_ @Int64 P.mod sMod
 
-  -- quotRem = returnFLF $ \a1 -> returnFLF $ \a2 -> do
-  --   IntFL v1 <- a1
-  --   IntFL v2 <- a2
-  --   liftE (P.return (P.quotRem v1 v2))
-  -- divMod = returnFLF $ \a1 -> returnFLF $ \a2 -> do
-  --   IntFL v1 <- a1
-  --   IntFL v2 <- a2
-  --   liftE (P.return (P.divMod v1 v2))
+  divModFL = returnFLF $ \x -> returnFLF $ \y ->
+    P.return (Tuple2FL (divFL `appFL` x `appFL` y) (modFL `appFL` x `appFL` y))
 
-  toInteger = liftFL1Convert P.toInteger
+  quotRemFL = returnFLF $ \x -> returnFLF $ \y ->
+    P.return (Tuple2FL (quotFL `appFL` x `appFL` y) (remFL `appFL` x `appFL` y))
+
+  toIntegerFL = liftFL1Convert P.toInteger
 
 instance IntegralFL (IntegerFL FL) where
-  quot = liftFL2Convert P.quot
-  rem  = liftFL2Convert P.rem
-  div  = liftFL2Convert P.div
-  mod  = liftFL2Convert P.mod
+  quotFL = primitive2 @_ @Integer @_ @Integer P.quot sQuot
+  remFL  = primitive2 @_ @Integer @_ @Integer P.rem sRem
+  divFL  = primitive2 @_ @Integer @_ @Integer P.div sDiv
+  modFL  = primitive2 @_ @Integer @_ @Integer P.mod sMod
 
-  -- quotRem = returnFLF $ \a1 -> returnFLF $ \a2 -> do
-  --   IntegerFL v1 <- a1
-  --   IntegerFL v2 <- a2
-  --   liftE (P.return (P.quotRem v1 v2))
-  -- divMod = returnFLF $ \a1 -> returnFLF $ \a2 -> do
-  --   IntegerFL v1 <- a1
-  --   IntegerFL v2 <- a2
-  --   liftE (P.return (P.divMod v1 v2))
+  divModFL = returnFLF $ \x -> returnFLF $ \y ->
+    P.return (Tuple2FL (divFL `appFL` x `appFL` y) (modFL `appFL` x `appFL` y))
 
-  toInteger = returnFLF P.id
+  quotRemFL = returnFLF $ \x -> returnFLF $ \y ->
+    P.return (Tuple2FL (quotFL `appFL` x `appFL` y) (remFL `appFL` x `appFL` y))
+
+  toIntegerFL = returnFLF P.id
 
 -- * Lifted Monad & Co type classes and instances
 
-infixl 1 >>=, >>
-infixl 4 <$, <*, *>, <*>
+infixl 1 >>=#, >>#
+infixl 4 <$#, <*#, *>#, <*>#
 -- | Lifted Functor type class
 class FunctorFL f where
-  fmap :: FL ((a :--> b) :--> f a :--> f b)
-  (<$) :: FL (a :--> f b :--> f a)
-  (<$) = returnFLF $ \a -> returnFLF $ \f ->
-    apply2FL fmap (constFL `appFL` a) f
+  fmapFL :: FL ((a :--> b) :--> f a :--> f b)
+  (<$#) :: FL (a :--> f b :--> f a)
+  (<$#) = returnFLF $ \a -> returnFLF $ \f ->
+    apply2FL fmapFL (constFL `appFL` a) f
 
 instance FunctorFL (ListFL FL) where
-  fmap = returnFLF $ \f -> returnFLF $ \l -> l P.>>= \case
+  fmapFL = returnFLF $ \f -> returnFLF $ \l -> l P.>>= \case
     NilFL       -> P.return NilFL
-    ConsFL x xs -> P.return (ConsFL (f `appFL` x) (apply2FL fmap f xs))
+    ConsFL x xs -> P.return (ConsFL (f `appFL` x) (apply2FL fmapFL f xs))
 
 -- | Lifted Applicative type class
 class FunctorFL f => ApplicativeFL f where
-  pure :: FL (a :--> f a)
+  pureFL :: FL (a :--> f a)
 
-  (<*>) :: FL (f (a :--> b) :--> f a :--> f b)
-  (<*>) = returnFLF $ \f -> returnFLF $ \a ->
-    apply3FL liftA2 (liftFL1 P.id) f a
+  (<*>#) :: FL (f (a :--> b) :--> f a :--> f b)
+  (<*>#) = returnFLF $ \f -> returnFLF $ \a ->
+    apply3FL liftA2FL (liftFL1 P.id) f a
 
-  liftA2 :: FL ((a :--> b :--> c) :--> f a :--> f b :--> f c)
-  liftA2 = returnFLF $ \f -> returnFLF $ \a -> returnFLF $ \b ->
-    apply2FL(<*>) (apply2FL fmap f a) b
+  liftA2FL :: FL ((a :--> b :--> c) :--> f a :--> f b :--> f c)
+  liftA2FL = returnFLF $ \f -> returnFLF $ \a -> returnFLF $ \b ->
+    apply2FL (<*>#) (apply2FL fmapFL f a) b
 
-  (*>) :: FL (f a :--> f b :--> f b)
-  (*>) = returnFLF $ \a -> returnFLF $ \b ->
-    apply3FL liftA2 (liftFL2 (P.const P.id)) a b
+  (*>#) :: FL (f a :--> f b :--> f b)
+  (*>#) = returnFLF $ \a -> returnFLF $ \b ->
+    apply3FL liftA2FL (liftFL2 (P.const P.id)) a b
 
-  (<*) :: FL (f a :--> f b :--> f a)
-  (<*) = returnFLF $ \a -> returnFLF $ \b ->
-    apply3FL liftA2 constFL a b
-  {-# MINIMAL pure, ((<*>) | liftA2) #-}
+  (<*#) :: FL (f a :--> f b :--> f a)
+  (<*#) = returnFLF $ \a -> returnFLF $ \b ->
+    apply3FL liftA2FL constFL a b
+  {-# MINIMAL pureFL, ((<*>#) | liftA2FL) #-}
 
 instance ApplicativeFL (ListFL FL) where
-  pure = returnFLF $ \a -> P.return (ConsFL a (P.return NilFL))
-  (<*>) = returnFLF $ \fs -> returnFLF $ \as ->
+  pureFL = returnFLF $ \a -> P.return (ConsFL a (P.return NilFL))
+  (<*>#) = returnFLF $ \fs -> returnFLF $ \as ->
     apply2FL concatMapFL (returnFLF $ \a ->
-    apply2FL fmap      (returnFLF $ \f -> f `appFL` a) fs) as
+    apply2FL fmapFL      (returnFLF $ \f -> f `appFL` a) fs) as
 
   -- | Lifted Alternative type class
 class ApplicativeFL f => AlternativeFL f where
-  empty :: FL (f a)
-  (<|>) :: FL (f a :--> f a :--> f a)
-  some  :: FL (f a :--> f (ListFL FL a))
-  some = returnFLF $ \v ->
-    let many_v = apply2FL (<|>) some_v (pure `appFL` P.return NilFL)
-        some_v = apply3FL liftA2 consFL v many_v
+  emptyFL :: FL (f a)
+  (<|>#) :: FL (f a :--> f a :--> f a)
+  someFL  :: FL (f a :--> f (ListFL FL a))
+  someFL = returnFLF $ \v ->
+    let many_v = apply2FL (<|>#) some_v (pureFL `appFL` P.return NilFL)
+        some_v = apply3FL liftA2FL consFL v many_v
         consFL = returnFLF $ \x -> returnFLF $ \y -> P.return (ConsFL x y)
     in some_v
-  many  :: FL (f a :--> f (ListFL FL a))
-  many = returnFLF $ \v ->
-    let many_v = apply2FL (<|>) some_v (pure `appFL` P.return NilFL)
-        some_v = apply3FL liftA2 consFL v many_v
+  manyFL  :: FL (f a :--> f (ListFL FL a))
+  manyFL = returnFLF $ \v ->
+    let many_v = apply2FL (<|>#) some_v (pureFL `appFL` P.return NilFL)
+        some_v = apply3FL liftA2FL consFL v many_v
         consFL = returnFLF $ \x -> returnFLF $ \y -> P.return (ConsFL x y)
     in many_v
 
 instance AlternativeFL (ListFL FL) where
-  empty = P.return NilFL
-  (<|>) = appendFL
+  emptyFL = P.return NilFL
+  (<|>#) = appendFL
 
 -- | Lifted Monad type class
 class ApplicativeFL m => MonadFL m where
-  (>>=) :: FL (m a :--> (a :--> m b) :--> m b)
-  (>>)  :: FL (m a :--> m b :--> m b)
-  (>>) = returnFLF $ \a -> returnFLF $ \b ->
-    apply2FL(>>=) a (returnFLF (P.const b))
-  return :: FL (a :--> m a)
-  return = pure
-  {-# MINIMAL (>>=) #-}
+  (>>=#) :: FL (m a :--> (a :--> m b) :--> m b)
+  (>>#)  :: FL (m a :--> m b :--> m b)
+  (>>#) = returnFLF $ \a -> returnFLF $ \b ->
+    apply2FL (>>=#) a (returnFLF (P.const b))
+  returnFL :: FL (a :--> m a)
+  returnFL = pureFL
+  {-# MINIMAL (>>=#) #-}
 
 instance MonadFL (ListFL FL) where
-  (>>=) = returnFLF $ \a -> returnFLF $ \f -> a P.>>= \case
+  (>>=#) = returnFLF $ \a -> returnFLF $ \f -> a P.>>= \case
     NilFL       -> P.return NilFL
-    ConsFL x xs -> apply2FL appendFL (f `appFL` x) (apply2FL(>>=) xs f)
+    ConsFL x xs -> apply2FL appendFL (f `appFL` x) (apply2FL (>>=#) xs f)
 
 -- | Lifted MonadFail type class
 class MonadFL m => MonadFailFL m where
-  fail :: FL (StringFL FL :--> m a)
+  failFL :: FL (StringFL FL :--> m a)
 
 instance MonadFailFL (ListFL FL) where
-  fail = returnFLF $ \_ -> P.return NilFL
+  failFL = returnFLF $ \_ -> P.return NilFL
 
 -- * Lifted Enum type class, instances and functions
 
 -- | Lifted Enum type class
 class EnumFL a where
-  succ :: FL (a :--> a)
-  succ = returnFLF $ \a ->
-    toEnum `appFL` apply2FL(+) (toFL 1) (fromEnum `appFL` a)
-  pred :: FL (a :--> a)
-  pred = returnFLF $ \a ->
-    toEnum `appFL` apply2FL(-) (toFL 1) (fromEnum `appFL` a)
+  succFL :: FL (a :--> a)
+  succFL = returnFLF $ \a ->
+    toEnumFL `appFL` apply2FL (+#) (toFL 1) (fromEnumFL `appFL` a)
+  predFL :: FL (a :--> a)
+  predFL = returnFLF $ \a ->
+    toEnumFL `appFL` apply2FL (-#) (toFL 1) (fromEnumFL `appFL` a)
 
-  toEnum   :: FL (IntFL FL :--> a)
-  fromEnum :: FL (a :--> IntFL FL)
+  toEnumFL   :: FL (IntFL FL :--> a)
+  fromEnumFL :: FL (a :--> IntFL FL)
 
-  enumFrom       :: FL (a               :--> ListFL FL a)
-  enumFrom       = returnFLF $ \x1 ->
-    apply2FL mapFL toEnum (enumFrom `appFL`
-      (fromEnum `appFL` x1))
+  enumFromFL       :: FL (a               :--> ListFL FL a)
+  enumFromFL       = returnFLF $ \x1 ->
+    apply2FL mapFL toEnumFL (enumFromFL `appFL`
+      (fromEnumFL `appFL` x1))
 
-  enumFromThen   :: FL (a :--> a        :--> ListFL FL a)
-  enumFromThen   = returnFLF $ \x1 -> returnFLF $ \x2 ->
-    apply2FL mapFL toEnum (apply2FL enumFromThen
-      (fromEnum `appFL` x1) (fromEnum `appFL` x2))
+  enumFromThenFL   :: FL (a :--> a        :--> ListFL FL a)
+  enumFromThenFL   = returnFLF $ \x1 -> returnFLF $ \x2 ->
+    apply2FL mapFL toEnumFL (apply2FL enumFromThenFL
+      (fromEnumFL `appFL` x1) (fromEnumFL `appFL` x2))
 
-  enumFromTo     :: FL (a        :--> a :--> ListFL FL a)
-  enumFromTo     = returnFLF $ \x1 ->                   returnFLF $ \x3 ->
-    apply2FL mapFL toEnum (apply2FL enumFromTo
-      (fromEnum `appFL` x1)                      (fromEnum `appFL` x3))
+  enumFromToFL     :: FL (a        :--> a :--> ListFL FL a)
+  enumFromToFL     = returnFLF $ \x1 ->                   returnFLF $ \x3 ->
+    apply2FL mapFL toEnumFL (apply2FL enumFromToFL
+      (fromEnumFL `appFL` x1)                         (fromEnumFL `appFL` x3))
 
-  enumFromThenTo :: FL (a :--> a :--> a :--> ListFL FL a)
-  enumFromThenTo = returnFLF $ \x1 -> returnFLF $ \x2 -> returnFLF $ \x3 ->
-    apply2FL mapFL toEnum (apply3FL enumFromThenTo
-      (fromEnum `appFL` x1) (fromEnum `appFL` x2) (fromEnum `appFL` x3))
+  enumFromThenToFL :: FL (a :--> a :--> a :--> ListFL FL a)
+  enumFromThenToFL = returnFLF $ \x1 -> returnFLF $ \x2 -> returnFLF $ \x3 ->
+    apply2FL mapFL toEnumFL (apply3FL enumFromThenToFL
+      (fromEnumFL `appFL` x1) (fromEnumFL `appFL` x2) (fromEnumFL `appFL` x3))
 
 instance EnumFL (IntFL FL) where
-  succ = (+) `appFL` toFL 1
-  pred = (-) `appFL` toFL 1
+  succFL = (+#) `appFL` toFL 1
+  predFL = (-#) `appFL` toFL 1
 
-  toEnum   = returnFLF P.id
-  fromEnum = returnFLF P.id
+  toEnumFL   = returnFLF P.id
+  fromEnumFL = returnFLF P.id
 
-  enumFrom = returnFLF $ \x1 ->
+  enumFromFL = returnFLF $ \x1 ->
     x1 P.>>= \(IntFL v1) ->
     toFL (P.map P.fromIntegral (P.enumFrom v1))
 
-  enumFromThen = returnFLF $ \x1 -> returnFLF $ \x2 ->
+  enumFromThenFL = returnFLF $ \x1 -> returnFLF $ \x2 ->
     x1 P.>>= \(IntFL v1) -> x2 P.>>= \(IntFL v2) ->
     toFL (P.map P.fromIntegral (P.enumFromThen v1 v2))
 
-  enumFromTo = returnFLF $ \x1 -> returnFLF $ \x3 ->
+  enumFromToFL = returnFLF $ \x1 -> returnFLF $ \x3 ->
     x1 P.>>= \(IntFL v1) -> x3 P.>>= \(IntFL v3) ->
     toFL (P.map P.fromIntegral (P.enumFromTo v1 v3))
 
-  enumFromThenTo = returnFLF $ \x1 -> returnFLF $ \x2 -> returnFLF $ \x3 ->
+  enumFromThenToFL = returnFLF $ \x1 -> returnFLF $ \x2 -> returnFLF $ \x3 ->
     x1 P.>>= \(IntFL v1) -> x2 P.>>= \(IntFL v2) -> x3 P.>>= \(IntFL v3) ->
     toFL (P.map P.fromIntegral (P.enumFromThenTo v1 v2 v3))
 
 instance EnumFL (IntegerFL FL) where
-  succ = (+) `appFL` toFL 1
-  pred = (-) `appFL` toFL 1
+  succFL = (+#) `appFL` toFL 1
+  predFL = (-#) `appFL` toFL 1
 
-  toEnum   = toInteger
-  fromEnum = fromInteger
+  toEnumFL   = toIntegerFL
+  fromEnumFL = fromIntegerFL
 
-  enumFrom = returnFLF $ \x1 ->
+  enumFromFL = returnFLF $ \x1 ->
     x1 P.>>= \(IntegerFL v1) ->
     toFL (P.enumFrom v1)
 
-  enumFromThen = returnFLF $ \x1 -> returnFLF $ \x2 ->
+  enumFromThenFL = returnFLF $ \x1 -> returnFLF $ \x2 ->
     x1 P.>>= \(IntegerFL v1) -> x2 P.>>= \(IntegerFL v2) ->
     toFL (P.enumFromThen v1 v2)
 
-  enumFromTo = returnFLF $ \x1 -> returnFLF $ \x3 ->
+  enumFromToFL = returnFLF $ \x1 -> returnFLF $ \x3 ->
     x1 P.>>= \(IntegerFL v1) -> x3 P.>>= \(IntegerFL v3) ->
     toFL (P.enumFromTo v1 v3)
 
-  enumFromThenTo = returnFLF $ \x1 -> returnFLF $ \x2 -> returnFLF $ \x3 ->
+  enumFromThenToFL = returnFLF $ \x1 -> returnFLF $ \x2 -> returnFLF $ \x3 ->
     x1 P.>>= \(IntegerFL v1) -> x2 P.>>= \(IntegerFL v2) -> x3 P.>>= \(IntegerFL v3) ->
     toFL (P.enumFromThenTo v1 v2 v3)
 
@@ -924,18 +933,18 @@ instance EnumFL (IntegerFL FL) where
 
 -- | Lifted Bounded type class
 class BoundedFL a where
-  minBound :: FL a
-  maxBound :: FL a
+  minBoundFL :: FL a
+  maxBoundFL :: FL a
 
 instance BoundedFL (IntFL FL) where
-  minBound = toFL P.minBound
-  maxBound = toFL P.maxBound
+  minBoundFL = toFL P.minBound
+  maxBoundFL = toFL P.maxBound
 
 class IsStringFL a where
-  fromString :: FL (StringFL FL :--> a)
+  fromStringFL :: FL (StringFL FL :--> a)
 
 instance (a ~ CharFL FL) => IsStringFL (ListFL FL a) where
-  fromString = returnFLF P.id
+  fromStringFL = returnFLF P.id
 
 
 withFLVal :: ND FLState (FLVal a) -> (FLVal a -> ND FLState b) -> ND FLState b
