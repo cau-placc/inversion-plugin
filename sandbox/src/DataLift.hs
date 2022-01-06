@@ -3,6 +3,15 @@ module DataLift where
 
 data B = F | T
 
+
+class C a where
+  cc :: a -> a
+  dd :: a -> a
+
+instance C B where
+  cc x = x
+  dd = cc
+
 notB :: B -> B
 notB F = T
 notB T = F

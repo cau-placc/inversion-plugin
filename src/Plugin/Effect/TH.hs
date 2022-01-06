@@ -188,16 +188,26 @@ genMTy :: Q Type
 genMTy = VarT <$> newName "m"
 
 genInstances :: Dec -> Dec -> DecsQ
-genInstances (ClassD _ originalName _ _ _) (ClassD _ liftedName _ _ _) = do
-  let originalTc = ConT originalName
-  mTy <- genMTy
-  let liftedTc = AppT (ConT liftedName) mTy --TODO: generate all applications of the typeconstructor
-  return [TySynInstD $ TySynEqn Nothing (mkLifted mTy originalTc) liftedTc]
-genInstances (TySynD originalName _ _) (TySynD liftedName _ _) = do
-  let originalTc = ConT originalName
+genInstances (ClassD _ originalName _ _ _) (ClassD _ liftedName liftedTyVarBndrs _ _) = do
+  let liftedTyVarNames = map getTyVarBndrName liftedTyVarBndrs
+      liftedTyVars = map VarT liftedTyVarNames
+      originalTc = ConT originalName
+      liftedTc = ConT liftedName
+      mTy = ConT ''FL
+  let genOne n =
+        let relevantVars = take n liftedTyVars
+        in TySynInstD $ TySynEqn Nothing (mkLifted mTy (applyType originalTc relevantVars)) (applyType liftedTc (map (mkLifted mTy) relevantVars))
+  return $ map genOne [0 .. length liftedTyVars] :: DecsQ
+genInstances (TySynD originalName _ _) (TySynD liftedName liftedTyVarBndrs _) = do
+  let liftedTyVarNames = map getTyVarBndrName liftedTyVarBndrs
+      liftedTyVars = map VarT liftedTyVarNames
+      originalTc = ConT originalName
   mTy <- genMTy
   let liftedTc = AppT (ConT liftedName) mTy
-  return [TySynInstD $ TySynEqn Nothing (mkLifted mTy originalTc) liftedTc]
+  let genOne n =
+        let relevantVars = take n liftedTyVars
+        in TySynInstD $ TySynEqn Nothing (mkLifted mTy (applyType originalTc relevantVars)) (applyType liftedTc (map (mkLifted mTy) relevantVars))
+  return $ map genOne [0 .. length liftedTyVars] :: DecsQ
 genInstances originalDataDec liftedDataDec = do
   mTy <- genMTy
 

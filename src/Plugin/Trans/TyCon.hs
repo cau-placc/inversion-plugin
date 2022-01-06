@@ -13,7 +13,6 @@ class, data, type or newtype declaration.
 module Plugin.Trans.TyCon (liftTycon) where
 
 import Control.Monad
-import Data.Maybe
 
 import GhcPlugins
 import UniqMap
@@ -55,7 +54,7 @@ liftTycon dflags instEnvs ftycon mtycon supply tcs tcsM tc
     -- Lift the rhs of the underlying datatype definition.
     -- For classes, this lifts the implicit datatype for its dictionary.
     let mVar = mkTyVar (mkInternalName (uniqFromSupply supply2) (mkVarOcc "m") noSrcSpan) (mkVisFunTy liftedTypeKind liftedTypeKind)
-    (us2, rhs) <- liftAlgRhs (isJust (tyConClass_maybe tc)) dflags instEnvs ftycon mVar tcs tcsM tycon other
+    (us2, rhs) <- liftAlgRhs (isClassTyCon tc) dflags instEnvs ftycon mVar mtycon tcs tcsM tycon other
       (algTyConRhs tc)
     -- Potentially lift any class information
     flav <- case (tyConRepName_maybe tc, tyConClass_maybe tc) of
@@ -68,8 +67,8 @@ liftTycon dflags instEnvs ftycon mtycon supply tcs tcsM tc
     let mBinder = mkAnonTyConBinder VisArg mVar
     let name = liftName (tyConName tc) u
         tycon = mkAlgTyCon
-          name (mBinder : tyConBinders tc) (tyConResKind tc)
-          (Representational : tyConRoles tc) Nothing []
+          name (if isClassTyCon tc then tyConBinders tc else mBinder : tyConBinders tc) (tyConResKind tc)
+          (if isClassTyCon tc then tyConRoles tc else Representational : tyConRoles tc) Nothing []
           rhs flav (isGadtSyntaxTyCon tc)
     return (supply3, (tc, Just tycon))
   | isTypeSynonymTyCon tc = do
@@ -148,6 +147,7 @@ liftAlgRhs :: Bool                -- ^ Is it a class definition or not
            -> FamInstEnvs         -- ^ Family Instance Environments, both home and external
            -> TyCon               -- ^ 'Fun' type constructor
            -> Var                 -- ^ 'Monad' type variable
+           -> TyCon               -- ^ 'Monad' type constructor
            -> UniqMap TyCon TyCon -- ^ Map of old TyCon's from this module to lifted ones
            -> TyConMap            -- ^ Map of imported old TyCon's to lifted ones
            -> TyCon               -- ^ Lifted TyCon of this rhs
@@ -155,22 +155,22 @@ liftAlgRhs :: Bool                -- ^ Is it a class definition or not
            -> AlgTyConRhs         -- ^ Rhs to be lifted
            -> IO (UniqSupply, AlgTyConRhs)
           -- ^ Next fresh unique key supply and lifted rhs
-liftAlgRhs _       dflags instEnvs ftycon mvar tcs tcsM tycon us
+liftAlgRhs isClass dflags instEnvs ftycon mvar mtycon tcs tcsM tycon us
   -- Just lift all constructors of a data decl.
   (DataTyCon cns size ne) = do
     let uss = listSplitUniqSupply us
     cns' <- zipWithM
-      (liftConstr False dflags instEnvs ftycon mvar tcs tcsM tycon) (tail uss) cns
+      (liftConstr isClass dflags instEnvs ftycon mvar mtycon tcs tcsM tycon) (tail uss) cns
     return (head uss, DataTyCon cns' size ne)
-liftAlgRhs isClass dflags instEnvs ftycon mvar tcs tcsM tycon us
+liftAlgRhs isClass dflags instEnvs ftycon mvar mtycon tcs tcsM tycon us
   -- Depending on the origin of this newtype declaration (class or not),
   -- Perform a full lifting or just and inner lifting.
   (NewTyCon dc rhs _ co lev) = do
     let (u1, tmp1) = splitUniqSupply us
         (u2, tmp2) = splitUniqSupply tmp1
         (u3, u4  ) = splitUniqSupply tmp2
-    dc' <- liftConstr False dflags instEnvs ftycon mvar tcs tcsM tycon u1 dc
-    let mtype = mkTyVarTy mvar
+    dc' <- liftConstr isClass dflags instEnvs ftycon mvar mtycon tcs tcsM tycon u1 dc
+    let mtype = if isClass then mkTyConTy mtycon else mkTyVarTy mvar
     rhs' <- replaceTyconTyPure tcs <$> liftType ftycon mtype u2 tcsM rhs
 
     -- Only switch unique and name for datatypes, etc.
@@ -185,7 +185,7 @@ liftAlgRhs isClass dflags instEnvs ftycon mvar tcs tcsM tycon us
                                       (reverse (tyConRoles tycon)) rhs'
     let co' = mkNewTypeCoAxiom axNameNew tycon etavs etaroles etarhs
     return (u4, NewTyCon dc' rhs' (etavs, etarhs) co' lev)
-liftAlgRhs _ _ _ _ _ _ _ _ u c = return (u, c)
+liftAlgRhs _ _ _ _ _ _ _ _ _ u c = return (u, c)
 
 liftFamAx :: Unique -> TyCon -> CoAxiom Branched -> CoAxiom Branched
 liftFamAx _ _ _ = panicAnyUnsafe "Type families not supported" ()
