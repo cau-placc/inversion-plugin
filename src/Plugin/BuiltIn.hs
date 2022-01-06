@@ -222,63 +222,71 @@ mapFL = returnFLF $ \f -> returnFLF $ \xs ->
     NilFL -> P.return NilFL
     ConsFL a as -> P.return (ConsFL (f `appFL` a) (mapFL `appFL` f `appFL` as))
 
-newtype BoolFL (m :: Type -> Type) = BoolFL Bool
+data BoolFL (m :: Type -> Type) = FalseFL | TrueFL
 
 type instance Lifted m Bool = BoolFL m
 
 instance HasPrimitiveInfo (BoolFL FL)
 
 instance Narrowable (BoolFL FL) where
-  narrow _ _ _ = [(BoolFL False, P.Left 0), (BoolFL True, P.Left 0)]
+  narrow _ _ _ = [(FalseFL, P.Left 0), (TrueFL, P.Left 0)]
 
 instance Convertible Bool where
-  to = P.coerce
-  fromWith _ = P.coerce
+  to False = FalseFL
+  to True = TrueFL
+  fromWith _ FalseFL = False
+  fromWith _ TrueFL = True
 
 instance Matchable Bool where
-  match x y = P.guard (x P.== P.coerce y)
+  match x y = P.guard (x P.== unsafeFrom y)
 
 instance NF Bool (BoolFL FL) where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
 instance Invertible Bool
 
-newtype UnitFL (m :: Type -> Type) = UnitFL ()
+data UnitFL (m :: Type -> Type) = UnitFL
 
 type instance Lifted m () = UnitFL m
 
 instance HasPrimitiveInfo (UnitFL FL)
 
 instance Narrowable (UnitFL FL) where
-  narrow _ _ _ = [(UnitFL (), P.Left 0)]
+  narrow _ _ _ = [(UnitFL, P.Left 0)]
 
 instance Convertible () where
-  to = P.coerce
-  fromWith _ = P.coerce
+  to () = UnitFL
+  fromWith _ UnitFL = ()
 
 instance Matchable () where
-  match x y = P.guard (x P.== P.coerce y)
+  match () UnitFL = P.return ()
 
 instance NF () (UnitFL FL) where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
 instance Invertible ()
 
-newtype OrderingFL (m :: Type -> Type) = OrderingFL Ordering
+data OrderingFL (m :: Type -> Type) = LTFL | EQFL | GTFL
 
 type instance Lifted m Ordering = OrderingFL m
 
 instance HasPrimitiveInfo (OrderingFL FL)
 
 instance Narrowable (OrderingFL FL) where
-  narrow _ _ _ = [(OrderingFL LT , P.Left 0), (OrderingFL EQ, P.Left 0), (OrderingFL GT, P.Left 0)]
+  narrow _ _ _ = [(LTFL , P.Left 0), (EQFL, P.Left 0), (GTFL, P.Left 0)]
 
 instance Convertible Ordering where
-  to = P.coerce
-  fromWith _ = P.coerce
+  to LT = LTFL
+  to EQ = EQFL
+  to GT = GTFL
+
+  fromWith _ = \case
+    LTFL -> LT
+    EQFL -> EQ
+    GTFL -> GT
 
 instance Matchable Ordering where
-  match x y = P.guard (x P.== P.coerce y)
+  match x y = P.guard (x P.== unsafeFrom y)
 
 instance NF Ordering (OrderingFL FL) where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
@@ -443,9 +451,9 @@ showSpace =  showString `appFL` toFL " "
 
 showParen :: FL (BoolFL FL :--> ShowSFL FL :--> ShowSFL FL)
 showParen = returnFLF $ \b -> returnFLF $ \s -> b P.>>= \case
-  BoolFL True  -> apply2FL (.#) (showString `appFL` toFL "(")
+  TrueFL  -> apply2FL (.#) (showString `appFL` toFL "(")
           (apply2FL (.#) s (showString `appFL` toFL ")"))
-  BoolFL False -> s
+  FalseFL -> s
 
 instance ShowFL (BoolFL FL) where
   showFL = liftFL1Convert P.show
@@ -516,10 +524,10 @@ instance EqFL (CharFL FL) where
 instance EqFL a => EqFL (ListFL FL a) where
   (==#) = returnFLF $ \a1 -> returnFLF $ \a2 -> a1 P.>>= \case
     NilFL       -> a2 P.>>= \case
-      NilFL       -> P.return $ BoolFL True
-      ConsFL _ _  -> P.return $ BoolFL False
+      NilFL       -> P.return TrueFL
+      ConsFL _ _  -> P.return FalseFL
     ConsFL x xs -> a2 P.>>= \case
-      NilFL       -> P.return $ BoolFL False
+      NilFL       -> P.return FalseFL
       ConsFL y ys -> eqOn2 x y xs ys
 
 instance EqFL a => EqFL (RatioFL FL a) where
@@ -541,47 +549,47 @@ class EqFL a => OrdFL a where
   {-# MINIMAL compareFL | (<=#) #-}
   compareFL :: FL (a :--> a :--> OrderingFL FL)
   compareFL = returnFLF $ \a1 -> returnFLF $ \a2 ->
-    apply2FL (==#) a1 a2 P.>>= \(BoolFL b1) -> if b1
-      then P.return (OrderingFL EQ)
-      else apply2FL (<=#) a1 a2 P.>>= \(BoolFL b2) -> if b2
-        then P.return $ OrderingFL LT
-        else P.return $ OrderingFL GT
+    apply2FL (==#) a1 a2 P.>>= \case
+      TrueFL  -> P.return EQFL
+      FalseFL -> apply2FL (<=#) a1 a2 P.>>= \case
+        TrueFL  -> P.return LTFL
+        FalseFL -> P.return GTFL
 
   (<#) :: FL (a :--> a :--> BoolFL FL)
   (<#) = returnFLF $ \a1 -> returnFLF $ \a2 ->
     apply2FL compareFL a1 a2 P.>>= \case
-      OrderingFL LT -> P.return $ BoolFL True
-      _             -> P.return $ BoolFL False
+      LTFL -> P.return TrueFL
+      _    -> P.return FalseFL
 
   (<=#) :: FL (a :--> a :--> BoolFL FL)
   (<=#) = returnFLF $ \a1 -> returnFLF $ \a2 ->
     apply2FL compareFL a1 a2 P.>>= \case
-      OrderingFL GT -> P.return $ BoolFL False
-      _             -> P.return $ BoolFL True
+      GTFL -> P.return FalseFL
+      _    -> P.return TrueFL
 
   (>#) :: FL (a :--> a :--> BoolFL FL)
   (>#) = returnFLF $ \a1 -> returnFLF $ \a2 ->
     apply2FL compareFL a1 a2 P.>>= \case
-      OrderingFL GT -> P.return $ BoolFL True
-      _             -> P.return $ BoolFL False
+      GTFL -> P.return TrueFL
+      _    -> P.return FalseFL
 
   (>=#) :: FL (a :--> a :--> BoolFL FL)
   (>=#) = returnFLF $ \a1 -> returnFLF $ \a2 ->
     apply2FL compareFL a1 a2 P.>>= \case
-      OrderingFL LT -> P.return $ BoolFL False
-      _             -> P.return $ BoolFL True
+      LTFL -> P.return FalseFL
+      _    -> P.return TrueFL
 
   maxFL :: FL (a :--> a :--> a)
   maxFL = returnFLF $ \a1 -> returnFLF $ \a2 ->
     apply2FL (>=#) a1 a2 P.>>= \case
-      BoolFL True -> a1
-      _           -> a2
+      TrueFL -> a1
+      _      -> a2
 
   minFL :: FL (a :--> a :--> a)
   minFL = returnFLF $ \a1 -> returnFLF $ \a2 ->
     apply2FL (<=#) a1 a2 P.>>= \case
-      BoolFL True -> a1
-      _           -> a2
+      TrueFL -> a1
+      _      -> a2
 
 instance OrdFL (BoolFL FL) where
   compareFL = liftFL2Convert P.compare
@@ -618,11 +626,11 @@ instance OrdFL (DoubleFL FL) where
 instance (OrdFL a) => OrdFL (ListFL FL a) where
   compareFL = returnFLF $ \x -> returnFLF $ \y ->
     x P.>>= \x' -> y P.>>= \y' -> case (x', y') of
-      (NilFL      , NilFL      ) -> P.return (OrderingFL EQ)
-      (NilFL      , ConsFL _ _ ) -> P.return (OrderingFL LT)
-      (ConsFL _ _ , NilFL      ) -> P.return (OrderingFL GT)
+      (NilFL      , NilFL      ) -> P.return EQFL
+      (NilFL      , ConsFL _ _ ) -> P.return LTFL
+      (ConsFL _ _ , NilFL      ) -> P.return GTFL
       (ConsFL a as, ConsFL b bs) -> apply2FL compareFL a b P.>>= \case
-        OrderingFL EQ -> apply2FL compareFL as bs
+        EQFL -> apply2FL compareFL as bs
         o  -> P.return o
 
 -- * Lifted Num type class, instances and functions
@@ -744,11 +752,11 @@ class (RealFL a, EnumFL a) => IntegralFL a where
     let qr = apply2FL quotRemFL n d
     in qr P.>>= \(Tuple2FL q r) -> apply2FL (==#) (signumFL `appFL` r)
                                             (negateFL `appFL` (signumFL `appFL` d))
-          P.>>= \(BoolFL b) -> if b
-            then P.return (Tuple2FL (apply2FL (-#) q
+          P.>>= \case
+            TrueFL -> P.return (Tuple2FL (apply2FL (-#) q
                                     (fromIntegerFL `appFL` toFL 1))
                                     (apply2FL (+#) r d))
-            else qr
+            FalseFL -> qr
 
 instance IntegralFL (IntFL FL) where
   quotFL = primitive2 @_ @Int64 @_ @Int64 P.quot sQuot
@@ -1034,17 +1042,17 @@ primitiveOrd2 op opS = returnFLF $ \x -> returnFLF $ \y ->
     unFL x `withFLVal` \x' ->
       unFL y `withFLVal` \y' ->
         unFL $ case (# x', y' #) of
-          (# Val a, Val b #) -> P.return (BoolFL (coerce a `op` coerce b))
+          (# Val a, Val b #) -> toFL (coerce a `op` coerce b)
           _                  -> FL (trueBranch P.<|> falseBranch)
             where
               trueBranch = do
                 assertConstraintND (toSBV x' `opS` toSBV y') (varsOf x' y')
                 checkConsistencyND -- DISS: optional, iff x and y were unconstrained
-                P.return (Val (BoolFL True))
+                P.return (Val TrueFL)
               falseBranch = do
                 assertConstraintND (sNot (toSBV x' `opS` toSBV y')) (varsOf x' y')
                 checkConsistencyND -- DISS: optional, iff x and y were unconstrained
-                P.return (Val (BoolFL False))
+                P.return (Val FalseFL)
               varsOf x'' y'' = varOf x'' P.++ varOf y''
               varOf (Var i) = [i]
               varOf _       = []

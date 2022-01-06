@@ -9,3 +9,6 @@ notB T = F
 
 constI :: B -> a -> B
 constI x _ = x
+
+test :: Bool
+test = True
