@@ -113,6 +113,10 @@ originalNamesToLoad = names
       , (ratioTyConName       , "RatioFL")
       , (charTyConName        , "CharFL")
       , (intTyConName         , "IntFL")
+      , (boolTyConName        , "BoolFL")
+      , (orderingTyConName    , "OrderingFL")
+      , (tyConName unitTyCon  , "UnitFL")
+      , (integerTyConName     , "IntegerFL")
       ]  ++
       map tupleWithArity [2 .. maxTupleArity]
 

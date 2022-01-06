@@ -37,6 +37,7 @@ import qualified GHC.Base      as P hiding (mapM)
 import qualified GHC.Real      as P
 import qualified GHC.Int       as P
 import qualified GHC.Stack     as P
+import qualified GHC.Exts      as P
 import qualified Prelude       as P hiding (mapM)
 import           GHC.Types (RuntimeRep, Type)
 import           GHC.Int   (Int64(..), Int(..))
@@ -398,6 +399,8 @@ instance Invertible P.Char
 -- | Lifted ShowS type
 type ShowSFL m = (-->) m (StringFL m) (StringFL m)
 
+type instance Lifted FL P.Show = ShowFL
+type instance Lifted FL (P.Show f) = ShowFL (Lifted FL f)
 -- | Lifted Show type class
 class ShowFL a where
   {-# MINIMAL showsPrecFL | showFL #-}
@@ -472,6 +475,8 @@ instance ShowFL a => ShowFL (ListFL FL a) where
 
 -- * Lifted Eq type class, instances and functions
 
+type instance Lifted FL P.Eq = EqFL
+type instance Lifted FL (P.Eq f) = EqFL (Lifted FL f)
 -- | Lifted Eq type class
 class EqFL a where
   (==#) :: FL (a :--> a :--> BoolFL FL)
@@ -529,6 +534,8 @@ eqOn2 x y xs ys = apply2FL (&&#) (apply2FL(==#) x y) (apply2FL(==#) xs ys)
 
 -- * Lifted Ord type class, instances and functions
 
+type instance Lifted FL P.Ord = OrdFL
+type instance Lifted FL (P.Ord f) = OrdFL (Lifted FL f)
 -- | Lifted Ord type class
 class EqFL a => OrdFL a where
   {-# MINIMAL compareFL | (<=#) #-}
@@ -620,6 +627,8 @@ instance (OrdFL a) => OrdFL (ListFL FL a) where
 
 -- * Lifted Num type class, instances and functions
 
+type instance Lifted FL P.Num = NumFL
+type instance Lifted FL (P.Num f) = NumFL (Lifted FL f)
 -- | Lifted Num type class
 class NumFL a where
   (+#) :: FL (a :--> a :--> a)
@@ -670,6 +679,8 @@ instance NumFL (DoubleFL FL) where
   fromIntegerFL = liftFL1Convert P.fromInteger
 -- * Lifted Fractional type class, instances and functions
 
+type instance Lifted FL P.Fractional = FractionalFL
+type instance Lifted FL (P.Fractional f) = FractionalFL (Lifted FL f)
 -- | Lifted Fractional type class
 class NumFL a => FractionalFL a where
   {-# MINIMAL fromRationalFL, (recipFL | (/#)) #-}
@@ -692,6 +703,8 @@ instance FractionalFL (DoubleFL FL) where
 
 -- * Lifted Real type class, instances and functions
 
+type instance Lifted FL P.Real = RealFL
+type instance Lifted FL (P.Real f) = RealFL (Lifted FL f)
 -- | Lifted Real type class
 class (NumFL a, OrdFL a) => RealFL a where
   toRationalFL :: FL (a :--> RationalFL FL)
@@ -710,6 +723,8 @@ instance RealFL (DoubleFL FL) where
 
 -- * Lifted Integral type class, instances and functions
 
+type instance Lifted FL P.Integral = IntegralFL
+type instance Lifted FL (P.Integral f) = IntegralFL (Lifted FL f)
 -- | Lifted Integral type class
 class (RealFL a, EnumFL a) => IntegralFL a where
   quotFL      :: FL (a :--> a :--> a)
@@ -767,6 +782,9 @@ instance IntegralFL (IntegerFL FL) where
 
 infixl 1 >>=#, >>#
 infixl 4 <$#, <*#, *>#, <*>#
+
+type instance Lifted FL P.Functor = FunctorFL
+type instance Lifted FL (P.Functor f) = FunctorFL (Lifted FL f)
 -- | Lifted Functor type class
 class FunctorFL f where
   fmapFL :: FL ((a :--> b) :--> f a :--> f b)
@@ -779,6 +797,8 @@ instance FunctorFL (ListFL FL) where
     NilFL       -> P.return NilFL
     ConsFL x xs -> P.return (ConsFL (f `appFL` x) (apply2FL fmapFL f xs))
 
+type instance Lifted FL P.Applicative = ApplicativeFL
+type instance Lifted FL (P.Applicative f) = ApplicativeFL (Lifted FL f)
 -- | Lifted Applicative type class
 class FunctorFL f => ApplicativeFL f where
   pureFL :: FL (a :--> f a)
@@ -806,7 +826,9 @@ instance ApplicativeFL (ListFL FL) where
     apply2FL concatMapFL (returnFLF $ \a ->
     apply2FL fmapFL      (returnFLF $ \f -> f `appFL` a) fs) as
 
-  -- | Lifted Alternative type class
+type instance Lifted FL P.Alternative = AlternativeFL
+type instance Lifted FL (P.Alternative f) = AlternativeFL (Lifted FL f)
+-- | Lifted Alternative type class
 class ApplicativeFL f => AlternativeFL f where
   emptyFL :: FL (f a)
   (<|>#) :: FL (f a :--> f a :--> f a)
@@ -827,6 +849,9 @@ instance AlternativeFL (ListFL FL) where
   emptyFL = P.return NilFL
   (<|>#) = appendFL
 
+
+type instance Lifted FL P.Monad = MonadFL
+type instance Lifted FL (P.Monad f) = MonadFL (Lifted FL f)
 -- | Lifted Monad type class
 class ApplicativeFL m => MonadFL m where
   (>>=#) :: FL (m a :--> (a :--> m b) :--> m b)
@@ -842,6 +867,8 @@ instance MonadFL (ListFL FL) where
     NilFL       -> P.return NilFL
     ConsFL x xs -> apply2FL appendFL (f `appFL` x) (apply2FL (>>=#) xs f)
 
+type instance Lifted FL P.MonadFail = MonadFailFL
+type instance Lifted FL (P.MonadFail f) = MonadFailFL (Lifted FL f)
 -- | Lifted MonadFail type class
 class MonadFL m => MonadFailFL m where
   failFL :: FL (StringFL FL :--> m a)
@@ -851,6 +878,8 @@ instance MonadFailFL (ListFL FL) where
 
 -- * Lifted Enum type class, instances and functions
 
+type instance Lifted FL P.Enum = EnumFL
+type instance Lifted FL (P.Enum f) = EnumFL (Lifted FL f)
 -- | Lifted Enum type class
 class EnumFL a where
   succFL :: FL (a :--> a)
@@ -931,6 +960,8 @@ instance EnumFL (IntegerFL FL) where
 
 -- * Lifted Bounded type class, instances and functions
 
+type instance Lifted FL P.Bounded = BoundedFL
+type instance Lifted FL (P.Bounded f) = BoundedFL (Lifted FL f)
 -- | Lifted Bounded type class
 class BoundedFL a where
   minBoundFL :: FL a
@@ -940,6 +971,8 @@ instance BoundedFL (IntFL FL) where
   minBoundFL = toFL P.minBound
   maxBoundFL = toFL P.maxBound
 
+type instance Lifted FL P.IsString = IsStringFL
+type instance Lifted FL (P.IsString f) = IsStringFL (Lifted FL f)
 class IsStringFL a where
   fromStringFL :: FL (StringFL FL :--> a)
 

@@ -300,11 +300,12 @@ liftMonadicExpr _    tcs e@(L _ HsLit{}) = do
   return $ noLoc $ HsPar noExtField res
 liftMonadicExpr given tcs (L l (HsOverLit _ lit)) =
   case ol_witness lit of
-    -- if this is geniunely a Double or Float, just wrap it with return
+    -- if this is geniunely a Double or Float, just wrap it with toFL
     e@(HsApp _ (L _ (HsConLikeOut _ (RealDataCon dc))) _)
       | dc == doubleDataCon || dc == floatDataCon -> do
         ty <- getTypeOrPanic (noLoc e)
-        mkApp mkNewReturnTh ty [noLoc e]
+        ty' <- liftInnerTyTcM tcs ty
+        mkApp (mkNewToFL ty) ty' [noLoc e]
     -- otherwise, just lift the witness
     _ -> liftMonadicExpr given tcs (L l (ol_witness lit))
 liftMonadicExpr given tcs (L l (HsLam x mg)) = do
