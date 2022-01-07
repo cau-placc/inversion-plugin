@@ -18,6 +18,7 @@ import TcRnTypes
 import Plugin.Trans.Type
 import Plugin.Trans.Class
 import Plugin.Trans.Var
+import Plugin.Trans.Util
 
 -- | Lift a given class instance.
 liftInstance :: TyConMap -> ClsInst -> TcM ClsInst
@@ -26,10 +27,13 @@ liftInstance tcs (ClsInst _ _ _ tvs origCls origTys origDf ov orp) = do
   cls <- liftIO $ getLiftedClass origCls tcs
 
   -- Update type constructors
-  tys <- liftIO (mapM (replaceTyconTy tcs) origTys)
+  tys <- mapM (liftInnerTyTcM tcs) origTys
   let tyn = map (fmap (tyConName . fst) . splitTyConApp_maybe) tys
 
-  dfType <- liftIO (replaceTyconTy tcs (varType origDf))
+  dfType <- liftInnerTyTcM tcs (varType origDf)
+  printAny "tys" tys
+  printAny "dfType" dfType
+  printAny "(varType origDf)" (varType origDf)
   let dfLifted = setVarType origDf dfType
 
   -- Set other properties of the new dictionary function.

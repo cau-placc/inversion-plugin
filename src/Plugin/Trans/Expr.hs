@@ -138,7 +138,7 @@ liftMonadicBinding lcl _ given tcs _ (AbsBinds a b c d e f g)
         _ -> do
           let (bs1, t1) = splitPiTysInvisibleN (length b + length c) v1ty
           let cons = []
-          bs1' <- liftIO (mapM (replacePiTy tcs) bs1)
+          bs1' <- mapM (replacePiTyTcM tcs) bs1
           mkPiTys bs1' . flip (foldr mkInvisFunTy) cons
             <$> liftTypeTcM tcs t1
 
@@ -307,7 +307,7 @@ liftMonadicExpr given tcs (L l (HsOverLit _ lit)) =
         ty' <- liftInnerTyTcM tcs ty
         mkApp (mkNewToFL ty) ty' [noLoc e]
     -- otherwise, just lift the witness
-    _ -> liftMonadicExpr given tcs (L l (ol_witness lit))
+    e -> liftMonadicExpr given tcs (L l e)
 liftMonadicExpr given tcs (L l (HsLam x mg)) = do
   mg'@(MG (MatchGroupTc [arg] res) _ _) <- liftMonadicEquation given tcs mg
   let e = L l (HsLam x mg')

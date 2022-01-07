@@ -72,7 +72,7 @@ liftClass ftycon mtycon tcs tcsM tycon us cls = flip evalStateT us $ mdo
   superclss <- mapM (fmap (replaceTyconTyPure tcs) . lift . replaceTyconTy tcsM)
     (classSCTheta cls)
   -- Lift the super class selector functions
-  supersel  <- mapM (liftSuperSel tcs tcsM cls') (classSCSelIds cls)
+  supersel  <- mapM (liftSuperSel ftycon mtycon tcs tcsM cls') (classSCSelIds cls)
   -- Lift the associated types of the class
   astypes   <- mapM (liftATItem mtycon tcs tcsM cls) (classATItems cls)
   -- Lift all class functions
@@ -85,12 +85,13 @@ liftClass ftycon mtycon tcs tcsM tycon us cls = flip evalStateT us $ mdo
   return cls'
 
 -- | Lift a super class selector function.
-liftSuperSel :: UniqMap TyCon TyCon -> TyConMap -> Class -> Var -> ClassM Var
-liftSuperSel tcs tcsM cls v = do
+liftSuperSel :: TyCon -> TyCon -> UniqMap TyCon TyCon -> TyConMap -> Class -> Var -> ClassM Var
+liftSuperSel ftycon mtycon tcs tcsM cls v = do
   u <- getUniqueM
+  us <- getUniqueSupplyM
   -- A super class selector is not lifted like a function.
   -- Instead we just have to update its mentioned type constructors.
-  ty' <- lift $ replaceTyconTyPure tcs <$> replaceTyconTy tcsM (varType v)
+  ty' <- lift $ replaceTyconTyPure tcs <$> liftInnerTy ftycon (mkTyConTy mtycon) us tcsM (varType v)
   -- Create the new selector id with the correct attributes.
   return (mkExactNameDictSelId (liftName (varName v) u) cls ty')
 
@@ -100,6 +101,7 @@ liftClassOpItem :: TyCon -> TyCon -> UniqMap TyCon TyCon -> TyConMap
 liftClassOpItem ftycon mtycon tcs tcsM clsOld clsNew (v, mbdef) = do
   us1 <- getUniqueSupplyM
   us2 <- getUniqueSupplyM
+  us3 <- getUniqueSupplyM
   u <- getUniqueM
   -- The classOp has type forall clsVars . forall otherVars . (...).
   -- If we were to lift the full type,
@@ -110,7 +112,7 @@ liftClassOpItem ftycon mtycon tcs tcsM clsOld clsNew (v, mbdef) = do
   let varCount = length (classTyVars clsOld)
   let (bndr, liftingType) = splitPiTysInvisibleN varCount (varType v)
   -- Now we can lift the type.
-  bndr' <- liftIO (mapM (replacePiTy tcsM) bndr)
+  bndr' <- liftIO (mapM (replacePiTy ftycon mtycon us3 tcsM) bndr)
   ty' <- lift $ replaceTyconTyPure tcs . mkPiTys bndr'
     <$> liftType ftycon (mkTyConTy mtycon) us1 tcsM liftingType
   -- Create the new selector id with the correct attributes.

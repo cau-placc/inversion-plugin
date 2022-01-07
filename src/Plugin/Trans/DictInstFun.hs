@@ -51,13 +51,13 @@ liftDictInstBinding tcs cls (AbsBinds _ tvs evs ex evb bs sig)
       -- The new poly var is the one from the given clsInst.
       let p' = is_dfun cls
       -- The monomorphic one has to be updated for the new type constructors.
-      m' <- setVarType m <$> liftIO (replaceTyconTy tcs (varType m))
+      m' <- setVarType m <$> liftInnerTyTcM tcs (varType m)
 
       -- Each function and superclass selector uses the same wrapper,
       -- that applies all tvs and then all evs.
       -- So we create it once, and use it everywhere.
-      let replaceEv ev = setVarType ev <$> replaceTyconTy tcs (varType ev)
-      allevsids <- liftIO (mapM replaceEv evs)
+      let replaceEv ev = setVarType ev <$> liftInnerTyTcM tcs (varType ev)
+      allevsids <- mapM replaceEv evs
       let evWraps = map (WpEvApp . EvExpr . evId) allevsids
       let tyWraps = map (WpTyApp . mkTyVarTy) tvs
       let wrap = foldl (<.>) WpHole (reverse evWraps ++ reverse tyWraps)
@@ -108,11 +108,11 @@ liftDictExpr cls w tcs (L l ex) = L l <$> liftDictExpr' ex
       let ty = varType v
       dfLifted <- case splitTyConApp_maybe (snd (splitPiTysInvisible ty)) of
         Just (tc, _) | tc == mtc
-          -> setVarType v <$> liftIO (replaceTyconTy tcs ty)
+          -> setVarType v <$> liftInnerTyTcM tcs ty
         _ -> do
           let (bs1, ty1) = splitPiTysInvisibleN (length (is_tvs cls)) ty
               (bs2, ty2) = splitInvisFunTys ty1
-          bs' <- liftIO (mapM (replacePiTy tcs) (bs1 ++ bs2))
+          bs' <- mapM (replacePiTyTcM tcs) (bs1 ++ bs2)
           ty' <- mkPiTys bs' <$> liftTypeTcM tcs ty2
           return (setVarType v ty')
 

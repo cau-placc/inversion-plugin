@@ -2,7 +2,13 @@
 module DataLift where
 
 data B = F | T
+  deriving (Eq, Show)
 
+eq :: (Eq a) => a -> a -> Bool
+eq = (==)
+
+shw :: (Show a) => a -> String
+shw = show
 
 class C a where
   cc :: a -> a
@@ -11,13 +17,3 @@ class C a where
 instance C B where
   cc x = x
   dd = cc
-
-notB :: B -> B
-notB F = T
-notB T = F
-
-constI :: B -> a -> B
-constI x _ = x
-
-test :: Bool
-test = True

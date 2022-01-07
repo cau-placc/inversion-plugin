@@ -403,7 +403,6 @@ instance NF P.Char (CharFL FL) where
 
 instance Invertible P.Char
 
-
 -- | Lifted ShowS type
 type ShowSFL m = (-->) m (StringFL m) (StringFL m)
 
@@ -417,10 +416,10 @@ class ShowFL a where
     apply2FL appendFL (showFL `appFL` x) s
 
   showFL :: FL (a :--> StringFL FL)
-  showFL = returnFLF $ \x -> apply2FL shows x (P.return NilFL)
+  showFL = returnFLF $ \x -> apply2FL showsFL x (P.return NilFL)
 
   showListFL :: FL (ListFL FL a :--> ShowSFL FL)
-  showListFL = returnFLF $ \ls -> returnFLF $ \s -> apply3FL showsList__ shows ls s
+  showListFL = returnFLF $ \ls -> returnFLF $ \s -> apply3FL showsList__ showsFL ls s
 
 showsList__ :: FL ((a :--> ShowSFL FL) :--> ListFL FL a :--> ShowSFL FL)
 showsList__ = returnFLF $ \showx -> returnFLF $ \list -> returnFLF $ \s ->
@@ -437,22 +436,37 @@ showsList__ = returnFLF $ \showx -> returnFLF $ \list -> returnFLF $ \s ->
           P.return (ConsFL (toFL ',')
             (apply2FL showx y (apply3FL showl showx ys s)))
 
-shows :: ShowFL a => FL (a :--> ShowSFL FL)
-shows = showsPrecFL `appFL` toFL 0
+shows :: P.Show a => a -> P.ShowS
+shows = P.showsPrec 0
 
-showString :: FL (StringFL FL :--> ShowSFL FL)
-showString = appendFL
+showsFL :: ShowFL a => FL (a :--> ShowSFL FL)
+showsFL = showsPrecFL `appFL` toFL 0
 
-showCommaSpace :: FL (ShowSFL FL)
-showCommaSpace = showString `appFL` toFL ", "
+showString :: P.String -> P.ShowS
+showString = (P.++)
 
-showSpace :: FL (ShowSFL FL)
-showSpace =  showString `appFL` toFL " "
+showStringFL :: FL (StringFL FL :--> ShowSFL FL)
+showStringFL = appendFL
 
-showParen :: FL (BoolFL FL :--> ShowSFL FL :--> ShowSFL FL)
-showParen = returnFLF $ \b -> returnFLF $ \s -> b P.>>= \case
-  TrueFL  -> apply2FL (.#) (showString `appFL` toFL "(")
-          (apply2FL (.#) s (showString `appFL` toFL ")"))
+showCommaSpace :: P.ShowS
+showCommaSpace = showString ", "
+
+showCommaSpaceFL :: FL (ShowSFL FL)
+showCommaSpaceFL = showStringFL `appFL` toFL ", "
+
+showSpace :: P.ShowS
+showSpace =  showString " "
+
+showSpaceFL :: FL (ShowSFL FL)
+showSpaceFL =  showStringFL `appFL` toFL " "
+
+showParen :: Bool -> P.ShowS -> P.ShowS
+showParen b s = if b then showString "(" P.. (s P.. showString ")") else s
+
+showParenFL :: FL (BoolFL FL :--> ShowSFL FL :--> ShowSFL FL)
+showParenFL = returnFLF $ \b -> returnFLF $ \s -> b P.>>= \case
+  TrueFL  -> apply2FL (.#) (showStringFL `appFL` toFL "(")
+          (apply2FL (.#) s (showStringFL `appFL` toFL ")"))
   FalseFL -> s
 
 instance ShowFL (BoolFL FL) where

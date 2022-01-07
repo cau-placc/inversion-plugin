@@ -134,22 +134,19 @@ liftType :: TyCon       -- ^ 'Fun' type constructor
          -> TyConMap    -- ^ Type constructor map
          -> Type        -- ^ Type to be lifted
          -> IO Type     -- ^ Lifted type
-liftType ftc mty s tcs t
-  -- If the type is only a dictionary type, just replace type constructors.
-  | isDictTy  t = replaceTyconTy tcs t
-  | otherwise   = liftType' s t
+liftType ftc mty s tcs = liftType' s
   where
     liftType' :: UniqSupply -> Type -> IO Type
     liftType' us (ForAllTy b ty) =
       ForAllTy b <$> liftType ftc mty us tcs ty
     -- Types to the left of and invisible function type (=>) are constraints.
     liftType' us (FunTy InvisArg ty1 ty2) =
-        FunTy InvisArg <$> replaceTyconTy tcs ty1 <*> liftType' us ty2
+        FunTy InvisArg <$> liftInnerTy ftc mty s tcs ty1 <*> liftType' us ty2
     -- Wrap a visible function type in our monad, except when it is a
     -- visible dictionary applictation (not possible in GHC yet).-
     liftType' us (FunTy VisArg ty1 ty2)
       | isDictTy ty1 =
-        FunTy VisArg <$> replaceTyconTy tcs ty1 <*> liftType' us ty2
+        FunTy VisArg <$> liftInnerTy ftc mty s tcs ty1 <*> liftType' us ty2
       | otherwise = do
         let (u1, u2) = splitUniqSupply us
         ty1' <- liftInnerTy ftc mty u1 tcs ty1
@@ -172,7 +169,7 @@ liftType ftc mty s tcs t
     liftType' us (TyConApp tc tys)
       | isClassTyCon tc || anyTyCon == tc = do
         tc' <- lookupTyConMap GetNew tcs tc
-        tys' <- mapM (replaceTyconTy tcs) tys
+        tys' <- mapM (liftInnerTy ftc mty us tcs) tys
         return (TyConApp tc' tys')
       | otherwise       = do
         tc' <- lookupTyConMap GetNew tcs tc
@@ -182,9 +179,17 @@ liftType ftc mty s tcs t
       return (mkAppTy mty ty)
 
 -- | Update type constructors in a pi-type
-replacePiTy :: TyConMap -> TyBinder -> IO TyBinder
-replacePiTy _   (Named b   ) = return (Named b)
-replacePiTy tcs (Anon  f t') = Anon f <$> replaceTyconTy tcs t'
+replacePiTyTcM :: TyConMap -> TyBinder -> TcM TyBinder
+replacePiTyTcM tcs b = do
+  mtc <- getMonadTycon
+  ftc <- getFunTycon
+  us <- getUniqueSupplyM
+  liftIO (replacePiTy ftc mtc us tcs b)
+
+replacePiTy :: TyCon -> TyCon -> UniqSupply -> TyConMap -> TyBinder
+            -> IO TyBinder
+replacePiTy _   _   _  _   (Named b   ) = return (Named b)
+replacePiTy ftc mtc us tcs (Anon  f t') = Anon f <$> liftInnerTy ftc (mkTyConTy mtc) us tcs t'
 
 -- | Create a type variable with the given kind and unique key.
 mkTyVarWith :: Kind -> Unique -> TyVar
