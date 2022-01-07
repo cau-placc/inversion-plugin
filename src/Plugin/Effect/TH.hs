@@ -210,7 +210,6 @@ genInstances (TySynD _originalName _ _) (TySynD _liftedName _liftedTyVarBndrs _)
   --       in TySynInstD $ TySynEqn Nothing (mkLifted mTy (applyType originalTc relevantVars)) (applyType liftedTc (map (mkLifted mTy) relevantVars))
   -- return $ map genOne [0 .. length liftedTyVars] :: DecsQ
 genInstances originalDataDec liftedDataDec = do
-  mTy <- genMTy
 
   let originalTcInfo = extractTcInfo id originalDataDec
       originalTc = ConT $ tcName originalTcInfo
@@ -221,11 +220,12 @@ genInstances originalDataDec liftedDataDec = do
       originalConArgs = concatMap conArgs originalConInfos
   let liftedTcInfo = extractTcInfo innerType liftedDataDec
       liftedTc = AppT (ConT $ tcName liftedTcInfo) mTy
-      liftedTyVarNames = tail $ tcVarNames liftedTcInfo -- Discard the monad parameter here
+      (mvar, liftedTyVarNames) = case tcVarNames liftedTcInfo of { x:xs -> (x,xs); _ -> error "TH: unexpected unlifted constructor"} -- Discard the monad parameter here
       liftedTyVars = map VarT liftedTyVarNames
       liftedTy = applyType (ConT $ tcName liftedTcInfo) $ ConT ''FL : liftedTyVars
       liftedConInfos = tcConInfos liftedTcInfo
-      liftedConArgs = concatMap conArgs liftedConInfos
+      liftedConArgs = map (replaceMTyVar mvar (ConT ''FL)) $ concatMap conArgs liftedConInfos
+      mTy = VarT mvar
 
   let genHasPrimitiveInfo = return $ InstanceD Nothing [] (mkHasPrimitiveInfoConstraint liftedTy) [] :: Q Dec
 
@@ -309,6 +309,16 @@ genInstances originalDataDec liftedDataDec = do
         return $ InstanceD Nothing ctxt (mkInvertibleConstraint originalTy) [] :: Q Dec
 
   (++) <$> genLifted <*> sequence [genHasPrimitiveInfo, genNarrowable, genConvertible, genMatchable, genGroundable, genInvertible]
+
+replaceMTyVar :: Name -> Type -> Type -> Type
+replaceMTyVar var replacement = go
+  where
+    go :: Type -> Type
+    go ty = case ty of
+      AppT ty1 ty2       -> AppT (go ty1) (go ty2)
+      VarT n | n == var  -> replacement
+             | otherwise -> VarT n
+      _                  -> ty
 
 innerType :: Type -> Type
 innerType (AppT (VarT _) ty) = ty

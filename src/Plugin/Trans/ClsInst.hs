@@ -18,7 +18,6 @@ import TcRnTypes
 import Plugin.Trans.Type
 import Plugin.Trans.Class
 import Plugin.Trans.Var
-import Plugin.Trans.Util
 
 -- | Lift a given class instance.
 liftInstance :: TyConMap -> ClsInst -> TcM ClsInst
@@ -31,9 +30,6 @@ liftInstance tcs (ClsInst _ _ _ tvs origCls origTys origDf ov orp) = do
   let tyn = map (fmap (tyConName . fst) . splitTyConApp_maybe) tys
 
   dfType <- liftInnerTyTcM tcs (varType origDf)
-  printAny "tys" tys
-  printAny "dfType" dfType
-  printAny "(varType origDf)" (varType origDf)
   let dfLifted = setVarType origDf dfType
 
   -- Set other properties of the new dictionary function.
