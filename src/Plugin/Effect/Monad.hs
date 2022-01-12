@@ -213,7 +213,7 @@ narrowPrimitive i j cst = unsafePerformIO $
       Sat -> do
         v <- getValue (eitherToSBV @a (Left i))
         let c = eitherToSBV (Left i) ./== literal v
-        return ((coerce v, Right c) : narrowPrimitive i j (insertConstraint c [i] cst))
+        return ((coerce v, Right (sNot c)) : narrowPrimitive i j (insertConstraint c [i] cst))
       _   -> return []
 
 --TODO: rename
