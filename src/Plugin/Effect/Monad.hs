@@ -1,25 +1,26 @@
+{-# LANGUAGE AllowAmbiguousTypes       #-}
 {-# LANGUAGE BangPatterns              #-}
 {-# LANGUAGE ConstraintKinds           #-}
+{-# LANGUAGE CPP                       #-}
 {-# LANGUAGE DefaultSignatures         #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts          #-}
+{-# LANGUAGE FlexibleInstances         #-}
+{-# LANGUAGE FunctionalDependencies    #-}
 {-# LANGUAGE GADTs                     #-}
 {-# LANGUAGE LambdaCase                #-}
+{-# LANGUAGE MultiParamTypeClasses     #-}
 {-# LANGUAGE PolyKinds                 #-}
 {-# LANGUAGE RankNTypes                #-}
+{-# LANGUAGE RecordWildCards           #-}
 {-# LANGUAGE ScopedTypeVariables       #-}
 {-# LANGUAGE TypeApplications          #-}
 {-# LANGUAGE TypeFamilies              #-}
+{-# LANGUAGE TypeFamilyDependencies    #-}
 {-# LANGUAGE TypeOperators             #-}
-{-# LANGUAGE CPP                       #-}
-{-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE TypeFamilyDependencies #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE QuantifiedConstraints #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE UnboxedTuples #-}
+{-# LANGUAGE UnboxedTuples             #-}
+{-# LANGUAGE UndecidableInstances      #-}
+{-# OPTIONS_GHC -Wno-orphans           #-}
 module Plugin.Effect.Monad where
 
 import Control.Exception
@@ -28,6 +29,7 @@ import Control.Monad.State
 import Control.Monad.Reader
 import Control.Monad.SearchTree
 import Control.Monad.Codensity ( Codensity(..) )
+import Control.Monad.Identity
 
 import           Data.Map                       (Map)
 import qualified Data.Map           as Map
@@ -35,16 +37,16 @@ import           Data.Set                       (Set)
 import qualified Data.Set           as Set
 import           Data.SBV
 import           Data.SBV.Control
+import           Data.SBV.Internals
 #ifdef TYPED
 import           Data.Typeable (Typeable)
 #endif
-import           Test.ChasingBottoms.IsBottom (isBottom)
 import           Data.Either (fromRight)
 import           Data.Coerce (coerce, Coercible )
-import           Data.Typeable (Proxy, type (:~:)(..))
+import           Data.Typeable (type (:~:)(..))
 import           Unsafe.Coerce (unsafeCoerce )
 import           System.IO.Unsafe (unsafePerformIO)
-import           Control.Monad.Identity
+import           Test.ChasingBottoms.IsBottom (isBottom)
 
 type ND s = Codensity (ReaderT s Search)
 
@@ -53,9 +55,9 @@ evalND nd = runReaderT (runCodensity nd return)
 
 --------------------------------------------------------------------------------
 #ifdef TYPED
-data FLVal a = (Narrowable a, Typeable a, HasPrimitiveInfo a) => Var ID | Val a
+data FLVal a = (Narrowable a, Typeable a) => Var ID | Val a
 #else
-data FLVal a = (Narrowable a, HasPrimitiveInfo a) => Var ID | Val a
+data FLVal a = Narrowable a => Var ID | Val a
 #endif
 
 --------------------------------------------------------------------------------
@@ -88,9 +90,9 @@ instance MonadFail FL where
   fail s = FL (fail s)
 
 #ifdef TYPED
-freeFL :: (Narrowable a, Typeable a, HasPrimitiveInfo a) => ID -> FL a
+freeFL :: (Narrowable a, Typeable a) => ID -> FL a
 #else
-freeFL :: (Narrowable a, HasPrimitiveInfo a) => ID -> FL a
+freeFL :: Narrowable a => ID -> FL a
 #endif
 freeFL i = FL (return (Var i))
 
@@ -147,7 +149,19 @@ findBinding i = fmap (\(Untyped x) -> unsafeCoerce x) . Map.lookup i
 --------------------------------------------------------------------------------
 
 type Constraint = SBool
-type Constrainable b = SymVal b
+type Constrainable a = (Coercible (Lifted FL a) a, SymVal a)
+
+instance SymVal Int where
+  mkSymVal = genMkSymVar (KBounded True (finiteBitSize @Int 0))
+  literal  = genLiteral  (KBounded True (finiteBitSize @Int 0))
+  fromCV   = genFromCV
+
+instance HasKind Int where
+  kindOf _ = KBounded True (finiteBitSize @Int 0)
+
+instance SDivisible (SBV Int) where
+  sQuotRem = liftQRem
+  sDivMod  = liftDMod
 
 insertConstraint :: Constraint -> [ID] -> ConstraintStore -> ConstraintStore
 insertConstraint c ids (CStore cs vs) = CStore (c : cs) (Set.fromList ids `Set.union` vs)
@@ -163,21 +177,21 @@ isConsistent cst = unsafePerformIO $
 isUnconstrained :: ID -> ConstraintStore -> Bool
 isUnconstrained i = Set.notMember i . constrainedVars
 
-{-# DEPRECATED toSBV "use specialized" #-}
-toSBV :: (Coercible a b, Constrainable b) => FLVal a -> SBV b
-toSBV (Var i) = sym $ "x" ++ (if i < 0 then "n" else "") ++ show (abs i)
-toSBV (Val a) = literal (coerce a)
+toSBV :: Constrainable a => FLVal (Lifted FL a) -> SBV a
+toSBV (Var i) = eitherToSBV (Left i)
+toSBV (Val a) = eitherToSBV (Right a)
+
+eitherToSBV :: Constrainable a => Either ID (Lifted FL a) -> SBV a
+eitherToSBV (Left i) = sym $ "x" ++ (if i < 0 then "n" else "") ++ show (abs i)
+eitherToSBV (Right x) = literal (coerce x)
 
 varToSBV :: Constrainable a => ID -> SBV a
-varToSBV i = sym $ "x" ++ (if i < 0 then "n" else "") ++ show (abs i)
-
-valToSBV :: Constrainable b => b -> SBV b
-valToSBV = literal
+varToSBV i = eitherToSBV (Left i)
 
 --------------------------------------------------------------------------------
 
 data PrimitiveInfo a = NoPrimitive
-                     | forall b. (Coercible a b, Constrainable b) => Primitive (Proxy (a, b))
+                     | Constrainable a => Primitive
 
 class HasPrimitiveInfo a where
   primitiveInfo :: PrimitiveInfo a
@@ -185,20 +199,21 @@ class HasPrimitiveInfo a where
 
 --------------------------------------------------------------------------------
 
-class HasPrimitiveInfo a => Narrowable a where
+class Narrowable a where
   -- TODO: somehow we only want one ID, but have not figured out how to to that yet.
   -- Thus, for now the first is the variable to be narrowed and the second is the next fresh ID
   narrow :: ID -> ID -> ConstraintStore -> [(a, Either Integer Constraint)]
 
-narrowPrimitive :: forall a b. (Coercible a b, Constrainable b) => ID -> ID -> ConstraintStore -> [(a, Either Integer Constraint)]
+-- TODO: remove j in diss
+narrowPrimitive :: forall a. Constrainable a => ID -> ID -> ConstraintStore -> [(Lifted FL a, Either Integer Constraint)]
 narrowPrimitive i j cst = unsafePerformIO $
-  runSMT $  do
+  runSMT $ do
     mapM_ constrain (constraints cst)
     query $ checkSat >>= \case
       Sat -> do
-        v <- getValue (varToSBV i)
-        let c = varToSBV i ./== valToSBV v
-        return ((coerce @b @a v, Right c) : narrowPrimitive @a @b i j (insertConstraint c [i] cst))
+        v <- getValue (eitherToSBV @a (Left i))
+        let c = eitherToSBV (Left i) ./== literal v
+        return ((coerce v, Right c) : narrowPrimitive i j (insertConstraint c [i] cst))
       _   -> return []
 
 --TODO: rename
@@ -212,7 +227,7 @@ resolveND (Var i) = get >>= \ FLState {..} -> case findBinding i heap of
 
 -- TODO: combine narrowable typeable and hasprimitiveinfo
 #ifdef TYPED
-instantiateND :: forall a. (Narrowable a, Typeable a, HasPrimitiveInfo a) => ID -> ND FLState a
+instantiateND :: forall a. (Narrowable a, Typeable a) => ID -> ND FLState a
 #else
 instantiateND :: forall a. Narrowable a => ID -> ND FLState a
 #endif
@@ -277,14 +292,14 @@ unsafeFrom = fromWith (error "Used 'unsafeFrom' on non-primitive value")
 class Matchable a where
   match :: a -> Lifted FL a -> FL ()
 
-matchFL :: forall a. (Convertible a, Matchable a, HasPrimitiveInfo (Lifted FL a)) => a -> FL (Lifted FL a) -> FL ()
+matchFL :: forall a. (Convertible a, Matchable a, HasPrimitiveInfo a) => a -> FL (Lifted FL a) -> FL ()
 matchFL x (FL nd) = FL $ nd >>= resolveND >>= \case
   Var i -> get >>= \ FLState { .. } ->
     let update cst = put (FLState nextID (insertBinding i (to x) heap) cst) >> return (Val ())
-    in case primitiveInfo @(Lifted FL a) of
-        NoPrimitive                               -> update constraintStore
-        Primitive (_ :: (Proxy (Lifted FL a, b))) ->
-          let c    = toSBV @(Lifted FL a) @b (Var i) .=== toSBV @(Lifted FL a) @b (Val (to x))
+    in case primitiveInfo @a of
+        NoPrimitive -> update constraintStore
+        Primitive   ->
+          let c    = toSBV (Var i) .=== toSBV (Val (to x))
               cst' = insertConstraint c [i] constraintStore
           in if isUnconstrained i constraintStore || isConsistent cst'
             then update cst'
@@ -300,7 +315,7 @@ matchFL x (FL nd) = FL $ nd >>= resolveND >>= \case
 
 --------------------------------------------------------------------------------
 
-class (Matchable a, Convertible a, NF a (Lifted FL a)) => Invertible a
+class (Matchable a, Convertible a, NF a (Lifted FL a), HasPrimitiveInfo a) => Invertible a
 
 --------------------------------------------------------------------------------
 

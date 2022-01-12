@@ -51,8 +51,6 @@ import Constraint
 import Class
 import MkId
 import ErrUtils
-import IfaceEnv
-import Finder
 import PrelNames
 
 import Plugin.Trans.Constr
@@ -284,14 +282,10 @@ liftMonadicExpr given tcs (L _ (HsVar _ (L _ v))) =
 liftMonadicExpr given tcs (L _ (HsWrap _ w (HsVar _ (L _ v)))) =
   liftVarWithWrapper given tcs w v
 liftMonadicExpr _    _    e@(L _ (HsLit _ (HsIntPrim _ _))) = do
-  hscEnv <- getTopEnv
-  Found _ mdl <- liftIO $
-    findImportedModule hscEnv (mkModuleName "GHC.Int") Nothing
-  i64tycon <- lookupOrig mdl ( mkTcOcc "Int64" ) >>= lookupTyCon
-  conE <- liftQ [| I64# |]
-  let conty = mkVisFunTy intPrimTy (mkTyConTy i64tycon)
+  conE <- liftQ [| I# |]
+  let conty = mkVisFunTy intPrimTy intTy
   lit <- mkApp (mkNewAny conE) conty [e]
-  let retty = mkTyConTy i64tycon
+  let retty = intTy
   mkApp mkNewReturnTh retty [noLoc (HsPar noExtField lit)]
 liftMonadicExpr _    tcs e@(L _ HsLit{}) = do
   ty <- getTypeOrPanic e
@@ -323,11 +317,7 @@ liftMonadicExpr _ tcs (L _ (HsConLikeOut _ (RealDataCon c)))
     idExp <- liftQ [| returnFLF id |]
     mtycon <- getMonadTycon
     ftycon <- getFunTycon
-    hscEnv <- getTopEnv
-    Found _ mdl <- liftIO $
-      findImportedModule hscEnv (mkModuleName "GHC.Int") Nothing
-    i64tycon <- lookupOrig mdl ( mkTcOcc "Int64" ) >>= lookupTyCon
-    let ty = mkTyConApp mtycon [mkTyConApp ftycon [mkTyConTy i64tycon, mkTyConTy i64tycon]]
+    let ty = mkTyConApp mtycon [mkTyConApp ftycon [intTy, intTy]]
     mkApp (mkNewAny idExp) ty []
   | otherwise = do
     c' <- liftIO (getLiftedCon c tcs)
@@ -642,16 +632,11 @@ liftVarWithWrapper given tcs w v
     let appliedType = head $ collectTyApps w
     liftedType <- liftTypeTcM tcs appliedType
     --  tagToEnum :: Int# -> tyApp in w
-    -- returnFLF (\flint -> flint >>= \(I64# i) -> toFL (tagToEnum @w i))
-    lam <- liftQ [| \ttenum -> returnFLF (\flint -> (>>=) flint (\(I64# i) -> toFL (ttenum i))) |]
+    -- returnFLF (\flint -> flint >>= \(I# i) -> toFL (tagToEnum @w i))
+    lam <- liftQ [| \ttenum -> returnFLF (\flint -> (>>=) flint (\(I# i) -> toFL (ttenum i))) |]
     mtycon <- getMonadTycon
     ftycon <- getFunTycon
-    hscEnv <- getTopEnv
-    Found _ mdl <- liftIO $
-      findImportedModule hscEnv (mkModuleName "GHC.Int") Nothing
-    i64tycon <- lookupOrig mdl ( mkTcOcc "Int64" ) >>= lookupTyCon
-    let int64ty = mkTyConTy i64tycon
-    let ty = (intPrimTy `mkVisFunTy` appliedType) `mkVisFunTy` mkTyConApp mtycon [mkTyConApp ftycon [int64ty, bindingType liftedType]]
+    let ty = (intPrimTy `mkVisFunTy` appliedType) `mkVisFunTy` mkTyConApp mtycon [mkTyConApp ftycon [mkTyConTy mtycon, intTy, bindingType liftedType]]
     noLoc . HsPar noExtField <$> mkApp (mkNewAny lam) ty [noLoc (HsWrap noExtField w (HsVar noExtField (noLoc v)))]
   | isRecordSelector v = do
     -- lift type
@@ -718,7 +703,7 @@ liftVarWithWrapper given tcs w v
             tc' <- liftIO (lookupTyConMap GetNew tcs tc)
             if tc == tc' -- if they are equal, this is NOT a built-in class.
               then -- Thus, v is almost typed correctly.
-                setVarType v <$> liftIO (replaceTyconTy tcs (varType v))
+                setVarType v <$> liftInnerTyTcM tcs (varType v)
               -- Otherwise, do stuff
               else
                 let defMethName = tyConClass_maybe tc' >>= find defLike . classOpItems

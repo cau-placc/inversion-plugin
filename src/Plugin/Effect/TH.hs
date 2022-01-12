@@ -227,14 +227,14 @@ genInstances originalDataDec liftedDataDec = do
       liftedConArgs = map (replaceMTyVar mvar (ConT ''FL)) $ concatMap conArgs liftedConInfos
       mTy = VarT mvar
 
-  let genHasPrimitiveInfo = return $ InstanceD Nothing [] (mkHasPrimitiveInfoConstraint liftedTy) [] :: Q Dec
+  let genHasPrimitiveInfo = return $ InstanceD Nothing [] (mkHasPrimitiveInfoConstraint originalTy) [] :: Q Dec
 
       genNarrowable = do
         jName <- newName "j"
         let entries = map (mkNarrowEntry jName) liftedConInfos
             body = NormalB $ ListE entries
             dec = FunD 'narrow [Clause [WildP, VarP jName, WildP] body []]
-            ctxt = map mkNarrowableConstraint liftedConArgs ++ map mkHasPrimitiveInfoConstraint liftedConArgs
+            ctxt = map mkNarrowableConstraint liftedConArgs
         return $ InstanceD Nothing ctxt (mkNarrowableConstraint liftedTy) [dec]
 
       genLifted = do
@@ -282,7 +282,7 @@ genInstances originalDataDec liftedDataDec = do
         dec <- genMatch
         let ctxt = map mkConvertibleConstraint originalConArgs ++
                      map mkMatchableConstraint originalConArgs ++
-                     map (mkHasPrimitiveInfoConstraint . mkLifted (ConT ''FL)) originalConArgs
+                     map mkHasPrimitiveInfoConstraint originalConArgs
         return $ InstanceD Nothing ctxt (mkMatchableConstraint originalTy) [dec]
 
       genGroundable = do

@@ -173,8 +173,11 @@ liftType ftc mty s tcs = liftType' s
         return (TyConApp tc' tys')
       | otherwise       = do
         tc' <- lookupTyConMap GetNew tcs tc
-        tys' <- mapM (liftInnerTy ftc mty us tcs) tys
-        return (mkAppTy mty (TyConApp tc' (mty:tys')))
+        if tc' == intTyCon
+          then return (mkAppTy mty (mkTyConTy intTyCon))
+          else do
+            tys' <- mapM (liftInnerTy ftc mty us tcs) tys
+            return (mkAppTy mty (TyConApp tc' (mty:tys')))
     liftType' _ ty@(TyVarTy _) =
       return (mkAppTy mty ty)
 

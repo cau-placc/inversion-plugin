@@ -81,13 +81,8 @@ loadAdditional = do
   altR <- lookupTyCon =<< lookupOrig real ( mkTcOcc "Real" )
   newR <- getTyCon builtInModule "RealFL"
 
-  -- And again for Int# -> Int64
-  Found _ int <- liftIO $
-    findImportedModule hscEnv (mkModuleName "GHC.Int") Nothing
-  newIntPrim <- lookupTyCon =<< lookupOrig int ( mkTcOcc "Int64" )
-
   return [ (altH, newH), (altR, newR), (altA, newA)
-         , (altS, newS), (altF, newF), (intPrimTyCon, newIntPrim)]
+         , (altS, newS), (altF, newF), (intPrimTyCon, intTyCon)]
 
 
 -- | A list of GHC's built-in type constructor names and the names of
