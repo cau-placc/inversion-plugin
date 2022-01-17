@@ -92,7 +92,7 @@ liftConstr isClass dflags instEnvs ftycon mvar mtycon tcs tcsM tycon s cn = do
   -- Update the type constructor of the constructor result.
   let origResTy = dataConOrigResTy cn
   let (tcTy, args) = splitAppTys origResTy
-  resty <- liftIO (replaceCon (mkAppTys tcTy (mtype:args)))
+  resty <- liftIO (replaceCon (mkAppTys tcTy (if isClass then args else mtype:args)))
 
   -- Create the new constructor.
   let rep = case dataConWrapId_maybe cn of

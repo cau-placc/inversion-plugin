@@ -181,8 +181,10 @@ liftAlgRhs isClass dflags instEnvs ftycon mvar mtycon tcs tcsM tycon us
                   | otherwise = liftName axName u
 
     -- Create new coercion axiom.
-    let (etavs, etaroles, etarhs) = etaReduce (reverse (tyConTyVars tycon))
-                                      (reverse (tyConRoles tycon)) rhs'
+    let (vars, roles) = if isClass then (tyConTyVars tycon, tyConRoles tycon)
+                                   else (mvar : tyConTyVars tycon, Representational : tyConRoles tycon)
+    -- Create new coercion axiom.
+    let (etavs, etaroles, etarhs) = etaReduce (reverse vars) (reverse roles) rhs'
     let co' = mkNewTypeCoAxiom axNameNew tycon etavs etaroles etarhs
     return (u4, NewTyCon dc' rhs' (etavs, etarhs) co' lev)
 liftAlgRhs _ _ _ _ _ _ _ _ _ u c = return (u, c)
