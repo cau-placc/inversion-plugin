@@ -236,7 +236,9 @@ instance Convertible Bool where
   fromWith _ TrueFL = True
 
 instance Matchable Bool where
-  match x y = P.guard (x P.== unsafeFrom y)
+  match False FalseFL = P.return ()
+  match True  TrueFL  = P.return ()
+  match _     _       = P.empty
 
 instance NF Bool (BoolFL FL) where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
@@ -284,7 +286,10 @@ instance Convertible Ordering where
     GTFL -> GT
 
 instance Matchable Ordering where
-  match x y = P.guard (x P.== unsafeFrom y)
+  match LT LTFL = P.return ()
+  match EQ EQFL = P.return ()
+  match GT GTFL = P.return ()
+  match _  _    = P.empty
 
 instance NF Ordering (OrderingFL FL) where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))

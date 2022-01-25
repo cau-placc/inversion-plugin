@@ -284,8 +284,6 @@ instance Exception FreeVariableException
 fromEither :: Convertible a => Either ID (Lifted (Either ID) a) -> a
 fromEither = fromM (fromRight (throw FreeVariableException))
 
-unsafeFrom :: Convertible a => Lifted FL a -> a
-unsafeFrom = fromWith (error "Used 'unsafeFrom' on non-primitive value")
 
 --------------------------------------------------------------------------------
 
