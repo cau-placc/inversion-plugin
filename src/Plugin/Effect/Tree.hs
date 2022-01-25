@@ -1,14 +1,11 @@
 module Plugin.Effect.Tree
  ( module Control.Monad.SearchTree
- , dfs, bfs, prettySearchTree, list )
+ , dfs, bfs )
  where
 
-import           Control.Monad.SearchTree
-import           Data.List
-import qualified Data.Sequence as Seq
+import Control.Monad.SearchTree
 
-list :: [a] -> [a]
-list = id
+import qualified Data.Sequence as Seq
 
 dfs :: Search a -> [a]
 dfs t' = dfs' [searchTree t']
@@ -25,22 +22,3 @@ bfs t' = bfs' (Seq.singleton (searchTree t'))
           None -> bfs' ts
           One x -> x : bfs' ts
           Choice l r -> bfs' (ts Seq.:|> l Seq.:|> r)
-
-data Rose a = Rose a [Rose a]
-
-toRose :: Show a => SearchTree a -> Rose String
-toRose None = Rose "!" []
-toRose (One a) = Rose (show a) []
-toRose (Choice tl tr) = Rose "?" (map toRose [tl, tr])
-
-pretty :: Rose String -> String
-pretty = pretty' 0
-  where
-    pretty' n (Rose x ts) =
-      intercalate "\n" $ prettyIndented n x : map (pretty' (n + 1)) ts
-
-    prettyIndented 0 x = x
-    prettyIndented n x = concat (replicate (n - 1) "| ") ++ "+– " ++ x
-
-prettySearchTree :: Show a => SearchTree a -> String
-prettySearchTree = pretty . toRose
