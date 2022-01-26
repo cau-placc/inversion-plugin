@@ -47,10 +47,36 @@ import           Plugin.Effect.Monad as M
 import           Plugin.Effect.Util  as M
 import           Plugin.Effect.TH
 import           Plugin.Trans.TysWiredIn
+import           Data.Tuple.Solo
 
 -- * Lifted tuple types and internal instances
 
 P.concat P.<$> P.mapM genLiftedTupleDataDeclAndInstances [2 .. maxTupleArity]
+
+data SoloFL m a = SoloFL (m a)
+
+type instance Lifted m Solo = SoloFL m
+type instance Lifted m (Solo a) = SoloFL m (Lifted m a)
+
+instance HasPrimitiveInfo (Solo a)
+
+instance Narrowable a => Narrowable (SoloFL FL a) where
+  narrow _ j _ = [(SoloFL (freeFL j), P.Left 1)]
+
+instance (Convertible a) => Convertible (Solo a) where
+  to (Solo x) = SoloFL (toFL x)
+  fromWith ff (SoloFL x) = Solo (ff x)
+
+instance (Convertible a, Matchable a, HasPrimitiveInfo a) => Matchable (Solo a) where
+  match (Solo x) (SoloFL y) = matchFL x y
+
+instance NF a a' => NF (Solo a) (SoloFL FL a') where
+  normalFormWith nf = \case
+    SoloFL x ->
+      nf x P.>>= \y ->
+        P.return (P.pure (SoloFL y))
+
+instance Invertible a => Invertible (Solo a)
 
 -- * Lifted list type and internal instances
 

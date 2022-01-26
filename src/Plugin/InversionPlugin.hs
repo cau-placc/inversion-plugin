@@ -13,7 +13,7 @@ Maintainer  : kai.prott@hotmail.de
 This module contains a GHC plugin that turns GHC into a "compiler" for
 the functional-logic programming language Curry.
 -}
-module Plugin.InversionPlugin (plugin, module Plugin.Primitives) where
+module Plugin.InversionPlugin (plugin, module Plugin.Primitives, module Data.Tuple.Solo) where
 
 import Data.List
 import Data.IORef
@@ -21,6 +21,7 @@ import Data.Either
 import Data.Maybe
 import Data.Map.Strict (elems)
 import Data.Tuple.Extra (second)
+import Data.Tuple.Solo
 import Control.Monad.State
 import Control.Exception
 import Language.Haskell.TH.Syntax

@@ -21,6 +21,7 @@ import Finder
 import IfaceEnv
 import TcRnMonad
 import PrelNames
+import HscMain
 
 
 import Plugin.Trans.Type
@@ -81,8 +82,14 @@ loadAdditional = do
   altR <- lookupTyCon =<< lookupOrig real ( mkTcOcc "Real" )
   newR <- getTyCon builtInModule "RealFL"
 
+  -- And again for Solo.
+  [solo] <- liftIO $ hscTcRnLookupRdrName hscEnv (noLoc (Qual (mkModuleName "Plugin.InversionPlugin") (mkTcOcc  "Solo")))
+  altT <- lookupTyCon solo
+  newT <- getTyCon builtInModule "SoloFL"
+
   return [ (altH, newH), (altR, newR), (altA, newA)
-         , (altS, newS), (altF, newF), (intPrimTyCon, intTyCon)]
+         , (altS, newS), (altF, newF), (altT, newT)
+         , (intPrimTyCon, intTyCon)]
 
 
 -- | A list of GHC's built-in type constructor names and the names of

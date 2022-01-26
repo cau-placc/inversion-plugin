@@ -2,6 +2,11 @@
 
 module Arith where
 
+con :: Int
+con = 42
+
+con2 :: () -> Int
+con2 () = 42
 
 plus :: Num a => a -> a -> a
 plus = (+)

@@ -5,7 +5,8 @@ import Control.Applicative
 import Control.Monad
 
 import Data.Bifunctor
-import Data.List ( intercalate, partition, sortOn, subsequences )
+import Data.List (intercalate, partition, sortOn, subsequences)
+import Data.Tuple.Solo
 
 import FastString
 
@@ -72,12 +73,13 @@ genInverse originalString originalTy fixedArgs useGNF liftedName = do
 
 --TODO: lift to q and throw error when length of list is > maxTupleArity
 mkLiftedTupleE :: [Exp] -> Exp
-mkLiftedTupleE [] = AppE (VarE 'return) (AppE (VarE 'to) (ConE '()))
-mkLiftedTupleE [x] = x
-mkLiftedTupleE xs = AppE (VarE 'return) (applyExp liftedTupleConE xs)
+mkLiftedTupleE []  = AppE (VarE 'return) (AppE (VarE 'to) (ConE '()))
+mkLiftedTupleE xs  = AppE (VarE 'return) (applyExp liftedTupleConE xs)
   where
     -- TODO does this really work?
-    liftedTupleConE = ConE $ mkNameG_v pkgName builtInModule ("Tuple" ++ show (length xs) ++ "FL")
+    liftedTupleConE = ConE $ mkNameG_v pkgName builtInModule tupleConName
+    tupleConName | length xs == 1 = "SoloFL"
+                 | otherwise      = "Tuple" ++ show (length xs) ++ "FL"
     pkgName = case 'mkLiftedTupleE of
       Name _ (NameG _ p _) -> pkgString p
       _                    -> "inversion-plugin"
@@ -113,15 +115,15 @@ genLiftedApply :: Exp -> [Exp] -> ExpQ
 genLiftedApply = foldM (\f arg -> newName "v" >>= \vName -> return $ applyExp (VarE '(>>=)) [f, LamE [ConP 'Func [VarP vName]] $ AppE (VarE vName) arg])
 
 mkTupleE :: [Exp] -> Exp
-mkTupleE [e] = e
+mkTupleE [e] = AppE (ConE 'Solo) e
 mkTupleE es  = TupE $ map Just es
 
 mkTupleT :: [Type] -> Type
-mkTupleT [ty] = ty
+mkTupleT [ty] = AppT (ConT ''Solo) ty
 mkTupleT tys  = applyType (TupleT (length tys)) tys
 
 mkTupleP :: [Pat] -> Pat
-mkTupleP [p] = p
+mkTupleP [p] = ConP 'Solo [p]
 mkTupleP ps  = TupP ps
 
 mkArrowT :: Type -> Type -> Type

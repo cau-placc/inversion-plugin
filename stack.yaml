@@ -6,3 +6,4 @@ extra-deps:
   - tree-monad-0.3.1
   - sbv-8.17
   - libBF-0.6.2
+  - OneTuple-0.3.1
