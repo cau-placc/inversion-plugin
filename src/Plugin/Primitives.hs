@@ -18,6 +18,7 @@ import Language.Haskell.TH.Syntax
 
 import Plugin.Effect.Monad
 import Plugin.Effect.TH
+import Plugin.Lifted
 
 {-# ANN module "HLint: ignore Redundant bracket" #-}
 
@@ -34,7 +35,7 @@ genericInv name fixedArgs useGNF = do
     VarI _ ty' _     -> return ty'
     ClassOpI _ ty' _ -> return ty'
     _                -> fail $ show name ++ " is no function or class method."
-  let validFixedArgs = [1 .. arrowArity ty]
+  let validFixedArgs = [1 .. arrowArity ty] --TODO: start at 0
       hint = "has to be a subsequence of " ++ show validFixedArgs
   when (any (`notElem` validFixedArgs) fixedArgs) $ fail $
     "Invalid argument index sequence for partial inverse provided (" ++ hint ++ ")."
@@ -57,7 +58,7 @@ class FunPat p where
 instance FunPat PatQ where
   funPat' name qps = do
     ps <- zip [1 ..] <$> sequence qps
-    let (cons, others) = partition (isConPat . snd) ps 
+    let (cons, others) = partition (isConPat . snd) ps
         (conIndices, consPs) = unzip cons
         conEs = map patToExp consPs
         tP = mkTupleP (map snd others)
@@ -73,7 +74,7 @@ patToExp (ParensP p)    = ParensE $ patToExp p
 patToExp (ListP ps)     = ListE $ map patToExp ps
 patToExp _              = error "Should not happen: non-constructor pattern in patToExp"
 
-isConPat :: Pat -> Bool 
+isConPat :: Pat -> Bool
 isConPat (LitP _)    = True
 isConPat (TupP ps)   = all isConPat ps
 isConPat (ConP _ ps) = all isConPat ps

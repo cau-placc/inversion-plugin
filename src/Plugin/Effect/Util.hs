@@ -9,6 +9,7 @@ import Control.Monad.State
 import Test.ChasingBottoms.IsBottom
 
 import Plugin.Effect.Monad
+import Plugin.Lifted
 
 returnFL' :: a -> FL a
 returnFL' x | isBottom x = empty
@@ -19,7 +20,7 @@ returnFLF = return . Func
 
 liftFL1 :: (a -> b) -> FL (a :--> b)
 liftFL1 f = returnFLF $ \a ->
-    a >>= \a' -> returnFL' $ f a'
+    a >>= \a' -> returnFL' $ f a' --TODO: returnFL' eigentlich nicht notwendig, oder?
 
 liftFL2 :: (a -> b -> c) -> FL (a :--> b :--> c)
 liftFL2 f = returnFLF $ \a -> returnFLF $ \b ->

@@ -31,7 +31,6 @@
 -- 'Plugin.InversionPlugin.Prelude' instead.
 module Plugin.BuiltIn where
 
-import qualified Control.Monad.State as S
 import qualified Control.Monad as P
 import qualified GHC.Base      as P hiding (mapM)
 import qualified GHC.Real      as P
@@ -42,10 +41,11 @@ import           GHC.Types (RuntimeRep, Type)
 import           GHC.Int   (Int(..))
 import           Unsafe.Coerce ( unsafeCoerce )
 import           Prelude ( Bool (..), Double, Float, Integer, Ordering (..), ($) )
-import           Data.SBV (SBool, SBV, sNot, (.===), (./==), (.>), (.<), (.<=), (.>=), SDivisible(..))
+import           Plugin.BuiltIn.Primitive
 import           Plugin.Effect.Monad as M
 import           Plugin.Effect.Util  as M
 import           Plugin.Effect.TH
+import           Plugin.Lifted
 import           Plugin.Trans.TysWiredIn
 import           Data.Tuple.Solo
 
@@ -58,19 +58,20 @@ data SoloFL m a = SoloFL (m a)
 type instance Lifted m Solo = SoloFL m
 type instance Lifted m (Solo a) = SoloFL m (Lifted m a)
 
-instance HasPrimitiveInfo (Solo a)
+instance HasPrimitiveInfo a => HasPrimitiveInfo (SoloFL FL a) where
+  primitiveInfo = NoPrimitive
 
-instance Narrowable a => Narrowable (SoloFL FL a) where
-  narrow _ j _ = [(SoloFL (freeFL j), P.Left 1)]
+instance HasPrimitiveInfo a => Narrowable (SoloFL FL a) where
+  narrow j = [(SoloFL (free j), 1)]
 
-instance (Convertible a) => Convertible (Solo a) where
+instance Convertible a => Convertible (Solo a) where
   to (Solo x) = SoloFL (toFL x)
   fromWith ff (SoloFL x) = Solo (ff x)
 
-instance (Convertible a, Matchable a, HasPrimitiveInfo a) => Matchable (Solo a) where
+instance (Convertible a, Matchable a) => Matchable (Solo a) where
   match (Solo x) (SoloFL y) = matchFL x y
 
-instance NF a a' => NF (Solo a) (SoloFL FL a') where
+instance NormalForm a a' => NormalForm (Solo a) (SoloFL FL a') where
   normalFormWith nf = \case
     SoloFL x ->
       nf x P.>>= \y ->
@@ -87,23 +88,24 @@ type StringFL m = ListFL m (CharFL m)
 type instance Lifted m [] = ListFL m
 type instance Lifted m [a] = ListFL m (Lifted m a)
 
-instance HasPrimitiveInfo [a]
+instance HasPrimitiveInfo a => HasPrimitiveInfo (ListFL FL a) where
+  primitiveInfo = NoPrimitive
 
-instance (Narrowable a) => Narrowable (ListFL FL a) where
-  narrow _ j _ = [(NilFL, P.Left 0), (ConsFL (freeFL j) (freeFL (j P.+ 1)), P.Left 2)]
+instance HasPrimitiveInfo a => Narrowable (ListFL FL a) where
+  narrow j = [(NilFL, 0), (ConsFL (free j) (free (j P.+ 1)), 2)]
 
-instance (Convertible a) => Convertible [a] where
+instance Convertible a => Convertible [a] where
   to [] = NilFL
   to (x : xs) = ConsFL (toFL x) (toFL xs)
   fromWith _ NilFL = []
   fromWith ff (ConsFL x xs) = ff x : ff xs
 
-instance (Convertible a, Matchable a, HasPrimitiveInfo a) => Matchable [a] where
+instance (Convertible a, Matchable a) => Matchable [a] where
   match [] NilFL = P.return ()
   match (x : xs) (ConsFL y ys) = matchFL x y P.>> matchFL xs ys
   match _ _ = P.empty
 
-instance NF a a' => NF [a] (ListFL FL a') where
+instance NormalForm a a' => NormalForm [a] (ListFL FL a') where
   normalFormWith nf = \case
       NilFL -> P.return (P.pure NilFL)
       ConsFL x xs ->
@@ -118,19 +120,20 @@ data RatioFL m a = m a :%# m a
 type instance Lifted m P.Ratio = RatioFL m
 type instance Lifted m (P.Ratio a) = RatioFL m (Lifted m a)
 
-instance HasPrimitiveInfo (P.Ratio a)
+instance HasPrimitiveInfo a => HasPrimitiveInfo (RatioFL FL a) where
+  primitiveInfo = NoPrimitive
 
-instance (Narrowable a) => Narrowable (RatioFL FL a) where
-  narrow _ j _ = [(freeFL j :%# freeFL (j P.+ 1), P.Left 2)]
+instance HasPrimitiveInfo a => Narrowable (RatioFL FL a) where
+  narrow j = [(free j :%# free (j P.+ 1), 2)]
 
-instance (Convertible a) => Convertible (P.Ratio a) where
+instance Convertible a => Convertible (P.Ratio a) where
   to (a P.:% b) = toFL a :%# toFL b
   fromWith ff (a :%# b) = ff a P.:% ff b
 
-instance (Convertible a, Matchable a, HasPrimitiveInfo a) => Matchable (P.Ratio a) where
+instance (Convertible a, Matchable a) => Matchable (P.Ratio a) where
   match (a P.:% b) (x :%# y) = matchFL a x P.>> matchFL b y
 
-instance NF a a' => NF (P.Ratio a) (RatioFL FL a') where
+instance NormalForm a a' => NormalForm (P.Ratio a) (RatioFL FL a') where
    normalFormWith nf = \case
        a :%# b ->
          nf a P.>>= \x ->
@@ -250,10 +253,11 @@ data BoolFL (m :: Type -> Type) = FalseFL | TrueFL
 
 type instance Lifted m Bool = BoolFL m
 
-instance HasPrimitiveInfo Bool
+instance HasPrimitiveInfo (BoolFL FL) where
+  primitiveInfo = NoPrimitive
 
 instance Narrowable (BoolFL FL) where
-  narrow _ _ _ = [(FalseFL, P.Left 0), (TrueFL, P.Left 0)]
+  narrow _ = [(FalseFL, 0), (TrueFL, 0)]
 
 instance Convertible Bool where
   to False = FalseFL
@@ -266,7 +270,7 @@ instance Matchable Bool where
   match True  TrueFL  = P.return ()
   match _     _       = P.empty
 
-instance NF Bool (BoolFL FL) where
+instance NormalForm Bool (BoolFL FL) where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
 instance Invertible Bool
@@ -275,10 +279,11 @@ data UnitFL (m :: Type -> Type) = UnitFL
 
 type instance Lifted m () = UnitFL m
 
-instance HasPrimitiveInfo ()
+instance HasPrimitiveInfo (UnitFL FL) where
+  primitiveInfo = NoPrimitive
 
 instance Narrowable (UnitFL FL) where
-  narrow _ _ _ = [(UnitFL, P.Left 0)]
+  narrow _ = [(UnitFL, 0)]
 
 instance Convertible () where
   to () = UnitFL
@@ -287,7 +292,7 @@ instance Convertible () where
 instance Matchable () where
   match () UnitFL = P.return ()
 
-instance NF () (UnitFL FL) where
+instance NormalForm () (UnitFL FL) where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
 instance Invertible ()
@@ -296,10 +301,11 @@ data OrderingFL (m :: Type -> Type) = LTFL | EQFL | GTFL
 
 type instance Lifted m Ordering = OrderingFL m
 
-instance HasPrimitiveInfo Ordering
+instance HasPrimitiveInfo (OrderingFL FL) where
+  primitiveInfo = NoPrimitive
 
 instance Narrowable (OrderingFL FL) where
-  narrow _ _ _ = [(LTFL , P.Left 0), (EQFL, P.Left 0), (GTFL, P.Left 0)]
+  narrow _ = [(LTFL , 0), (EQFL, 0), (GTFL, 0)]
 
 instance Convertible Ordering where
   to LT = LTFL
@@ -317,20 +323,13 @@ instance Matchable Ordering where
   match GT GTFL = P.return ()
   match _  _    = P.empty
 
-instance NF Ordering (OrderingFL FL) where
+instance NormalForm Ordering (OrderingFL FL) where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
 instance Invertible Ordering
 
-newtype IntegerFL (m :: Type -> Type) = IntegerFL Integer
-
-type instance Lifted m Integer = IntegerFL m
-
-instance HasPrimitiveInfo Integer where
+instance HasPrimitiveInfo (IntegerFL FL) where
   primitiveInfo = Primitive
-
-instance Narrowable (IntegerFL FL) where
-  narrow = narrowPrimitive
 
 instance Convertible Integer where
   to = P.coerce
@@ -339,20 +338,13 @@ instance Convertible Integer where
 instance Matchable Integer where
   match x y = P.guard (x P.== P.coerce y)
 
-instance NF Integer (IntegerFL FL) where
+instance NormalForm Integer (IntegerFL FL) where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
 instance Invertible Integer
 
-newtype IntFL (m :: Type -> Type) = IntFL P.Int
-
-type instance Lifted m Int = IntFL m
-
-instance HasPrimitiveInfo Int where
+instance HasPrimitiveInfo (IntFL FL) where
   primitiveInfo = Primitive
-
-instance Narrowable (IntFL FL) where
-  narrow = narrowPrimitive
 
 instance Convertible Int where
   to = P.coerce
@@ -361,20 +353,13 @@ instance Convertible Int where
 instance Matchable Int where
   match i1 (IntFL i2) = P.guard (i1 P.== i2)
 
-instance NF Int (IntFL FL) where
+instance NormalForm Int (IntFL FL) where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
 instance Invertible Int
 
-newtype FloatFL (m :: Type -> Type) = FloatFL Float
-
-type instance Lifted m Float = FloatFL m
-
-instance HasPrimitiveInfo Float where
+instance HasPrimitiveInfo (FloatFL FL) where
   primitiveInfo = Primitive
-
-instance Narrowable (FloatFL FL) where
-  narrow = narrowPrimitive
 
 instance Convertible Float where
   to = P.coerce
@@ -383,20 +368,13 @@ instance Convertible Float where
 instance Matchable Float where
   match x y = P.guard (x P.== P.coerce y)
 
-instance NF Float (FloatFL FL) where
+instance NormalForm Float (FloatFL FL) where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
 instance Invertible Float
 
-newtype DoubleFL (m :: Type -> Type) = DoubleFL Double
-
-type instance Lifted m Double = DoubleFL m
-
-instance HasPrimitiveInfo Double where
+instance HasPrimitiveInfo (DoubleFL FL) where
   primitiveInfo = Primitive
-
-instance Narrowable (DoubleFL FL) where
-  narrow = narrowPrimitive
 
 instance Convertible Double where
   to = P.coerce
@@ -405,20 +383,13 @@ instance Convertible Double where
 instance Matchable Double where
   match x y = P.guard (x P.== P.coerce y)
 
-instance NF Double (DoubleFL FL) where
+instance NormalForm Double (DoubleFL FL) where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
 instance Invertible Double
 
-newtype CharFL (m :: Type -> Type) = CharFL P.Char
-
-type instance Lifted m P.Char = CharFL m
-
-instance HasPrimitiveInfo P.Char where
+instance HasPrimitiveInfo (CharFL FL) where
   primitiveInfo = Primitive
-
-instance Narrowable (CharFL FL) where
-  narrow = narrowPrimitive
 
 instance Convertible P.Char where
   to = P.coerce
@@ -427,7 +398,7 @@ instance Convertible P.Char where
 instance Matchable P.Char where
   match x y = P.guard (x P.== P.coerce y)
 
-instance NF P.Char (CharFL FL) where
+instance NormalForm P.Char (CharFL FL) where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
 instance Invertible P.Char
@@ -545,24 +516,24 @@ instance EqFL (UnitFL FL) where
   (/=#) = liftFL2Convert (P./=)
 
 instance EqFL (IntFL FL) where
-  (==#) = primitiveOrd2 (P.==) (.===)
-  (/=#) = primitiveOrd2 (P./=) (./==)
+  (==#) = primitiveOrd2 (P.==) (P.Just eqConstraint)
+  (/=#) = primitiveOrd2 (P./=) (P.Just neqConstraint)
 
 instance EqFL (IntegerFL FL) where
-  (==#) = primitiveOrd2 (P.==) (.===)
-  (/=#) = primitiveOrd2 (P./=) (./==)
+  (==#) = primitiveOrd2 (P.==) (P.Just eqConstraint)
+  (/=#) = primitiveOrd2 (P./=) (P.Just neqConstraint)
 
 instance EqFL (FloatFL FL) where
-  (==#) = primitiveOrd2 (P.==) (.===)
-  (/=#) = primitiveOrd2 (P./=) (./==)
+  (==#) = primitiveOrd2 (P.==) (P.Just eqConstraint)
+  (/=#) = primitiveOrd2 (P./=) (P.Just neqConstraint)
 
 instance EqFL (DoubleFL FL) where
-  (==#) = primitiveOrd2 (P.==) (.===)
-  (/=#) = primitiveOrd2 (P./=) (./==)
+  (==#) = primitiveOrd2 (P.==) (P.Just eqConstraint)
+  (/=#) = primitiveOrd2 (P./=) (P.Just neqConstraint)
 
 instance EqFL (CharFL FL) where
-  (==#) = primitiveOrd2 (P.==) (.===)
-  (/=#) = primitiveOrd2 (P./=) (./==)
+  (==#) = primitiveOrd2 (P.==) (P.Just eqConstraint)
+  (/=#) = primitiveOrd2 (P./=) (P.Just neqConstraint)
 
 instance EqFL a => EqFL (ListFL FL a) where
   (==#) = returnFLF $ \a1 -> returnFLF $ \a2 -> a1 P.>>= \case
@@ -581,7 +552,7 @@ instance EqFL a => EqFL (RatioFL FL a) where
 
 eqOn2 :: (EqFL a1, EqFL a2)
       => FL a1 -> FL a1 -> FL a2 -> FL a2 -> FL (BoolFL FL)
-eqOn2 x y xs ys = apply2FL (&&#) (apply2FL(==#) x y) (apply2FL(==#) xs ys)
+eqOn2 x y xs ys = apply2FL (&&#) (apply2FL (==#) x y) (apply2FL (==#) xs ys)
 
 -- * Lifted Ord type class, instances and functions
 
@@ -641,30 +612,35 @@ instance OrdFL (UnitFL FL) where
   compareFL = liftFL2Convert P.compare
 
 instance OrdFL (IntFL FL) where
-  (>=#) = primitiveOrd2 (P.>=) (.>=)
-  (<=#) = primitiveOrd2 (P.<=) (.<=)
-  (>#) = primitiveOrd2 (P.>) (.>)
-  (<#) = primitiveOrd2 (P.<) (.<)
-
+  (>=#) = primitiveOrd2 (P.>=) intGeqConstraint
+  (<=#) = primitiveOrd2 (P.<=) intLeqConstraint
+  (>#) = primitiveOrd2 (P.>) intGtConstraint
+  (<#) = primitiveOrd2 (P.<) intLtConstraint
+  --TODO: primitiveCompare
 
 instance OrdFL (IntegerFL FL) where
-  (>=#) = primitiveOrd2 (P.>=) (.>=)
-  (<=#) = primitiveOrd2 (P.<=) (.<=)
-  (>#) = primitiveOrd2 (P.>) (.>)
-  (<#) = primitiveOrd2 (P.<) (.<)
+  (>=#) = primitiveOrd2 (P.>=) integerGeqConstraint
+  (<=#) = primitiveOrd2 (P.<=) integerLeqConstraint
+  (>#) = primitiveOrd2 (P.>) integerGtConstraint
+  (<#) = primitiveOrd2 (P.<) integerLtConstraint
 
 instance OrdFL (FloatFL FL) where
-  (>=#) = primitiveOrd2 (P.>=) (.>=)
-  (<=#) = primitiveOrd2 (P.<=) (.<=)
-  (>#) = primitiveOrd2 (P.>) (.>)
-  (<#) = primitiveOrd2 (P.<) (.<)
+  (>=#) = primitiveOrd2 (P.>=) floatGeqConstraint
+  (<=#) = primitiveOrd2 (P.<=) floatLeqConstraint
+  (>#) = primitiveOrd2 (P.>) floatGtConstraint
+  (<#) = primitiveOrd2 (P.<) floatLtConstraint
 
 instance OrdFL (DoubleFL FL) where
-  compareFL = liftFL2Convert P.compare
-  (>=#) = primitiveOrd2 (P.>=) (.>=)
-  (<=#) = primitiveOrd2 (P.<=) (.<=)
-  (>#) = primitiveOrd2 (P.>) (.>)
-  (<#) = primitiveOrd2 (P.<) (.<)
+  (>=#) = primitiveOrd2 (P.>=) doubleGeqConstraint
+  (<=#) = primitiveOrd2 (P.<=) doubleLeqConstraint
+  (>#) = primitiveOrd2 (P.>) doubleGtConstraint
+  (<#) = primitiveOrd2 (P.<) doubleLtConstraint
+
+instance OrdFL (CharFL FL) where
+  (>=#) = primitiveOrd2 (P.>=) charGeqConstraint
+  (<=#) = primitiveOrd2 (P.<=) charLeqConstraint
+  (>#) = primitiveOrd2 (P.>) charGtConstraint
+  (<#) = primitiveOrd2 (P.<) charLtConstraint
 
 instance (OrdFL a) => OrdFL (ListFL FL a) where
   compareFL = returnFLF $ \x -> returnFLF $ \y ->
@@ -694,39 +670,39 @@ class NumFL a where
   fromIntegerFL :: FL (IntegerFL FL :--> a)
 
 instance NumFL (IntFL FL) where
-  (+#) = primitive2 (P.+) (P.+)
-  (-#) = primitive2 (P.-) (P.-)
-  (*#) = primitive2 (P.*) (P.*)
-  negateFL = primitive1 P.negate P.negate
-  absFL    = primitive1 P.abs P.abs
-  signumFL = primitive1 P.signum P.signum
-  fromIntegerFL = liftFL1Convert P.fromInteger
+  (+#) = primitive2 (P.+) intPlusConstraint
+  (-#) = primitive2 (P.-) intMinusConstraint
+  (*#) = primitive2 (P.*) intMulConstraint
+  negateFL = primitive1 P.negate P.undefined --intNotConstraint
+  absFL    = primitive1 P.abs P.undefined --intAbsConstraint
+  signumFL = primitive1 P.signum P.undefined --intSignumConstraint
+  fromIntegerFL = liftFL1Convert P.fromInteger --TODO:
 
 instance NumFL (IntegerFL FL) where
-  (+#) = primitive2 (P.+) (P.+)
-  (-#) = primitive2 (P.-) (P.-)
-  (*#) = primitive2 (P.*) (P.*)
-  negateFL = primitive1 P.negate P.negate
-  absFL    = primitive1 P.abs P.abs
-  signumFL = primitive1 P.signum P.signum
+  (+#) = primitive2 (P.+) integerPlusConstraint
+  (-#) = primitive2 (P.-) integerMinusConstraint
+  (*#) = primitive2 (P.*) integerMulConstraint
+  negateFL = primitive1 P.negate P.undefined
+  absFL    = primitive1 P.abs P.undefined
+  signumFL = primitive1 P.signum P.undefined
   fromIntegerFL = returnFLF P.id
 
 instance NumFL (FloatFL FL) where
-  (+#) = primitive2 (P.+) (P.+)
-  (-#) = primitive2 (P.-) (P.-)
-  (*#) = primitive2 (P.*) (P.*)
-  negateFL = primitive1 P.negate P.negate
-  absFL    = primitive1 P.abs P.abs
-  signumFL = primitive1 P.signum P.signum
+  (+#) = primitive2 (P.+) floatPlusConstraint
+  (-#) = primitive2 (P.-) floatMinusConstraint
+  (*#) = primitive2 (P.*) floatMulConstraint
+  negateFL = primitive1 P.negate P.undefined
+  absFL    = primitive1 P.abs P.undefined
+  signumFL = primitive1 P.signum P.undefined
   fromIntegerFL = liftFL1Convert P.fromInteger
 
 instance NumFL (DoubleFL FL) where
-  (+#) = primitive2 (P.+) (P.+)
-  (-#) = primitive2 (P.-) (P.-)
-  (*#) = primitive2 (P.*) (P.*)
-  negateFL = primitive1 P.negate P.negate
-  absFL    = primitive1 P.abs P.abs
-  signumFL = primitive1 P.signum P.signum
+  (+#) = primitive2 (P.+) doublePlusConstraint
+  (-#) = primitive2 (P.-) doubleMinusConstraint
+  (*#) = primitive2 (P.*) doubleMulConstraint
+  negateFL = primitive1 P.negate P.undefined
+  absFL    = primitive1 P.abs P.undefined
+  signumFL = primitive1 P.signum P.undefined
   fromIntegerFL = liftFL1Convert P.fromInteger
 -- * Lifted Fractional type class, instances and functions
 
@@ -745,11 +721,11 @@ class NumFL a => FractionalFL a where
   fromRationalFL :: FL (RationalFL FL :--> a)
 
 instance FractionalFL (FloatFL FL) where
-  (/#) = primitive2 (P./) (P./)
+  (/#) = primitive2 (P./) P.undefined
   fromRationalFL = liftFL1Convert P.fromRational
 
 instance FractionalFL (DoubleFL FL) where
-  (/#) = primitive2 (P./) (P./)
+  (/#) = primitive2 (P./) P.undefined
   fromRationalFL = liftFL1Convert P.fromRational
 
 -- * Lifted Real type class, instances and functions
@@ -802,21 +778,21 @@ class (RealFL a, EnumFL a) => IntegralFL a where
             FalseFL -> qr
 
 instance IntegralFL (IntFL FL) where
-  quotFL = primitive2 P.quot sQuot
-  remFL  = primitive2 P.rem sRem
-  divFL  = primitive2 P.div sDiv
-  modFL  = primitive2 P.mod sMod
-  divModFL  = primitive2Pair P.divMod sDivMod
-  quotRemFL = primitive2Pair P.quotRem sQuotRem
-  toIntegerFL = liftFL1Convert P.toInteger
+  quotFL = primitive2 P.quot P.undefined
+  remFL  = primitive2 P.rem P.undefined
+  divFL  = primitive2 P.div P.undefined
+  modFL  = primitive2 P.mod P.undefined
+  divModFL  = primitive2Pair P.divMod P.undefined
+  quotRemFL = primitive2Pair P.quotRem P.undefined
+  toIntegerFL = liftFL1Convert P.toInteger --TODO: constraint
 
 instance IntegralFL (IntegerFL FL) where
-  quotFL = primitive2 P.quot sQuot
-  remFL  = primitive2 P.rem sRem
-  divFL  = primitive2 P.div sDiv
-  modFL  = primitive2 P.mod sMod
-  divModFL  = primitive2Pair P.divMod sDivMod
-  quotRemFL = primitive2Pair P.quotRem sQuotRem
+  quotFL = primitive2 P.quot P.undefined
+  remFL  = primitive2 P.rem P.undefined
+  divFL  = primitive2 P.div P.undefined
+  modFL  = primitive2 P.mod P.undefined
+  divModFL  = primitive2Pair P.divMod P.undefined
+  quotRemFL = primitive2Pair P.quotRem P.undefined
   toIntegerFL = returnFLF P.id
 
 -- * Lifted Monad & Co type classes and instances
@@ -1020,40 +996,33 @@ class IsStringFL a where
 instance (a ~ CharFL FL) => IsStringFL (ListFL FL a) where
   fromStringFL = returnFLF P.id
 
+primitive1 :: HasPrimitiveInfo (Lifted FL b) => (a -> b) -> P.Maybe (FLVal (Lifted FL a) -> FLVal (Lifted FL b) -> Constraint) -> FL (Lifted FL a :--> Lifted FL b)
+primitive1 f mConstraint = returnFLF $ \x ->
+  case mConstraint of
+    P.Just constraint -> FL $
+      resolve x P.>>= \case
+        Val a -> unFL $ P.return (coerce (f (coerce a)))
+        x'    -> do
+          j <- freshIdentifierND
+          assertConstraintND (constraint x' (Var j)) (j: varOf x')
+          -- Consistency not necessary, see comment in primitive2
+          P.return (Var j)
+            where
+              varOf (Var i) = [i]
+              varOf _       = [] --TODO: auslagern und wiederverwenden
+    P.Nothing         -> x P.>>= \a -> P.return (coerce (f (coerce a))) --TODO: unFL überall im Nothing-Branch
 
-withFLVal :: ND FLState (FLVal a) -> (FLVal a -> ND FLState b) -> ND FLState b
-withFLVal nd f = nd P.>>= \case
-  Var i -> S.get P.>>= \FLState {..} -> f (P.maybe (Var i) Val $ findBinding i heap)
-  Val a -> f (Val a)
-
-primitive1 :: forall a' a b' b.
-              ( a' ~ Lifted FL a, Constrainable a, Narrowable a', HasPrimitiveInfo a
-              , b' ~ Lifted FL b, Constrainable b, Narrowable b', HasPrimitiveInfo b)
-           => (a -> b) -> (SBV a -> SBV b) -> FL (a' :--> b')
-primitive1 f sF = returnFLF $ \x ->
-  FL $
-    unFL x `withFLVal` \case
-      Val a -> unFL $ returnFL' (coerce (f (coerce a)))
-      Var i -> do
-        j <- freshIdentifierND
-        assertConstraintND (varToSBV j .=== sF (varToSBV i)) [j, i]
-        -- Consistency not necessary, see comment in primitive2
-        P.return (Var j)
-
-primitive2 :: forall a' a b' b c' c.
-              ( a' ~ Lifted FL a, Constrainable a, Narrowable a', HasPrimitiveInfo a
-              , b' ~ Lifted FL b, Constrainable b, Narrowable b', HasPrimitiveInfo b
-              , c' ~ Lifted FL c, Constrainable c, Narrowable c', HasPrimitiveInfo c)
-           => (a -> b -> c) -> (SBV a -> SBV b -> SBV c) -> FL (a' :--> b' :--> c')
-primitive2 op sOp = returnFLF $ \x -> returnFLF $ \y ->
-  FL $
-    unFL x `withFLVal` \x' ->
-      unFL y `withFLVal` \y' ->
+--TODO: aufräumen
+primitive2 :: HasPrimitiveInfo (Lifted FL c) => (a -> b -> c) -> P.Maybe (FLVal (Lifted FL a) -> FLVal (Lifted FL b) -> FLVal (Lifted FL c) -> Constraint) -> FL (Lifted FL a :--> Lifted FL b :--> Lifted FL c)
+primitive2 op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
+  case mConstraint of
+    P.Just constraint -> FL $
+      resolve x P.>>= \x' -> resolve y P.>>= \y' ->
         case (# x', y' #) of
-          (# Val a, Val b #) -> unFL $ returnFL' $ coerce (coerce a `op` coerce b)
+          (# Val a, Val b #) -> unFL $ P.return $ coerce (coerce a `op` coerce b)
           _                  -> do
             j <- freshIdentifierND
-            assertConstraintND (varToSBV j .=== toSBV x' `sOp` toSBV y') (j : varsOf x' y')
+            assertConstraintND (constraint x' y' (Var j)) (j : varsOf x' y')
             -- Diss: Checking consistency is unnecessary, because "j" is fresh.
             -- However, it is important to enter x and y in the set of constrained vars, because
             -- they might get constrained indirectly via "j". Example:
@@ -1065,56 +1034,55 @@ primitive2 op sOp = returnFLF $ \x -> returnFLF $ \y ->
             where
               varsOf x'' y'' = varOf x'' P.++ varOf y''
               varOf (Var i) = [i]
-              varOf _       = []
+              varOf _       = [] --TODO: auslagern und wiederverwenden
+    P.Nothing         -> x P.>>= \a -> y P.>>= \b -> P.return $ coerce (coerce a `op` coerce b)
 
-primitive2Pair :: forall a' a b' b c' c.
-              ( a' ~ Lifted FL a, Constrainable a, Narrowable a', HasPrimitiveInfo a, Convertible a
-              , b' ~ Lifted FL b, Constrainable b, Narrowable b', HasPrimitiveInfo b, Convertible b
-              , c' ~ Lifted FL c, Constrainable c, Narrowable c', HasPrimitiveInfo c, Convertible c)
-           => (a -> b -> (c, c)) -> (SBV a -> SBV b -> (SBV c, SBV c)) -> FL (a' :--> b' :--> Tuple2FL FL c' c')
-primitive2Pair op sOp = returnFLF $ \x -> returnFLF $ \y ->
-  FL $
-    unFL x `withFLVal` \x' ->
-      unFL y `withFLVal` \y' ->
+--TODO: Note on usage, true and false branch are important
+--TODO: Important to mention in the disseration, as the implementation differs from the other constraints!
+primitiveOrd2 :: (a -> a -> Bool) -> P.Maybe (FLVal (Lifted FL a) -> FLVal (Lifted FL a) -> Constraint) -> FL (Lifted FL a :--> Lifted FL a :--> Lifted FL Bool)
+primitiveOrd2 op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
+  case mConstraint of
+    P.Just constraint -> FL $
+      resolve x P.>>= \x' -> resolve y P.>>= \y' ->
         case (# x', y' #) of
-          (# Val a, Val b #) -> unFL $ returnFL' $ to (coerce a `op` coerce b)
+          (# Val a, Val b #) -> unFL $ toFL $ coerce a `op` coerce b
+          _                  -> trueBranch P.<|> falseBranch
+            where
+              trueBranch = do
+                assertConstraintND (constraint x' y') (varsOf x' y')
+                checkConsistencyND -- DISS: optional, iff x and y were unconstrained
+                P.return (Val TrueFL)
+              falseBranch = do
+                assertConstraintND (notConstraint (constraint x' y')) (varsOf x' y') --TODO: notConstraint oder einfach das gegenteil higher order übergeben?
+                checkConsistencyND -- DISS: optional, iff x and y were unconstrained
+                P.return (Val FalseFL)
+              varsOf x'' y'' = varOf x'' P.++ varOf y''
+              varOf (Var i) = [i]
+              varOf _       = []
+    P.Nothing         -> x P.>>= \a -> y P.>>= \b -> P.return $ coerce (coerce a `op` coerce b) --TODO: lift2FL-irgendetwas verwenden
+
+--TODO: Use coerce instead of convertible
+primitive2Pair :: (Convertible a, Convertible b, Convertible c, Convertible d, HasPrimitiveInfo (Lifted FL c), HasPrimitiveInfo  (Lifted FL d)) => (a -> b -> (c, d)) -> P.Maybe (FLVal (Lifted FL a) -> FLVal (Lifted FL b) -> FLVal (Lifted FL c) -> FLVal (Lifted FL d) -> Constraint) -> FL (Lifted FL a :--> Lifted FL b :--> Lifted FL (c, d))
+primitive2Pair op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
+  case mConstraint of
+    P.Just constraint -> FL $
+      resolve x P.>>= \x' -> resolve y P.>>= \y' ->
+        case (# x', y' #) of
+          (# Val a, Val b #) -> unFL $ toFL $ coerce a `op` coerce b
           _                  -> do
             j <- freshIdentifierND
             k <- freshIdentifierND
-            assertConstraintND ((varToSBV j, varToSBV k) .=== toSBV x' `sOp` toSBV y') (j : varsOf x' y')
-            -- Diss: Checking consistency is unnecessary, because "j" is fresh.
+            assertConstraintND (constraint x' y' (Var j) (Var k)) (j : k : varsOf x' y')
+            -- Diss: Checking consistency is unnecessary, because "j" and "k" are fresh.
             -- However, it is important to enter x and y in the set of constrained vars, because
             -- they might get constrained indirectly via "j". Example:
             -- j <- x + y
             -- j <- 1
             -- matchFL 9 x
             -- matchFL 0 y
-            P.return (Val (Tuple2FL (freeFL j) (freeFL k)))
+            P.return (Val (Tuple2FL (free j) (free k)))
             where
               varsOf x'' y'' = varOf x'' P.++ varOf y''
               varOf (Var i) = [i]
               varOf _       = []
-
-primitiveOrd2 :: forall a' a b' b.
-              ( a' ~ Lifted FL a, Constrainable a, Narrowable a', HasPrimitiveInfo a
-              , b' ~ Lifted FL b, Constrainable b, Narrowable b', HasPrimitiveInfo b)
-              => (a -> b -> Bool) -> (SBV a -> SBV b -> SBool) -> FL (a' :--> b' :--> BoolFL FL)
-primitiveOrd2 op opS = returnFLF $ \x -> returnFLF $ \y ->
-  FL $
-    unFL x `withFLVal` \x' ->
-      unFL y `withFLVal` \y' ->
-        unFL $ case (# x', y' #) of
-          (# Val a, Val b #) -> toFL (coerce a `op` coerce b)
-          _                  -> FL (trueBranch P.<|> falseBranch)
-            where
-              trueBranch = do
-                assertConstraintND (toSBV x' `opS` toSBV y') (varsOf x' y')
-                checkConsistencyND -- DISS: optional, iff x and y were unconstrained
-                P.return (Val TrueFL)
-              falseBranch = do
-                assertConstraintND (sNot (toSBV x' `opS` toSBV y')) (varsOf x' y')
-                checkConsistencyND -- DISS: optional, iff x and y were unconstrained
-                P.return (Val FalseFL)
-              varsOf x'' y'' = varOf x'' P.++ varOf y''
-              varOf (Var i) = [i]
-              varOf _       = []
+    P.Nothing         -> apply2FL (liftFL2Convert op) x y

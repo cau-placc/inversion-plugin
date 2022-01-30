@@ -31,7 +31,8 @@ import TcSimplify
 import Constraint
 import Bag
 
-import Plugin.Effect.Monad ( type (-->)(..), appFL, unFL, to, toFL, Convertible, FL, Lifted )
+import Plugin.Effect.Monad ( type (-->)(..), appFL, unFL, to, toFL, Convertible, FL )
+import Plugin.Lifted --TODO: necessary?
 import Plugin.Trans.Constr
 import Plugin.Trans.Type
 import Plugin.Trans.Util

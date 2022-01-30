@@ -15,6 +15,7 @@ import Language.Haskell.TH.Syntax (Name(..), NameFlavour(..), pkgString, mkNameG
 
 import Lexeme
 
+import Plugin.Lifted
 import Plugin.Effect.Monad
 import Plugin.Effect.Tree
 import Plugin.Trans.TysWiredIn
@@ -96,7 +97,7 @@ getTyVarBndrName (PlainTV  name  ) = name
 getTyVarBndrName (KindedTV name _) = name
 
 mkFreeP :: Exp -> Exp
-mkFreeP = AppE (VarE 'freeFL)
+mkFreeP = AppE (VarE 'free)
 
 mkIntExp :: Int -> Exp
 mkIntExp = LitE . IntegerL . fromIntegral
@@ -180,7 +181,7 @@ extractTcInfo f (NewtypeD _ tcNm tyVars _ con _) = TcInfo tcNm (map getTyVarBndr
 extractTcInfo _ _ = error "extractTcInfo: unsupported"
 
 mkNarrowEntry :: Name -> ConInfo -> Exp
-mkNarrowEntry idName conInfo = mkTupleE [conExp, AppE (ConE 'Left) (mkIntExp (conArity conInfo))]
+mkNarrowEntry idName conInfo = mkTupleE [conExp, mkIntExp (conArity conInfo)]
   where conExp = foldl (\conExp' idOffset -> AppE conExp' (mkFreeP (mkPlus (VarE idName) (mkIntExp idOffset)))) (ConE $ conName conInfo) [0 .. conArity conInfo - 1]
 
 mkPlus :: Exp -> Exp -> Exp
@@ -229,14 +230,18 @@ genInstances originalDataDec liftedDataDec = do
       liftedConArgs = map (replaceMTyVar mvar (ConT ''FL)) $ concatMap conArgs liftedConInfos
       mTy = VarT mvar
 
-  let genHasPrimitiveInfo = return $ InstanceD Nothing [] (mkHasPrimitiveInfoConstraint originalTy) [] :: Q Dec
+  let genHasPrimitiveInfo = do
+        let body = NormalB $ ConE 'NoPrimitive
+            dec = FunD 'primitiveInfo [Clause [] body []]
+            ctxt = map mkHasPrimitiveInfoConstraint liftedConArgs
+        return $ InstanceD Nothing ctxt (mkHasPrimitiveInfoConstraint liftedTy) [dec]
 
       genNarrowable = do
         jName <- newName "j"
         let entries = map (mkNarrowEntry jName) liftedConInfos
             body = NormalB $ ListE entries
-            dec = FunD 'narrow [Clause [WildP, VarP jName, WildP] body []]
-            ctxt = map mkNarrowableConstraint liftedConArgs
+            dec = FunD 'narrow [Clause [VarP jName] body []]
+            ctxt = map mkHasPrimitiveInfoConstraint liftedConArgs
         return $ InstanceD Nothing ctxt (mkNarrowableConstraint liftedTy) [dec]
 
       genLifted = do
@@ -283,8 +288,7 @@ genInstances originalDataDec liftedDataDec = do
               return $ FunD 'match (clauses ++ [failClause])
         dec <- genMatch
         let ctxt = map mkConvertibleConstraint originalConArgs ++
-                     map mkMatchableConstraint originalConArgs ++
-                     map mkHasPrimitiveInfoConstraint originalConArgs
+                     map mkMatchableConstraint originalConArgs
         return $ InstanceD Nothing ctxt (mkMatchableConstraint originalTy) [dec]
 
       genGroundable = do
@@ -300,14 +304,11 @@ genInstances originalDataDec liftedDataDec = do
         matches <- mapM genMatch liftedConInfos
         let body = NormalB (LamCaseE matches)
             dec = FunD 'normalFormWith [Clause [VarP nfName] body []]
-            ctxt = zipWith mkNFConstraint originalConArgs liftedConArgs
-        return $ InstanceD Nothing ctxt (mkNFConstraint originalTy liftedTy) [dec]
+            ctxt = zipWith mkNormalFormConstraint originalConArgs liftedConArgs
+        return $ InstanceD Nothing ctxt (mkNormalFormConstraint originalTy liftedTy) [dec]
 
       genInvertible = do
-        let ctxt = [ mkConvertibleConstraint originalTy
-                   , mkMatchableConstraint originalTy
-                   , mkNFConstraint originalTy (mkLifted (ConT ''FL) originalTy)
-                   ]
+        let ctxt = map mkInvertibleConstraint originalConArgs
         return $ InstanceD Nothing ctxt (mkInvertibleConstraint originalTy) [] :: Q Dec
 
   (++) <$> genLifted <*> sequence [genHasPrimitiveInfo, genNarrowable, genConvertible, genMatchable, genGroundable, genInvertible]
@@ -341,8 +342,8 @@ mkConvertibleConstraint ty = applyType (ConT ''Convertible) [ty]
 mkMatchableConstraint :: Type -> Type
 mkMatchableConstraint ty = applyType (ConT ''Matchable) [ty]
 
-mkNFConstraint :: Type -> Type -> Type
-mkNFConstraint ty1 ty2 = applyType (ConT ''NF) [ty1, ty2]
+mkNormalFormConstraint :: Type -> Type -> Type
+mkNormalFormConstraint ty1 ty2 = applyType (ConT ''NormalForm) [ty1, ty2]
 
 mkInvertibleConstraint :: Type -> Type
 mkInvertibleConstraint ty = applyType (ConT ''Invertible) [ty]
