@@ -174,7 +174,7 @@ eqString = (P.==)
 
 -- | Lifted equality test for strings
 eqStringFL :: FL (StringFL FL :--> StringFL FL :--> BoolFL FL)
-eqStringFL = liftFL1Convert (P.==)
+eqStringFL = (==#)
 
 -- | Lifted equality test for characters
 eqChar :: P.Char -> P.Char -> Bool
@@ -182,7 +182,7 @@ eqChar = (P.==)
 
 -- | Lifted equality test for strings
 eqCharFL :: FL (CharFL FL :--> CharFL FL :--> BoolFL FL)
-eqCharFL = liftFL1Convert (P.==)
+eqCharFL = (==#)
 
 (<##) :: FL (IntFL FL :--> IntFL FL :--> IntFL FL)
 (<##) = liftFL1Convert op
