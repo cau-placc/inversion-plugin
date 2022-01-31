@@ -47,7 +47,7 @@ mkConLam mw c [] vs = do
     mtycon <- getMonadTycon
     -- Use the given wrapper for the constructor.
     let wrap = case mw of
-          Just w  -> HsWrap noExtField (WpTyApp (mkTyConTy mtycon) <.> w)
+          Just w  -> HsWrap noExtField (w <.> WpTyApp (mkTyConTy mtycon))
           Nothing -> HsWrap noExtField (WpTyApp (mkTyConTy mtycon))
     -- Apply all variables in reverse to the constructor.
     let e = foldl ((noLoc .) . HsApp noExtField)
@@ -296,16 +296,17 @@ mkListSeq a b = do
 mkEmptyList :: Type -> TyConMap -> TcM (LHsExpr GhcTc)
 mkEmptyList ty tcs = do
   dc <- liftIO (getLiftedCon nilDataCon tcs)
-  return (noLoc (HsWrap noExtField (WpTyApp ty)
+  mtycon <- getMonadTycon
+  return (noLoc (HsWrap noExtField (WpTyApp ty <.> WpTyApp (mkTyConTy mtycon))
     (HsConLikeOut noExtField (RealDataCon dc))))
 
 -- | Create a lifted cons list constructor.
 mkConsList :: Type -> TyConMap -> TcM (LHsExpr GhcTc)
 mkConsList ty tcs = do
   dc <- liftIO (getLiftedCon consDataCon tcs)
-  return (noLoc (HsWrap noExtField (WpTyApp ty)
+  mtycon <- getMonadTycon
+  return (noLoc (HsWrap noExtField (WpTyApp ty <.> WpTyApp (mkTyConTy mtycon))
     (HsConLikeOut noExtField (RealDataCon dc))))
-
 
 -- | Create a general lambda that binds one variable on its left side.
 mkLam :: Located Id -> Type -> LHsExpr GhcTc -> Type -> LHsExpr GhcTc
