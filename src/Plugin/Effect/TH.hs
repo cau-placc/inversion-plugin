@@ -10,8 +10,10 @@ import Data.Tuple.Solo
 
 import FastString
 
+import Generics.SYB
+
 import Language.Haskell.TH hiding (match)
-import Language.Haskell.TH.Syntax (Name(..), NameFlavour(..), pkgString, mkNameG_v)
+import Language.Haskell.TH.Syntax (Name(..), NameFlavour(..), pkgString, mkNameG_v, OccName (OccName))
 
 import Lexeme
 
@@ -180,6 +182,14 @@ extractTcInfo f (DataD _ tcNm tyVars _ cons _) = TcInfo tcNm (map getTyVarBndrNa
 extractTcInfo f (NewtypeD _ tcNm tyVars _ con _) = TcInfo tcNm (map getTyVarBndrName tyVars) [extractConInfo f con]
 extractTcInfo _ _ = error "extractTcInfo: unsupported"
 
+renameTcInfo :: String -> TcInfo -> TcInfo
+renameTcInfo suffix (TcInfo tcNm vs cis) = TcInfo tcNm (map rename vs) (map renameConInfo cis)
+  where renameConInfo (ConInfo conNm tys) = ConInfo conNm (map renameType tys)
+        renameType = everywhere (mkT renameVar)
+        renameVar (VarT varNm) = VarT (rename varNm)
+        renameVar ty = ty
+        rename (Name (OccName str) nf) = Name (OccName (str ++ suffix)) nf
+
 mkNarrowEntry :: Name -> ConInfo -> Exp
 mkNarrowEntry idName conInfo = mkTupleE [conExp, mkIntExp (conArity conInfo)]
   where conExp = foldl (\conExp' idOffset -> AppE conExp' (mkFreeP (mkPlus (VarE idName) (mkIntExp idOffset)))) (ConE $ conName conInfo) [0 .. conArity conInfo - 1]
@@ -197,31 +207,22 @@ genInstances (ClassD _ originalName _ _ _) (ClassD _ liftedName liftedTyVarBndrs
       originalTc = ConT originalName
       liftedTc = ConT liftedName
       mTy = ConT ''FL
-  let genOne n =
+  let genOne n = --TODO: auslagern
         let relevantVars = take n liftedTyVars
         in TySynInstD $ TySynEqn Nothing (mkLifted mTy (applyType originalTc relevantVars)) (applyType liftedTc (map (mkLifted mTy) relevantVars))
   return $ map genOne [0 .. length liftedTyVars] :: DecsQ
-genInstances (TySynD _originalName _ _) (TySynD _liftedName _liftedTyVarBndrs _) = do
+genInstances (TySynD _ _ _) (TySynD _ _ _) = do
   return []
-  -- let liftedTyVarNames = map getTyVarBndrName liftedTyVarBndrs
-  --     liftedTyVars = map VarT liftedTyVarNames
-  --     originalTc = ConT originalName
-  -- mTy <- genMTy
-  -- let liftedTc = AppT (ConT liftedName) mTy
-  -- let genOne n =
-  --       let relevantVars = take n liftedTyVars
-  --       in TySynInstD $ TySynEqn Nothing (mkLifted mTy (applyType originalTc relevantVars)) (applyType liftedTc (map (mkLifted mTy) relevantVars))
-  -- return $ map genOne [0 .. length liftedTyVars] :: DecsQ
 genInstances originalDataDec liftedDataDec = do
 
-  let originalTcInfo = extractTcInfo id originalDataDec
+  let originalTcInfo = renameTcInfo "a" $ extractTcInfo id originalDataDec
       originalTc = ConT $ tcName originalTcInfo
       originalTyVarNames = tcVarNames originalTcInfo
       originalTyVars = map VarT originalTyVarNames
       originalTy = applyType (ConT $ tcName originalTcInfo) originalTyVars
       originalConInfos = tcConInfos originalTcInfo
       originalConArgs = concatMap conArgs originalConInfos
-  let liftedTcInfo = extractTcInfo innerType liftedDataDec
+  let liftedTcInfo = renameTcInfo "b" $ extractTcInfo innerType liftedDataDec
       liftedTc = AppT (ConT $ tcName liftedTcInfo) mTy
       (mvar, liftedTyVarNames) = case tcVarNames liftedTcInfo of { x:xs -> (x,xs); _ -> error "TH: unexpected unlifted constructor"} -- Discard the monad parameter here
       liftedTyVars = map VarT liftedTyVarNames
@@ -284,7 +285,7 @@ genInstances originalDataDec liftedDataDec = do
                         body = NormalB $ foldr (\e1 e2 -> applyExp (VarE '(>>)) [e1, e2]) (AppE (VarE 'return) (ConE '())) $ zipWith (\originalArgName liftedArgName -> applyExp (VarE 'matchFL) [VarE originalArgName, VarE liftedArgName]) originalArgNames liftedArgNames
                     return $ Clause [originalPat, liftedPat] body []
               clauses <- zipWithM genClause originalConInfos liftedConInfos
-              let failClause = Clause [WildP, WildP] (NormalB $ VarE 'empty) []
+              let failClause = Clause [WildP, WildP] (NormalB $ VarE 'Control.Applicative.empty) []
               return $ FunD 'match (clauses ++ [failClause])
         dec <- genMatch
         let ctxt = map mkConvertibleConstraint originalConArgs ++
