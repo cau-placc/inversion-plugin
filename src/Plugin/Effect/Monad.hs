@@ -15,7 +15,8 @@
 {-# LANGUAGE TypeOperators             #-}
 {-# LANGUAGE UnboxedTuples             #-}
 {-# LANGUAGE UndecidableInstances      #-}
-{-# OPTIONS_GHC -Wno-orphans           #-}
+
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Plugin.Effect.Monad where
 
@@ -38,17 +39,16 @@ import           Data.Typeable             (type (:~:)(..))
 import           Data.Typeable             (Typeable)
 #endif
 
-import Plugin.Effect.SolverLibrary.SBV ()
+#ifndef USE_WHAT4
+import Plugin.Effect.SolverLibrary.SBV   ()
+#else
+import Plugin.Effect.SolverLibrary.What4 ()
+#endif
 import Plugin.Lifted
 
 import Test.ChasingBottoms.IsBottom (isBottom)
 
 import Unsafe.Coerce (unsafeCoerce)
-{-
---TODO: for testing only
-import Data.Coerce
-import Plugin.BuiltIn.Primitive
-import Plugin.Effect.Tree-}
 
 --------------------------------------------------------------------------------
 
@@ -107,7 +107,7 @@ class SolverLibrary where
   getModels :: Constrainable a => ID -> [Constraint] -> [a]
 
   eqConstraint :: Constrainable a => FLVal a -> FLVal a -> Constraint
-  notConstraint :: Constraint -> Constraint --TODO: necessary? Schon praktischer, weil wir dann nicht das gegenteil haben müssen.
+  notConstraint :: Constraint -> Constraint
   neqConstraint :: Constrainable a => FLVal a -> FLVal a -> Constraint
   neqConstraint x y = notConstraint (eqConstraint x y)
   --TODO: das hier ist eigentlich definitiv nicht notwendig, da man es mit negate und eqConstraint bekommt. einige implementierungen wie sbv unterstützen es aber direkt. what4 bspw. nicht. in jedem fall wird es aber von jeder implementierung unterstützt und sollte daher nicht maybe sein.
@@ -122,10 +122,8 @@ class SolverLibrary where
   floatLtConstraint, floatLeqConstraint, floatGtConstraint, floatGeqConstraint :: Maybe (FLVal (Lifted FL Float) -> FLVal (Lifted FL Float) -> Constraint)
   doubleLtConstraint, doubleLeqConstraint, doubleGtConstraint, doubleGeqConstraint :: Maybe (FLVal (Lifted FL Double) -> FLVal (Lifted FL Double) -> Constraint)
   charLtConstraint, charLeqConstraint, charGtConstraint, charGeqConstraint :: Maybe (FLVal (Lifted FL Char) -> FLVal (Lifted FL Char) -> Constraint)
-  --TODO: in datentypen für typklassen zusammenfassen? DAnn kann man die parametrisieren...
 
 --------------------------------------------------------------------------------
-
 data ConstraintStore = ConstraintStore {
     constraints     :: [Constraint],
     --TODO: The most commonly executed action will be the insertion of a constraint. Therefore we use a list for which the insertion is done in constant time. As for the lookup action: Everytime we need to check for consistency, we have to visit each constraint anyway.
@@ -356,58 +354,3 @@ appFL :: FL ((-->) FL a b) -> FL a -> FL b
 mf `appFL` x = mf >>= \case
   Func f        -> f x
   HaskellFunc f -> FL $ groundNormalFormFL x >>= (unFL . toFL . f . fromIdentity)
-{-
-
---TODO: For testing only
-
-gFL :: FL (Lifted FL (Char -> Bool))
-gFL = return $ Func $ \_ -> return TrueM
-
-gInv :: Bool -> [Char]
-gInv arg = map fromIdentity $ bfs $ evalWith groundNormalFormFL $ do
-  matchFL arg (gFL `appFL` free (-1))
-  free (-1)
-instance HasPrimitiveInfo (CharFL FL) where
-  primitiveInfo = Primitive
-
-instance NormalForm Char (CharFL FL) where
-  normalFormWith _ x = return (pure (coerce x))
-
-instance Convertible Char where
-  to = coerce
-
-  fromWith _ = coerce
-
-instance Matchable Char where
-  match i1 i2 = guard (i1 == coerce i2)
-
-instance Invertible Char
-
-data BoolM (m :: * -> *) = FalseM | TrueM
-
-type instance Lifted m Bool = BoolM m
-
-instance Narrowable (BoolM FL) where
-  narrow _ = [(FalseM, 0), (TrueM, 0)]
-
-instance HasPrimitiveInfo (BoolM FL) where
-  primitiveInfo = NoPrimitive
-
-instance NormalForm Bool (BoolM FL) where
-  normalFormWith _ = \case
-    FalseM -> return (pure FalseM)
-    TrueM  -> return (pure TrueM)
-
-instance Convertible Bool where
-  to False = FalseM
-  to True  = TrueM
-
-  fromWith _ FalseM = False
-  fromWith _ TrueM  = True
-
-instance Matchable Bool where
-  match False FalseM = return ()
-  match True  TrueM  = return ()
-  match _     _      = empty
-
-instance Invertible Bool-}

@@ -19,6 +19,18 @@ source-repository head
   type:     git
   location: https://github.com/cau-placc/inversion-plugin
 
+flag use-what4 {
+  Description: Use What4 instead of SBV
+  Default:     False
+  Manual:      True
+}
+
+flag use-cvc4 {
+  Description: Use CVC4 instead of Z3
+  Default:     False
+  Manual:      True
+}
+
 common deps
   hs-source-dirs: src
   build-depends:
@@ -43,69 +55,73 @@ common deps
     text                ^>= 1.2.4.1,
     bv-sized            ^>= 1.0.3,
     OneTuple            ^>= 0.3.1
-  ghc-options:      -Wall -Wincomplete-uni-patterns
+  ghc-options: -Wall -Wincomplete-uni-patterns
+  if flag(use-what4)
+    cpp-options: -DUSE_WHAT4
+  if flag(use-cvc4)
+    cpp-options: -DUSE_CVC4
   default-language: Haskell2010
   other-extensions:
-    TupleSections,
-    RecursiveDo,
-    EmptyCase,
-    LambdaCase,
-    OverloadedStrings,
-    TypeFamilies,
-    RankNTypes,
-    ScopedTypeVariables,
-    ExistentialQuantification,
-    TypeOperators,
-    FlexibleContexts,
-    FlexibleInstances,
-    UndecidableInstances,
-    FunctionalDependencies,
+    DefaultSignatures,
+    DeriveAnyClass,
+    DeriveDataTypeable,
     DeriveFunctor,
     DeriveGeneric,
-    DeriveDataTypeable,
-    GeneralizedNewtypeDeriving,
-    DeriveAnyClass,
+    EmptyCase,
     EmptyDataDeriving,
-    StandaloneDeriving,
-    DefaultSignatures,
+    ExistentialQuantification,
+    FlexibleContexts,
+    FlexibleInstances,
+    FunctionalDependencies,
+    GeneralizedNewtypeDeriving,
+    LambdaCase,
     MultiParamTypeClasses,
-    TemplateHaskell
+    OverloadedStrings,
+    RankNTypes,
+    RecursiveDo,
+    ScopedTypeVariables,
+    StandaloneDeriving,
+    TemplateHaskell,
+    TupleSections,
+    TypeFamilies,
+    TypeOperators,
+    UndecidableInstances
   other-modules:
     Plugin.Dump
-    Plugin.Primitives
+    Plugin.Effect.SolverLibrary.SBV
+    Plugin.Effect.SolverLibrary.What4
     Plugin.Effect.TH
     Plugin.Effect.Tree
     Plugin.Effect.Util
-    Plugin.Trans.Expr
-    Plugin.Trans.Import
-    Plugin.Trans.Constr
+    Plugin.Primitives
     Plugin.Trans.Class
-    Plugin.Trans.CreateSyntax
     Plugin.Trans.ClsInst
-    Plugin.Trans.TyCon
-    Plugin.Trans.Record
+    Plugin.Trans.Coerce
+    Plugin.Trans.Constr
+    Plugin.Trans.CreateSyntax
     Plugin.Trans.DictInstFun
+    Plugin.Trans.Expr
+    Plugin.Trans.FunWiredIn
+    Plugin.Trans.Import
+    Plugin.Trans.Pat
+    Plugin.Trans.PatternMatching
+    Plugin.Trans.Preprocess
+    Plugin.Trans.Record
+    Plugin.Trans.TyCon
     Plugin.Trans.Type
     Plugin.Trans.Util
     Plugin.Trans.Var
-    Plugin.Trans.Pat
-    Plugin.Trans.Coerce
-    Plugin.Trans.FunWiredIn
-    Plugin.Trans.Preprocess
-    Plugin.Trans.PatternMatching
 
 library
   import: deps
   exposed-modules:
-    Plugin.InversionPlugin
-    Plugin.Prelude
     Plugin.BuiltIn
     Plugin.BuiltIn.Primitive
-    Plugin.Lifted
-    Plugin.Effect.Monad
-    Plugin.Effect.SolverLibrary.SBV
-    Plugin.Effect.SolverLibrary.What4
     Plugin.Effect.Annotation
+    Plugin.Effect.Monad
+    Plugin.InversionPlugin
+    Plugin.Lifted
+    Plugin.Prelude
     Plugin.Trans.TysWiredIn
 
 test-suite tests
@@ -118,11 +134,11 @@ test-suite tests
     Tests.Definitions
     Tests.QuickCheckInverse
 
-    Plugin.InversionPlugin
-    Plugin.Prelude
     Plugin.BuiltIn
     Plugin.Effect.Monad
     Plugin.Effect.Annotation
+    Plugin.InversionPlugin
+    Plugin.Prelude
   build-depends:
     inversion-plugin,
     process    ^>= 1.6.5.0,

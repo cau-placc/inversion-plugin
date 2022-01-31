@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP                    #-}
 {-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE InstanceSigs           #-}
 {-# LANGUAGE LambdaCase             #-}
@@ -7,8 +8,15 @@
 {-# LANGUAGE TypeApplications       #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE UndecidableInstances   #-}
-{-# OPTIONS_GHC -Wno-orphans        #-}
+
+{-# OPTIONS_GHC -Wno-orphans              #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+
+{-# HLINT ignore "Unused LANGUAGE pragma" #-}
+
 module Plugin.Effect.SolverLibrary.SBV () where
+
+#ifndef USE_WHAT4
 
 import Data.Coerce
 import Data.SBV
@@ -21,7 +29,11 @@ import {-# SOURCE #-} Plugin.Effect.Monad
 import System.IO.Unsafe
 
 runSBVSolver :: Symbolic a -> IO a
+#ifndef USE_CVC4
 runSBVSolver = runSMTWith z3
+#else
+runSBVSolver = runSMTWith cvc4
+#endif
 
 instance SolverLibrary where
   type Constraint = SBool
@@ -120,3 +132,5 @@ instance HasKind Int where
 instance SDivisible (SBV Int) where
   sQuotRem = liftQRem
   sDivMod  = liftDMod
+
+#endif

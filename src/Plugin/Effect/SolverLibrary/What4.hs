@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP                       #-}
 {-# LANGUAGE DataKinds                 #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleInstances         #-}
@@ -8,8 +9,15 @@
 {-# LANGUAGE TemplateHaskell           #-}
 {-# LANGUAGE TypeApplications          #-}
 {-# LANGUAGE TypeFamilyDependencies    #-}
-{-# OPTIONS_GHC -Wno-orphans           #-}
+
+{-# OPTIONS_GHC -Wno-orphans              #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+
+{-# HLINT ignore "Unused LANGUAGE pragma" #-}
+
 module Plugin.Effect.SolverLibrary.What4 () where
+
+#ifdef USE_WHAT4
 
 import Data.Bits
 import Data.BitVector.Sized
@@ -21,6 +29,7 @@ import Data.Parameterized.Nonce
 import Data.Text                (pack, unpack)
 
 import GHC.Float
+import GHC.Magic
 
 import qualified Language.Haskell.TH as TH
 
@@ -41,13 +50,23 @@ import What4.Protocol.SMTLib2
 import What4.Solver
 import What4.Utils.StringLiteral
 
+#ifndef USE_CVC4
 type What4Solver = Z3
+#else
+type What4Solver = CVC4
+#endif
 
 what4SolverOptions :: [ConfigDesc]
-what4SolverOptions = z3Options
+what4SolverOptions = case show (typeRep (Proxy @What4Solver)) of
+  "CVC4" -> cvc4Options
+  "Z3"   -> z3Options
+  _      -> error "unsupported solver"
 
 what4SolverFeatures :: ProblemFeatures
-what4SolverFeatures = z3Features
+what4SolverFeatures = case show (typeRep (Proxy @What4Solver)) of
+  "CVC4" -> cvc4Features
+  "Z3"   -> z3Features
+  _      -> error "unsupported solver"
 
 instance SolverLibrary where
   type Constraint = What4Constraint
@@ -82,15 +101,15 @@ instance SolverLibrary where
     mapM (toPred sym ref ref2) cs >>= mapM_ (assume conn)
     v <- varToSym @_ @a sym ref ref2 i --TODO: important, because otherwise length == 1 constraints for strings wouldn't be created
     readIORef ref2 >>= mapM_ (assume conn)
-    let getModelsRecursive =
+    let getModelsRecursive () =
           runCheckSat (Session conn (solverResponse solver)) $ \case
             Sat (ge, _) -> do
               x <- groundEval ge v
               let c = InternalNeqConstraint i x (Proxy @a)
               toPred sym ref ref2 c >>= assume conn
-              return $ fromGroundValue x : unsafePerformIO getModelsRecursive
+              return $ fromGroundValue x : unsafePerformIO (getModelsRecursive (noinline const () c))
             _           -> shutdownSolverProcess solver >> return []
-    getModelsRecursive
+    getModelsRecursive (noinline const () v)
 
   eqConstraint = EqConstraint
   notConstraint = NotConstraint
@@ -203,3 +222,5 @@ instance What4Constrainable (CharFL FL) where
   what4BaseTypeRepr = BaseStringRepr UnicodeRepr
   lit sym = stringLit sym . UnicodeLiteral . pack . return . coerce
   fromGroundValue = coerce . head . unpack . fromUnicodeLit
+
+#endif
