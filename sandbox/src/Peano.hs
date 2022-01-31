@@ -4,12 +4,10 @@ module Peano where
 
 data Peano = Z | S Peano
 
-type P = Peano
-
 isZero:: Peano -> Bool
 isZero = (== Z)
 
-isNotZero:: P -> Bool
+isNotZero:: Peano -> Bool
 isNotZero = (/= Z)
 
 instance Eq Peano where
