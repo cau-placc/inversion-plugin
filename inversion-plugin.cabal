@@ -91,7 +91,6 @@ common deps
     Plugin.Trans.Pat
     Plugin.Trans.Coerce
     Plugin.Trans.FunWiredIn
-    Plugin.Trans.TysWiredIn
     Plugin.Trans.Preprocess
     Plugin.Trans.PatternMatching
 
@@ -107,6 +106,7 @@ library
     Plugin.Effect.SolverLibrary.SBV
     Plugin.Effect.SolverLibrary.What4
     Plugin.Effect.Annotation
+    Plugin.Trans.TysWiredIn
 
 test-suite tests
   import:         deps
