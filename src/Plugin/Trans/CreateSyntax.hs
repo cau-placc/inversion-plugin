@@ -62,6 +62,7 @@ mkConLam mw c [] vs = do
 -- Create lambdas for the remaining types.
 mkConLam w c (ty:tys) vs = do
   mtc <- getMonadTycon
+  let mty = mkTyConTy mtc
   -- Create the new variable for the lambda.
   v <- freshVar ty
   -- Create the inner part of the term with the remaining type arguments.
@@ -70,10 +71,9 @@ mkConLam w c (ty:tys) vs = do
   let e' = mkLam (noLoc v) ty e resty
   let lamty = mkVisFunTy ty resty
   ftc <- getFunTycon
-  let lamty2 = mkTyConApp ftc [bindingType ty, bindingType resty]
+  let lamty2 = mkTyConApp ftc [mty, bindingType ty, bindingType resty]
   -- Wrap the whole term in a 'return'.
   e'' <- mkApp mkNewReturnFunTh lamty [noLoc $ HsPar noExtField e']
-  let mty = mkTyConTy mtc
   return (e'', mkAppTy mty lamty2)
 
 -- | Create a '(>>=)' for the given arguments and apply them.
