@@ -76,27 +76,28 @@ instance SolverLibrary where
   doubleMulConstraint = Just $ liftSBV2 (*)
 
   intLtConstraint = Just $ liftSBVOrd2 (.<)
-  integerLtConstraint = Just $ liftSBVOrd2 (.<)
-  floatLtConstraint = Just $ liftSBVOrd2 (.<)
-  doubleLtConstraint = Just $ liftSBVOrd2 (.<)
-  charLtConstraint = Just $ liftSBVOrd2 (.<)
-
   intLeqConstraint = Just $ liftSBVOrd2 (.<=)
-  integerLeqConstraint = Just $ liftSBVOrd2 (.<=)
-  floatLeqConstraint = Just $ liftSBVOrd2 (.<=)
-  doubleLeqConstraint = Just $ liftSBVOrd2 (.<=)
-  charLeqConstraint = Just $ liftSBVOrd2 (.<=)
-
   intGtConstraint = Just $ liftSBVOrd2 (.>)
-  integerGtConstraint = Just $ liftSBVOrd2 (.>)
-  floatGtConstraint = Just $ liftSBVOrd2 (.>)
-  doubleGtConstraint = Just $ liftSBVOrd2 (.>)
-  charGtConstraint = Just $ liftSBVOrd2 (.>)
-
   intGeqConstraint = Just $ liftSBVOrd2 (.>=)
+
+  integerLtConstraint = Just $ liftSBVOrd2 (.<)
+  integerLeqConstraint = Just $ liftSBVOrd2 (.<=)
+  integerGtConstraint = Just $ liftSBVOrd2 (.>)
   integerGeqConstraint = Just $ liftSBVOrd2 (.>=)
+
+  floatLtConstraint = Just $ liftSBVOrd2 (.<)
+  floatLeqConstraint = Just $ liftSBVOrd2 (.<=)
+  floatGtConstraint = Just $ liftSBVOrd2 (.>)
   floatGeqConstraint = Just $ liftSBVOrd2 (.>=)
+
+  doubleLtConstraint = Just $ liftSBVOrd2 (.<)
+  doubleLeqConstraint = Just $ liftSBVOrd2 (.<=)
+  doubleGtConstraint = Just $ liftSBVOrd2 (.>)
   doubleGeqConstraint = Just $ liftSBVOrd2 (.>=)
+
+  charLtConstraint = Just $ liftSBVOrd2 (.<)
+  charLeqConstraint = Just $ liftSBVOrd2 (.<=)
+  charGtConstraint = Just $ liftSBVOrd2 (.>)
   charGeqConstraint = Just $ liftSBVOrd2 (.>=)
 
   --TODO: max, min

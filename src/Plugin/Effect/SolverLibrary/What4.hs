@@ -2,6 +2,7 @@
 {-# LANGUAGE DataKinds                 #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleInstances         #-}
+{-# LANGUAGE GADTSyntax                #-}
 {-# LANGUAGE InstanceSigs              #-}
 {-# LANGUAGE LambdaCase                #-}
 {-# LANGUAGE MultiParamTypeClasses     #-}
@@ -26,7 +27,7 @@ import Data.Data
 import Data.IORef
 import Data.Parameterized
 import Data.Parameterized.Nonce
-import Data.Text                (pack, unpack)
+import Data.Text
 
 import GHC.Float
 import GHC.Magic
@@ -115,18 +116,59 @@ instance SolverLibrary where
   notConstraint = NotConstraint
 
   intPlusConstraint = Just IntPlusConstraint
+  intMinusConstraint = Just IntMinusConstraint
+  intMulConstraint = Just IntMulConstraint
   integerPlusConstraint = Just IntegerPlusConstraint
+  integerMinusConstraint = Just IntegerMinusConstraint
+  integerMulConstraint = Just IntegerMulConstraint
   floatPlusConstraint = Just FloatPlusConstraint
+  floatMinusConstraint = Just FloatMinusConstraint
+  floatMulConstraint = Just FloatMulConstraint
   doublePlusConstraint = Just DoublePlusConstraint
+  doubleMinusConstraint = Just DoubleMinusConstraint
+  doubleMulConstraint = Just DoubleMulConstraint
 
-data What4Constraint
-  = forall a. Constrainable a => EqConstraint (FLVal a) (FLVal a)
-  | NotConstraint Constraint
-  | forall a. Constrainable a => InternalNeqConstraint ID (GroundValue (What4BaseType a)) (Proxy a)
-  | IntPlusConstraint (FLVal (IntFL FL)) (FLVal (IntFL FL)) (FLVal (IntFL FL))
-  | IntegerPlusConstraint (FLVal (IntegerFL FL)) (FLVal (IntegerFL FL)) (FLVal (IntegerFL FL))
-  | FloatPlusConstraint (FLVal (FloatFL FL)) (FLVal (FloatFL FL)) (FLVal (FloatFL FL))
-  | DoublePlusConstraint (FLVal (DoubleFL FL)) (FLVal (DoubleFL FL)) (FLVal (DoubleFL FL))
+  intLtConstraint = Just IntLtConstraint
+  intLeqConstraint = Just IntLeqConstraint
+  intGtConstraint = Just IntGtConstraint
+  intGeqConstraint = Just IntGeqConstraint
+
+  integerLtConstraint = Just IntegerLtConstraint
+  integerLeqConstraint = Just IntegerLeqConstraint
+  integerGtConstraint = Just IntegerGtConstraint
+  integerGeqConstraint = Just IntegerGeqConstraint
+
+  floatLtConstraint = Just FloatLtConstraint
+  floatLeqConstraint = Just FloatLeqConstraint
+  floatGtConstraint = Just FloatGtConstraint
+  floatGeqConstraint = Just FloatGeqConstraint
+
+  doubleLtConstraint = Just DoubleLtConstraint
+  doubleLeqConstraint = Just DoubleLeqConstraint
+  doubleGtConstraint = Just DoubleGtConstraint
+  doubleGeqConstraint = Just DoubleGeqConstraint
+
+  charLtConstraint = Nothing --Just CharLtConstraint
+  charLeqConstraint = Nothing --Just CharLeqConstraint
+  charGtConstraint = Nothing --Just CharGtConstraint
+  charGeqConstraint = Nothing --Just CharGeqConstraint
+
+data What4Constraint where
+  EqConstraint :: forall a. Constrainable a => FLVal a -> FLVal a -> What4Constraint
+  NotConstraint :: Constraint -> What4Constraint
+  InternalNeqConstraint :: forall a. Constrainable a => ID -> GroundValue (What4BaseType a) -> Proxy a -> What4Constraint
+
+  IntPlusConstraint, IntMinusConstraint, IntMulConstraint :: FLVal (IntFL FL) -> FLVal (IntFL FL) -> FLVal (IntFL FL) -> What4Constraint
+  IntegerPlusConstraint, IntegerMinusConstraint, IntegerMulConstraint :: FLVal (IntegerFL FL) -> FLVal (IntegerFL FL) -> FLVal (IntegerFL FL) -> What4Constraint
+  FloatPlusConstraint, FloatMinusConstraint, FloatMulConstraint :: FLVal (FloatFL FL) -> FLVal (FloatFL FL) -> FLVal (FloatFL FL) -> What4Constraint
+  DoublePlusConstraint, DoubleMinusConstraint, DoubleMulConstraint :: FLVal (DoubleFL FL) -> FLVal (DoubleFL FL) -> FLVal (DoubleFL FL) -> What4Constraint
+
+  IntLtConstraint, IntLeqConstraint, IntGtConstraint, IntGeqConstraint :: FLVal (IntFL FL) -> FLVal (IntFL FL) -> What4Constraint
+  IntegerLtConstraint, IntegerLeqConstraint, IntegerGtConstraint, IntegerGeqConstraint :: FLVal (IntegerFL FL) -> FLVal (IntegerFL FL) -> What4Constraint
+  FloatLtConstraint, FloatLeqConstraint, FloatGtConstraint, FloatGeqConstraint :: FLVal (FloatFL FL) -> FLVal (FloatFL FL) -> What4Constraint
+  DoubleLtConstraint, DoubleLeqConstraint, DoubleGtConstraint, DoubleGeqConstraint :: FLVal (DoubleFL FL) -> FLVal (DoubleFL FL) -> What4Constraint
+  --CharLtConstraint, CharLeqConstraint, CharGtConstraint, CharGeqConstraint :: FLVal (CharFL FL) -> FLVal (CharFL FL) -> What4Constraint
+
 
 toPred :: IsSymExprBuilder sym => sym -> IORef Heap -> IORef [Pred sym] -> Constraint -> IO (Pred sym)
 toPred sym ref ref2 (EqConstraint x y) = do
@@ -145,21 +187,127 @@ toPred sym ref ref2 (IntPlusConstraint x y z) = do
   symZ <- toSym sym ref ref2 z
   symRes <- snd <$> addSignedOF sym symX symY
   isEq sym symZ symRes
+toPred sym ref ref2 (IntMinusConstraint x y z) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  symZ <- toSym sym ref ref2 z
+  symRes <- snd <$> subSignedOF sym symX symY
+  isEq sym symZ symRes
+toPred sym ref ref2 (IntMulConstraint x y z) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  symZ <- toSym sym ref ref2 z
+  symRes <- snd <$> mulSignedOF sym symX symY
+  isEq sym symZ symRes
 toPred sym ref ref2 (IntegerPlusConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
   symZ <- toSym sym ref ref2 z
   intAdd sym symX symY >>= isEq sym symZ
+toPred sym ref ref2 (IntegerMinusConstraint x y z) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  symZ <- toSym sym ref ref2 z
+  intSub sym symX symY >>= isEq sym symZ
+toPred sym ref ref2 (IntegerMulConstraint x y z) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  symZ <- toSym sym ref ref2 z
+  intMul sym symX symY >>= isEq sym symZ
 toPred sym ref ref2 (FloatPlusConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
   symZ <- toSym sym ref ref2 z
   floatAdd sym RTZ symX symY >>= isEq sym symZ
+toPred sym ref ref2 (FloatMinusConstraint x y z) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  symZ <- toSym sym ref ref2 z
+  floatSub sym RTZ symX symY >>= isEq sym symZ
+toPred sym ref ref2 (FloatMulConstraint x y z) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  symZ <- toSym sym ref ref2 z
+  floatMul sym RTZ symX symY >>= isEq sym symZ
 toPred sym ref ref2 (DoublePlusConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
   symZ <- toSym sym ref ref2 z
   floatAdd sym RTZ symX symY >>= isEq sym symZ
+toPred sym ref ref2 (DoubleMinusConstraint x y z) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  symZ <- toSym sym ref ref2 z
+  floatSub sym RTZ symX symY >>= isEq sym symZ
+toPred sym ref ref2 (DoubleMulConstraint x y z) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  symZ <- toSym sym ref ref2 z
+  floatMul sym RTZ symX symY >>= isEq sym symZ
+toPred sym ref ref2 (IntLtConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  bvSlt sym symX symY
+toPred sym ref ref2 (IntLeqConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  bvSle sym symX symY
+toPred sym ref ref2 (IntGtConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  bvSgt sym symX symY
+toPred sym ref ref2 (IntGeqConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  bvSge sym symX symY
+toPred sym ref ref2 (IntegerLtConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  intLt sym symX symY
+toPred sym ref ref2 (IntegerLeqConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  intLe sym symX symY
+toPred sym ref ref2 (IntegerGtConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  flip (intLt sym) symX symY --TODO: Why no intGt?
+toPred sym ref ref2 (IntegerGeqConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  flip (intLe sym) symX symY
+toPred sym ref ref2 (FloatLtConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  floatLt sym symX symY
+toPred sym ref ref2 (FloatLeqConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  floatLe sym symX symY
+toPred sym ref ref2 (FloatGtConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  floatGt sym symX symY
+toPred sym ref ref2 (FloatGeqConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  floatGe sym symX symY
+toPred sym ref ref2 (DoubleLtConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  floatLt sym symX symY
+toPred sym ref ref2 (DoubleLeqConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  floatLe sym symX symY
+toPred sym ref ref2 (DoubleGtConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  floatGt sym symX symY
+toPred sym ref ref2 (DoubleGeqConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  floatGe sym symX symY
 
 toSym :: (IsSymExprBuilder sym, Constrainable a) => sym -> IORef Heap -> IORef [Pred sym] -> FLVal a -> IO (SymExpr sym (What4BaseType a))
 toSym sym ref ref2 (Var i) = varToSym sym ref ref2 i
@@ -221,6 +369,6 @@ instance What4Constrainable (CharFL FL) where
   type instance What4BaseType (CharFL FL) = BaseStringType Unicode
   what4BaseTypeRepr = BaseStringRepr UnicodeRepr
   lit sym = stringLit sym . UnicodeLiteral . pack . return . coerce
-  fromGroundValue = coerce . head . unpack . fromUnicodeLit
+  fromGroundValue = coerce . Data.Text.head . fromUnicodeLit
 
 #endif
