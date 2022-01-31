@@ -34,14 +34,17 @@ instance SolverLibrary where
   type Constrainable a = (SymVal (SBVType a), Coercible a (SBVType a))
 
   getModels :: forall a. Constrainable a => ID -> [Constraint] -> [a]
-  getModels i cs = unsafePerformIO $ runSBVSolver $
-    query $ checkSatAssuming cs >>= \case
-      Sat -> do
-        let v = varToSBV i
-        x <- getValue @(SBVType a) v
-        let c = v ./== literal x
-        return $ coerce x : getModels i (c : cs)
-      _   -> return []
+  getModels i cs =
+    let v = varToSBV @(SBVType a) i
+        initialC = v .=== v
+        getModelsRecursive cs' = unsafePerformIO $ runSBVSolver $ do
+          query $ checkSatAssuming cs' >>= \case
+            Sat -> do
+              x <- getValue @(SBVType a) v
+              let c = v ./== literal x
+              return $ coerce x : getModelsRecursive (c : cs')
+            _   -> return []
+    in getModelsRecursive (initialC : cs)
 
   eqConstraint = liftSBVOrd2 (.===)
   notConstraint = sNot
@@ -108,7 +111,7 @@ varToSBV i = sym $ "x" ++ (if i < 0 then "n" else "") ++ show (abs i)
 
 instance SymVal Int where
   mkSymVal = genMkSymVar (KBounded True (finiteBitSize @Int 0))
-  literal  = genLiteral  (KBounded True (finiteBitSize @Int 0))
+  literal  = genLiteral (KBounded True (finiteBitSize @Int 0))
   fromCV   = genFromCV
 
 instance HasKind Int where
