@@ -17,7 +17,8 @@ common deps
   build-depends:
     base             ^>=4.14.0.0,
     inversion-plugin -any,
-    template-haskell -any
+    template-haskell -any,
+    mini-egison
 
 library
   import: deps
@@ -36,7 +37,7 @@ library
 
 benchmark benchmarks
   import:        deps
-  build-depends: criterion, mini-egison
+  build-depends: criterion
   main-is:       Bench.hs
   other-modules:
     App
