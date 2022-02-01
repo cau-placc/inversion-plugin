@@ -327,17 +327,17 @@ toPred sym ref ref2 (FloatPlusConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
   symZ <- toSym sym ref ref2 z
-  floatAdd sym RTZ symX symY >>= floatFpEq sym symZ
+  floatAdd sym RNE symX symY >>= floatFpEq sym symZ
 toPred sym ref ref2 (FloatMinusConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
   symZ <- toSym sym ref ref2 z
-  floatSub sym RTZ symX symY >>= floatFpEq sym symZ
+  floatSub sym RNE symX symY >>= floatFpEq sym symZ
 toPred sym ref ref2 (FloatMulConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
   symZ <- toSym sym ref ref2 z
-  floatMul sym RTZ symX symY >>= floatFpEq sym symZ
+  floatMul sym RNE symX symY >>= floatFpEq sym symZ
 toPred sym ref ref2 (FloatNegateConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
@@ -365,17 +365,17 @@ toPred sym ref ref2 (DoublePlusConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
   symZ <- toSym sym ref ref2 z
-  floatAdd sym RTZ symX symY >>= floatFpEq sym symZ
+  floatAdd sym RNE symX symY >>= floatFpEq sym symZ
 toPred sym ref ref2 (DoubleMinusConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
   symZ <- toSym sym ref ref2 z
-  floatSub sym RTZ symX symY >>= floatFpEq sym symZ
+  floatSub sym RNE symX symY >>= floatFpEq sym symZ
 toPred sym ref ref2 (DoubleMulConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
   symZ <- toSym sym ref ref2 z
-  floatMul sym RTZ symX symY >>= floatFpEq sym symZ
+  floatMul sym RNE symX symY >>= floatFpEq sym symZ
 toPred sym ref ref2 (DoubleNegateConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
