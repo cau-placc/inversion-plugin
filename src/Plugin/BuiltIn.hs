@@ -619,32 +619,42 @@ instance OrdFL (UnitFL FL) where
 instance OrdFL (IntFL FL) where
   (>=#) = primitiveOrd2 (P.>=) intGeqConstraint
   (<=#) = primitiveOrd2 (P.<=) intLeqConstraint
-  (>#) = primitiveOrd2 (P.>) intGtConstraint
-  (<#) = primitiveOrd2 (P.<) intLtConstraint
+  (>#)  = primitiveOrd2 (P.>)  intGtConstraint
+  (<#)  = primitiveOrd2 (P.<)  intLtConstraint
+  maxFL = primitive2    P.max  intMaxConstraint
+  minFL = primitive2    P.max  intMinConstraint
 
 instance OrdFL (IntegerFL FL) where
   (>=#) = primitiveOrd2 (P.>=) integerGeqConstraint
   (<=#) = primitiveOrd2 (P.<=) integerLeqConstraint
-  (>#) = primitiveOrd2 (P.>) integerGtConstraint
-  (<#) = primitiveOrd2 (P.<) integerLtConstraint
+  (>#)  = primitiveOrd2 (P.>)  integerGtConstraint
+  (<#)  = primitiveOrd2 (P.<)  integerLtConstraint
+  maxFL = primitive2    P.max  integerMaxConstraint
+  minFL = primitive2    P.min  integerMinConstraint
 
 instance OrdFL (FloatFL FL) where
   (>=#) = primitiveOrd2 (P.>=) floatGeqConstraint
   (<=#) = primitiveOrd2 (P.<=) floatLeqConstraint
-  (>#) = primitiveOrd2 (P.>) floatGtConstraint
-  (<#) = primitiveOrd2 (P.<) floatLtConstraint
+  (>#)  = primitiveOrd2 (P.>)  floatGtConstraint
+  (<#)  = primitiveOrd2 (P.<)  floatLtConstraint
+  maxFL = primitive2    P.max  floatMaxConstraint
+  minFL = primitive2    P.min  floatMinConstraint
 
 instance OrdFL (DoubleFL FL) where
   (>=#) = primitiveOrd2 (P.>=) doubleGeqConstraint
   (<=#) = primitiveOrd2 (P.<=) doubleLeqConstraint
-  (>#) = primitiveOrd2 (P.>) doubleGtConstraint
-  (<#) = primitiveOrd2 (P.<) doubleLtConstraint
+  (>#)  = primitiveOrd2 (P.>)  doubleGtConstraint
+  (<#)  = primitiveOrd2 (P.<)  doubleLtConstraint
+  maxFL = primitive2    P.max  doubleMaxConstraint
+  minFL = primitive2    P.min  doubleMinConstraint
 
 instance OrdFL (CharFL FL) where
   (>=#) = primitiveOrd2 (P.>=) charGeqConstraint
   (<=#) = primitiveOrd2 (P.<=) charLeqConstraint
-  (>#) = primitiveOrd2 (P.>) charGtConstraint
-  (<#) = primitiveOrd2 (P.<) charLtConstraint
+  (>#)  = primitiveOrd2 (P.>)  charGtConstraint
+  (<#)  = primitiveOrd2 (P.<)  charLtConstraint
+  maxFL = primitive2    P.max  charMaxConstraint
+  minFL = primitive2    P.min  charMinConstraint
 
 instance (OrdFL a) => OrdFL (ListFL FL a) where
   compareFL = returnFLF $ \x -> returnFLF $ \y ->
@@ -1057,7 +1067,7 @@ primitiveOrd2 op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
                 checkConsistencyND -- DISS: optional, iff x and y were unconstrained
                 P.return (Val TrueFL)
               falseBranch = do
-                assertConstraintND (notConstraint (constraint x' y')) (varsOf x' y') --TODO: notConstraint oder einfach das gegenteil higher order übergeben?
+                assertConstraintND (notConstraint (constraint x' y')) (varsOf x' y')
                 checkConsistencyND -- DISS: optional, iff x and y were unconstrained
                 P.return (Val FalseFL)
               varsOf x'' y'' = varOf x'' P.++ varOf y''

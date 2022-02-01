@@ -58,9 +58,9 @@ instance SolverLibrary where
             _   -> return []
     in getModelsRecursive (initialC : cs)
 
-  eqConstraint  = liftSBVOrd2 (.===)
+  eqConstraint  = liftSBVOrd2 (.==)
   notConstraint = sNot
-  neqConstraint = liftSBVOrd2 (./==)
+  neqConstraint = liftSBVOrd2 (./=)
 
   intPlusConstraint   = Just $ liftSBV2 (+)
   intMinusConstraint  = Just $ liftSBV2 (-)
@@ -94,28 +94,36 @@ instance SolverLibrary where
   intLeqConstraint = Just $ liftSBVOrd2 (.<=)
   intGtConstraint  = Just $ liftSBVOrd2 (.>)
   intGeqConstraint = Just $ liftSBVOrd2 (.>=)
+  intMaxConstraint = Just $ liftSBV2 smax
+  intMinConstraint = Just $ liftSBV2 smin
 
   integerLtConstraint  = Just $ liftSBVOrd2 (.<)
   integerLeqConstraint = Just $ liftSBVOrd2 (.<=)
   integerGtConstraint  = Just $ liftSBVOrd2 (.>)
   integerGeqConstraint = Just $ liftSBVOrd2 (.>=)
+  integerMaxConstraint = Just $ liftSBV2 smax
+  integerMinConstraint = Just $ liftSBV2 smin
 
   floatLtConstraint  = Just $ liftSBVOrd2 (.<)
   floatLeqConstraint = Just $ liftSBVOrd2 (.<=)
   floatGtConstraint  = Just $ liftSBVOrd2 (.>)
   floatGeqConstraint = Just $ liftSBVOrd2 (.>=)
+  floatMaxConstraint = Just $ liftSBV2 smax
+  floatMinConstraint = Just $ liftSBV2 smin
 
   doubleLtConstraint  = Just $ liftSBVOrd2 (.<)
   doubleLeqConstraint = Just $ liftSBVOrd2 (.<=)
   doubleGtConstraint  = Just $ liftSBVOrd2 (.>)
   doubleGeqConstraint = Just $ liftSBVOrd2 (.>=)
+  doubleMaxConstraint = Just $ liftSBV2 smax
+  doubleMinConstraint = Just $ liftSBV2 smin
 
   charLtConstraint  = Just $ liftSBVOrd2 (.<)
   charLeqConstraint = Just $ liftSBVOrd2 (.<=)
   charGtConstraint  = Just $ liftSBVOrd2 (.>)
   charGeqConstraint = Just $ liftSBVOrd2 (.>=)
-
-  --TODO: max, min
+  charMaxConstraint = Just $ liftSBV2 smax
+  charMinConstraint = Just $ liftSBV2 smin
 
 type family SBVType a = b | b -> a where
   SBVType (IntFL FL) = Int

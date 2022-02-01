@@ -147,26 +147,36 @@ instance SolverLibrary where
   intLeqConstraint = Just IntLeqConstraint
   intGtConstraint  = Just IntGtConstraint
   intGeqConstraint = Just IntGeqConstraint
+  intMaxConstraint = Just IntMaxConstraint
+  intMinConstraint = Just IntMinConstraint
 
   integerLtConstraint  = Just IntegerLtConstraint
   integerLeqConstraint = Just IntegerLeqConstraint
   integerGtConstraint  = Just IntegerGtConstraint
   integerGeqConstraint = Just IntegerGeqConstraint
+  integerMaxConstraint = Just IntegerMaxConstraint
+  integerMinConstraint = Just IntegerMinConstraint
 
   floatLtConstraint  = Just FloatLtConstraint
   floatLeqConstraint = Just FloatLeqConstraint
   floatGtConstraint  = Just FloatGtConstraint
   floatGeqConstraint = Just FloatGeqConstraint
+  floatMaxConstraint = Just FloatMaxConstraint
+  floatMinConstraint = Just FloatMinConstraint
 
   doubleLtConstraint  = Just DoubleLtConstraint
   doubleLeqConstraint = Just DoubleLeqConstraint
   doubleGtConstraint  = Just DoubleGtConstraint
   doubleGeqConstraint = Just DoubleGeqConstraint
+  doubleMaxConstraint = Just DoubleMaxConstraint
+  doubleMinConstraint = Just DoubleMinConstraint
 
   charLtConstraint  = Nothing
   charLeqConstraint = Nothing
   charGtConstraint  = Nothing
   charGeqConstraint = Nothing
+  charMaxConstraint = Nothing
+  charMinConstraint = Nothing
 
 data What4Constraint where
   EqConstraint :: forall a. Constrainable a => FLVal a -> FLVal a -> What4Constraint
@@ -186,12 +196,16 @@ data What4Constraint where
   DoubleNegateConstraint, DoubleAbsConstraint, DoubleSignumConstraint:: FLVal (DoubleFL FL) -> FLVal (DoubleFL FL) -> What4Constraint
 
   IntLtConstraint, IntLeqConstraint, IntGtConstraint, IntGeqConstraint :: FLVal (IntFL FL) -> FLVal (IntFL FL) -> What4Constraint
+  IntMaxConstraint, IntMinConstraint :: FLVal (IntFL FL) -> FLVal (IntFL FL) -> FLVal (IntFL FL) -> What4Constraint
 
   IntegerLtConstraint, IntegerLeqConstraint, IntegerGtConstraint, IntegerGeqConstraint :: FLVal (IntegerFL FL) -> FLVal (IntegerFL FL) -> What4Constraint
+  IntegerMaxConstraint, IntegerMinConstraint :: FLVal (IntegerFL FL) -> FLVal (IntegerFL FL) -> FLVal (IntegerFL FL) -> What4Constraint
 
   FloatLtConstraint, FloatLeqConstraint, FloatGtConstraint, FloatGeqConstraint :: FLVal (FloatFL FL) -> FLVal (FloatFL FL) -> What4Constraint
+  FloatMaxConstraint, FloatMinConstraint :: FLVal (FloatFL FL) -> FLVal (FloatFL FL) -> FLVal (FloatFL FL) -> What4Constraint
 
   DoubleLtConstraint, DoubleLeqConstraint, DoubleGtConstraint, DoubleGeqConstraint :: FLVal (DoubleFL FL) -> FLVal (DoubleFL FL) -> What4Constraint
+  DoubleMaxConstraint, DoubleMinConstraint :: FLVal (DoubleFL FL) -> FLVal (DoubleFL FL) -> FLVal (DoubleFL FL) -> What4Constraint
 
 toPred :: IsSymExprBuilder sym => sym -> IORef Heap -> IORef [Pred sym] -> Constraint -> IO (Pred sym)
 toPred sym ref ref2 (EqConstraint x y) = do
@@ -367,6 +381,18 @@ toPred sym ref ref2 (IntGeqConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
   bvSge sym symX symY
+toPred sym ref ref2 (IntMaxConstraint x y z) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  symZ <- toSym sym ref ref2 z
+  symIsGt <- bvSgt sym symX symY
+  bvIte sym symIsGt symX symY >>= isEq' sym symZ
+toPred sym ref ref2 (IntMinConstraint x y z) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  symZ <- toSym sym ref ref2 z
+  symIsLt <- bvSlt sym symX symY
+  bvIte sym symIsLt symX symY >>= isEq' sym symZ
 toPred sym ref ref2 (IntegerLtConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
@@ -383,6 +409,18 @@ toPred sym ref ref2 (IntegerGeqConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
   flip (intLe sym) symX symY -- TODO: Why is there no intGeq?
+toPred sym ref ref2 (IntegerMaxConstraint x y z) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  symZ <- toSym sym ref ref2 z
+  symIsGt <- flip (intLt sym) symX symY
+  intIte sym symIsGt symX symY >>= isEq' sym symZ
+toPred sym ref ref2 (IntegerMinConstraint x y z) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  symZ <- toSym sym ref ref2 z
+  symIsLt <- intLt sym symX symY
+  intIte sym symIsLt symX symY >>= isEq' sym symZ
 toPred sym ref ref2 (FloatLtConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
@@ -399,6 +437,16 @@ toPred sym ref ref2 (FloatGeqConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
   floatGe sym symX symY
+toPred sym ref ref2 (FloatMaxConstraint x y z) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  symZ <- toSym sym ref ref2 z
+  floatMax sym symX symY >>= floatFpEq sym symZ
+toPred sym ref ref2 (FloatMinConstraint x y z) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  symZ <- toSym sym ref ref2 z
+  floatMin sym symX symY >>= floatFpEq sym symZ
 toPred sym ref ref2 (DoubleLtConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
@@ -415,6 +463,16 @@ toPred sym ref ref2 (DoubleGeqConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
   floatGe sym symX symY
+toPred sym ref ref2 (DoubleMaxConstraint x y z) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  symZ <- toSym sym ref ref2 z
+  floatMax sym symX symY >>= floatFpEq sym symZ
+toPred sym ref ref2 (DoubleMinConstraint x y z) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  symZ <- toSym sym ref ref2 z
+  floatMin sym symX symY >>= floatFpEq sym symZ
 
 isEq' :: IsExprBuilder sym => sym -> SymExpr sym tp -> SymExpr sym tp -> IO (Pred sym)
 isEq' sym x y = case exprType x of
