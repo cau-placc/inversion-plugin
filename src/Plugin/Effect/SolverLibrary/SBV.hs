@@ -29,10 +29,10 @@ import {-# SOURCE #-} Plugin.Effect.Monad
 import System.IO.Unsafe
 
 runSBVSolver :: Symbolic a -> IO a
-#ifndef USE_CVC4
+#ifndef USE_CVC
 runSBVSolver = runSMTWith z3
 #else
-runSBVSolver = runSMTWith cvc4
+runSBVSolver = runSMTWith cvc5
 #endif
 
 instance SolverLibrary where
@@ -48,7 +48,8 @@ instance SolverLibrary where
   getModels :: forall a. Constrainable a => ID -> [Constraint] -> [a]
   getModels i cs =
     let v = varToSBV @(SBVType a) i
-        initialC = v .=== v
+        dummyV = sym @(SBV (SBVType a)) "dummy" # TODO: Comment that this is needed in order to get character models
+        initialC = v .=== dummyV
         getModelsRecursive cs' = unsafePerformIO $ runSBVSolver $ do
           query $ checkSatAssuming cs' >>= \case
             Sat -> do

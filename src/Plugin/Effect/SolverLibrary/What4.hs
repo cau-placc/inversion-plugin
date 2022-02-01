@@ -51,7 +51,7 @@ import What4.Protocol.SMTLib2
 import What4.Solver
 import What4.Utils.StringLiteral
 
-#ifndef USE_CVC4
+#ifndef USE_CVC
 type What4Solver = Z3
 #else
 type What4Solver = CVC4
