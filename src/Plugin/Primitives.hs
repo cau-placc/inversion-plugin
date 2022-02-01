@@ -35,12 +35,12 @@ genericInv name fixedArgs useGNF = do
     VarI _ ty' _     -> return ty'
     ClassOpI _ ty' _ -> return ty'
     _                -> fail $ show name ++ " is no function or class method."
-  let validFixedArgs = [1 .. arrowArity ty] --TODO: start at 0
+  let validFixedArgs = [0 .. arrowArity ty - 1]
       hint = "has to be a subsequence of " ++ show validFixedArgs
   when (any (`notElem` validFixedArgs) fixedArgs) $ fail $
     "Invalid argument index sequence for partial inverse provided (" ++ hint ++ ")."
   vs <- replicateM (length fixedArgs + 1) (newName "p")
-  let invE = VarE $ mkNameG_v (fromMaybe "" $ namePackage name) (fromMaybe "" $ nameModule name) $ nameBase $ mkInverseName (nameBase name) (sort $ nub $ map pred fixedArgs) useGNF
+  let invE = VarE $ mkNameG_v (fromMaybe "" $ namePackage name) (fromMaybe "" $ nameModule name) $ nameBase $ mkInverseName (nameBase name) (sort $ nub fixedArgs) useGNF
   return $ LamE (map VarP vs) (applyExp invE (map VarE vs))
 
 weakInv :: Name -> ExpQ
