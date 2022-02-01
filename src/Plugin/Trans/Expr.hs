@@ -760,9 +760,10 @@ liftExplicitTuple given tcs args b = liftExplicitTuple' [] WpHole args
       let lam = mkLam v ty inner resty
       mkApp mkNewReturnTh (mkVisFunTy ty' resty) [lam]
     liftExplicitTuple' col w [] = do
+      mTyCon <- getMonadTycon
       let exprArgs = reverse col
       dc <- liftIO (getLiftedCon (tupleDataCon b (length exprArgs)) tcs)
-      let ce = HsWrap noExtField w (HsConLikeOut noExtField (RealDataCon dc))
+      let ce = HsWrap noExtField (w <.> WpTyApp (mkTyConTy mTyCon)) (HsConLikeOut noExtField (RealDataCon dc))
       let appCe = foldl mkHsApp (noLoc ce) exprArgs
       ty <- getTypeOrPanic appCe
       mkApp mkNewReturnTh ty [appCe]
