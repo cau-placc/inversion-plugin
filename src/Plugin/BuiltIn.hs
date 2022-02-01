@@ -735,11 +735,11 @@ class NumFL a => FractionalFL a where
   fromRationalFL :: FL (RationalFL FL :--> a)
 
 instance FractionalFL (FloatFL FL) where
-  (/#) = primitive2 (P./) P.undefined
+  (/#) = primitive2 (P./) floatDivConstraint
   fromRationalFL = liftFL1Convert P.fromRational
 
 instance FractionalFL (DoubleFL FL) where
-  (/#) = primitive2 (P./) P.undefined
+  (/#) = primitive2 (P./) doubleDivConstraint
   fromRationalFL = liftFL1Convert P.fromRational
 
 -- * Lifted Real type class, instances and functions
@@ -792,21 +792,21 @@ class (RealFL a, EnumFL a) => IntegralFL a where
             FalseFL -> qr
 
 instance IntegralFL (IntFL FL) where
-  quotFL = primitive2 P.quot P.undefined
-  remFL  = primitive2 P.rem P.undefined
-  divFL  = primitive2 P.div P.undefined
-  modFL  = primitive2 P.mod P.undefined
-  divModFL  = primitive2Pair P.divMod P.undefined
-  quotRemFL = primitive2Pair P.quotRem P.undefined
+  quotFL      = primitive2     P.quot      intQuotConstraint
+  remFL       = primitive2     P.rem       intRemConstraint
+  divFL       = primitive2     P.div       intDivConstraint
+  modFL       = primitive2     P.mod       intModConstraint
+  divModFL    = primitive2Pair P.divMod    P.undefined
+  quotRemFL   = primitive2Pair P.quotRem   P.undefined
   toIntegerFL = liftFL1Convert P.toInteger --TODO: constraint
 
 instance IntegralFL (IntegerFL FL) where
-  quotFL = primitive2 P.quot P.undefined
-  remFL  = primitive2 P.rem P.undefined
-  divFL  = primitive2 P.div P.undefined
-  modFL  = primitive2 P.mod P.undefined
-  divModFL  = primitive2Pair P.divMod P.undefined
-  quotRemFL = primitive2Pair P.quotRem P.undefined
+  quotFL      = primitive2     P.quot    integerQuotConstraint
+  remFL       = primitive2     P.rem     integerRemConstraint
+  divFL       = primitive2     P.div     integerDivConstraint
+  modFL       = primitive2     P.mod     integerModConstraint
+  divModFL    = primitive2Pair P.divMod  P.undefined
+  quotRemFL   = primitive2Pair P.quotRem P.undefined
   toIntegerFL = returnFLF P.id
 
 -- * Lifted Monad & Co type classes and instances

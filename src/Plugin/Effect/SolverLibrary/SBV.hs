@@ -93,12 +93,16 @@ instance SolverLibrary where
   floatAbsConstraint    = Just $ liftSBV1 abs
   floatSignumConstraint = Just $ liftSBV1 signum
 
+  floatDivConstraint = Just $ liftSBV2 (/)
+
   doublePlusConstraint   = Just $ liftSBV2 (+)
   doubleMinusConstraint  = Just $ liftSBV2 (-)
   doubleMulConstraint    = Just $ liftSBV2 (*)
   doubleNegateConstraint = Just $ liftSBV1 negate
   doubleAbsConstraint    = Just $ liftSBV1 abs
   doubleSignumConstraint = Just $ liftSBV1 signum
+
+  doubleDivConstraint = Just $ liftSBV2 (/)
 
   intLtConstraint  = Just $ liftSBVOrd2 (.<)
   intLeqConstraint = Just $ liftSBVOrd2 (.<=)

@@ -146,12 +146,16 @@ instance SolverLibrary where
   floatAbsConstraint    = Just FloatAbsConstraint
   floatSignumConstraint = Just FloatSignumConstraint
 
+  floatDivConstraint = Just FloatDivConstraint
+
   doublePlusConstraint   = Just DoublePlusConstraint
   doubleMinusConstraint  = Just DoubleMinusConstraint
   doubleMulConstraint    = Just DoubleMulConstraint
   doubleNegateConstraint = Just DoubleNegateConstraint
   doubleAbsConstraint    = Just DoubleAbsConstraint
   doubleSignumConstraint = Just DoubleSignumConstraint
+
+  doubleDivConstraint = Just DoubleDivConstraint
 
   intLtConstraint  = Just IntLtConstraint
   intLeqConstraint = Just IntLeqConstraint
@@ -206,8 +210,12 @@ data What4Constraint where
   FloatPlusConstraint, FloatMinusConstraint, FloatMulConstraint :: FLVal (FloatFL FL) -> FLVal (FloatFL FL) -> FLVal (FloatFL FL) -> What4Constraint
   FloatNegateConstraint, FloatAbsConstraint, FloatSignumConstraint:: FLVal (FloatFL FL) -> FLVal (FloatFL FL) -> What4Constraint
 
+  FloatDivConstraint :: FLVal (FloatFL FL) -> FLVal (FloatFL FL) -> FLVal (FloatFL FL) -> What4Constraint
+
   DoublePlusConstraint, DoubleMinusConstraint, DoubleMulConstraint :: FLVal (DoubleFL FL) -> FLVal (DoubleFL FL) -> FLVal (DoubleFL FL) -> What4Constraint
   DoubleNegateConstraint, DoubleAbsConstraint, DoubleSignumConstraint:: FLVal (DoubleFL FL) -> FLVal (DoubleFL FL) -> What4Constraint
+
+  DoubleDivConstraint :: FLVal (DoubleFL FL) -> FLVal (DoubleFL FL) -> FLVal (DoubleFL FL) -> What4Constraint
 
   IntLtConstraint, IntLeqConstraint, IntGtConstraint, IntGeqConstraint :: FLVal (IntFL FL) -> FLVal (IntFL FL) -> What4Constraint
   IntMaxConstraint, IntMinConstraint :: FLVal (IntFL FL) -> FLVal (IntFL FL) -> FLVal (IntFL FL) -> What4Constraint
@@ -361,6 +369,11 @@ toPred sym ref ref2 (FloatSignumConstraint x y) = do
   sym1OrNeg1Res <- floatIte sym symIsNeg symNeg1 sym1
   symRes <- floatIte sym symIs0 sym0OrNeg0Res sym1OrNeg1Res >>= floatIte sym symIsNaN symNaN
   floatFpEq sym symY symRes --TODO: check
+toPred sym ref ref2 (FloatDivConstraint x y z) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  symZ <- toSym sym ref ref2 z
+  floatDiv sym RNE symX symY >>= floatFpEq sym symZ
 toPred sym ref ref2 (DoublePlusConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
@@ -399,6 +412,11 @@ toPred sym ref ref2 (DoubleSignumConstraint x y) = do
   sym1OrNeg1Res <- floatIte sym symIsNeg symNeg1 sym1
   symRes <- floatIte sym symIs0 sym0OrNeg0Res sym1OrNeg1Res >>= floatIte sym symIsNaN symNaN
   floatFpEq sym symY symRes --TODO: check
+toPred sym ref ref2 (DoubleDivConstraint x y z) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  symZ <- toSym sym ref ref2 z
+  floatDiv sym RNE symX symY >>= floatFpEq sym symZ
 toPred sym ref ref2 (IntLtConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
