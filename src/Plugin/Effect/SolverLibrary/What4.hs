@@ -197,41 +197,41 @@ toPred :: IsSymExprBuilder sym => sym -> IORef Heap -> IORef [Pred sym] -> Const
 toPred sym ref ref2 (EqConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
-  isEq sym symX symY
+  isEq' sym symX symY
 toPred sym ref ref2 (NotConstraint c) = do
   toPred sym ref ref2 c >>= notPred sym
 toPred sym ref ref2 (InternalNeqConstraint i v (_ :: Proxy a)) = do
   symI <- varToSym @_ @a sym ref ref2 i
   symV <- lit sym $ fromGroundValue v
-  isEq sym symI symV >>= notPred sym
+  isEq' sym symI symV >>= notPred sym
 toPred sym ref ref2 (IntPlusConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
   symZ <- toSym sym ref ref2 z
   symRes <- snd <$> addSignedOF sym symX symY
-  isEq sym symZ symRes
+  bvEq sym symZ symRes
 toPred sym ref ref2 (IntMinusConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
   symZ <- toSym sym ref ref2 z
   symRes <- snd <$> subSignedOF sym symX symY
-  isEq sym symZ symRes
+  bvEq sym symZ symRes
 toPred sym ref ref2 (IntMulConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
   symZ <- toSym sym ref ref2 z
   symRes <- snd <$> mulSignedOF sym symX symY
-  isEq sym symZ symRes
+  bvEq sym symZ symRes
 toPred sym ref ref2 (IntNegateConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
-  bvNeg sym symX >>= isEq sym symY
+  bvNeg sym symX >>= bvEq sym symY
 toPred sym ref ref2 (IntAbsConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
   symIsNeg <- bvIsNeg sym symX
   symRes <- bvNeg sym symX >>= flip (bvIte sym symIsNeg) symX
-  isEq sym symY symRes --TODO: check
+  bvEq sym symY symRes --TODO: check
 toPred sym ref ref2 (IntSignumConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
@@ -241,30 +241,30 @@ toPred sym ref ref2 (IntSignumConstraint x y) = do
   symIsNeg <- bvIsNeg sym symX
   symIs0 <- bvEq sym symX sym0
   symRes <- bvIte sym symIsNeg symNeg1 sym1 >>= bvIte sym symIs0 sym0
-  isEq sym symY symRes --TODO: check
+  bvEq sym symY symRes --TODO: check
 toPred sym ref ref2 (IntegerPlusConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
   symZ <- toSym sym ref ref2 z
-  intAdd sym symX symY >>= isEq sym symZ
+  intAdd sym symX symY >>= isEq' sym symZ
 toPred sym ref ref2 (IntegerMinusConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
   symZ <- toSym sym ref ref2 z
-  intSub sym symX symY >>= isEq sym symZ
+  intSub sym symX symY >>= isEq' sym symZ
 toPred sym ref ref2 (IntegerMulConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
   symZ <- toSym sym ref ref2 z
-  intMul sym symX symY >>= isEq sym symZ
+  intMul sym symX symY >>= isEq' sym symZ
 toPred sym ref ref2 (IntegerNegateConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
-  intNeg sym symX >>= isEq sym symY
+  intNeg sym symX >>= isEq' sym symY
 toPred sym ref ref2 (IntegerAbsConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
-  intAbs sym symX >>= isEq sym symY
+  intAbs sym symX >>= isEq' sym symY
 toPred sym ref ref2 (IntegerSignumConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
@@ -272,32 +272,32 @@ toPred sym ref ref2 (IntegerSignumConstraint x y) = do
   sym1 <- lit sym (coerce @Integer 1)
   symNeg1 <- lit sym (coerce @Integer (-1))
   symIsNeg <- intLt sym symX sym0
-  symIs0 <- isEq sym symX sym0
+  symIs0 <- isEq' sym symX sym0
   symRes <- intIte sym symIsNeg symNeg1 sym1 >>= intIte sym symIs0 sym0
-  isEq sym symY symRes --TODO: check
+  isEq' sym symY symRes --TODO: check
 toPred sym ref ref2 (FloatPlusConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
   symZ <- toSym sym ref ref2 z
-  floatAdd sym RTZ symX symY >>= isEq sym symZ
+  floatAdd sym RTZ symX symY >>= floatFpEq sym symZ
 toPred sym ref ref2 (FloatMinusConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
   symZ <- toSym sym ref ref2 z
-  floatSub sym RTZ symX symY >>= isEq sym symZ
+  floatSub sym RTZ symX symY >>= floatFpEq sym symZ
 toPred sym ref ref2 (FloatMulConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
   symZ <- toSym sym ref ref2 z
-  floatMul sym RTZ symX symY >>= isEq sym symZ
+  floatMul sym RTZ symX symY >>= floatFpEq sym symZ
 toPred sym ref ref2 (FloatNegateConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
-  floatNeg sym symX >>= isEq sym symY
+  floatNeg sym symX >>= floatFpEq sym symY
 toPred sym ref ref2 (FloatAbsConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
-  floatAbs sym symX >>= isEq sym symY
+  floatAbs sym symX >>= floatFpEq sym symY
 toPred sym ref ref2 (FloatSignumConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
@@ -312,30 +312,30 @@ toPred sym ref ref2 (FloatSignumConstraint x y) = do
   sym0OrNeg0Res <- floatIte sym symIsNeg symNeg0 sym0
   sym1OrNeg1Res <- floatIte sym symIsNeg symNeg1 sym1
   symRes <- floatIte sym symIs0 sym0OrNeg0Res sym1OrNeg1Res >>= floatIte sym symIsNaN symNaN
-  isEq sym symY symRes --TODO: check
+  floatFpEq sym symY symRes --TODO: check
 toPred sym ref ref2 (DoublePlusConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
   symZ <- toSym sym ref ref2 z
-  floatAdd sym RTZ symX symY >>= isEq sym symZ
+  floatAdd sym RTZ symX symY >>= floatFpEq sym symZ
 toPred sym ref ref2 (DoubleMinusConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
   symZ <- toSym sym ref ref2 z
-  floatSub sym RTZ symX symY >>= isEq sym symZ
+  floatSub sym RTZ symX symY >>= floatFpEq sym symZ
 toPred sym ref ref2 (DoubleMulConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
   symZ <- toSym sym ref ref2 z
-  floatMul sym RTZ symX symY >>= isEq sym symZ
+  floatMul sym RTZ symX symY >>= floatFpEq sym symZ
 toPred sym ref ref2 (DoubleNegateConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
-  floatNeg sym symX >>= isEq sym symY
+  floatNeg sym symX >>= floatFpEq sym symY
 toPred sym ref ref2 (DoubleAbsConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
-  floatAbs sym symX >>= isEq sym symY
+  floatAbs sym symX >>= floatFpEq sym symY
 toPred sym ref ref2 (DoubleSignumConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
@@ -350,7 +350,7 @@ toPred sym ref ref2 (DoubleSignumConstraint x y) = do
   sym0OrNeg0Res <- floatIte sym symIsNeg symNeg0 sym0
   sym1OrNeg1Res <- floatIte sym symIsNeg symNeg1 sym1
   symRes <- floatIte sym symIs0 sym0OrNeg0Res sym1OrNeg1Res >>= floatIte sym symIsNaN symNaN
-  isEq sym symY symRes --TODO: check
+  floatFpEq sym symY symRes --TODO: check
 toPred sym ref ref2 (IntLtConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
@@ -378,11 +378,11 @@ toPred sym ref ref2 (IntegerLeqConstraint x y) = do
 toPred sym ref ref2 (IntegerGtConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
-  flip (intLt sym) symX symY --TODO: Why no intGt?
+  flip (intLt sym) symX symY -- TODO: Why is there no intGt?
 toPred sym ref ref2 (IntegerGeqConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
-  flip (intLe sym) symX symY
+  flip (intLe sym) symX symY -- TODO: Why is there no intGeq?
 toPred sym ref ref2 (FloatLtConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
@@ -416,6 +416,18 @@ toPred sym ref ref2 (DoubleGeqConstraint x y) = do
   symY <- toSym sym ref ref2 y
   floatGe sym symX symY
 
+isEq' :: IsExprBuilder sym => sym -> SymExpr sym tp -> SymExpr sym tp -> IO (Pred sym)
+isEq' sym x y = case exprType x of
+  BaseBoolRepr      -> eqPred sym x y
+  BaseBVRepr {}     -> bvEq sym x y
+  BaseIntegerRepr   -> intEq sym x y
+  BaseRealRepr      -> realEq sym x y
+  BaseFloatRepr {}  -> floatFpEq sym x y
+  BaseComplexRepr   -> cplxEq sym x y
+  BaseStringRepr {} -> stringEq sym x y
+  BaseStructRepr {} -> structEq sym x y
+  BaseArrayRepr {}  -> arrayEq sym x y
+
 toSym :: (IsSymExprBuilder sym, Constrainable a) => sym -> IORef Heap -> IORef [Pred sym] -> FLVal a -> IO (SymExpr sym (What4BaseType a))
 toSym sym ref ref2 (Var i) = varToSym sym ref ref2 i
 toSym sym _   _    (Val x) = lit sym x
@@ -429,7 +441,7 @@ varToSym sym ref ref2 i = do
       case eqT @a @(CharFL FL) of
         Just Refl -> do
           symL <- stringLength sym e
-          p <- intLit sym 1 >>= isEq sym symL
+          p <- intLit sym 1 >>= isEq' sym symL
           modifyIORef ref2 (p :)
         _         -> return ()
       writeIORef ref (insertBinding i e h)
