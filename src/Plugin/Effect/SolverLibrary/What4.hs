@@ -23,11 +23,11 @@ module Plugin.Effect.SolverLibrary.What4 () where
 import Data.Bits
 import Data.BitVector.Sized
 import Data.Coerce
-import Data.Data
 import Data.IORef
 import Data.Parameterized
 import Data.Parameterized.Nonce
 import Data.Text
+import Data.Typeable
 
 import GHC.Float
 import GHC.Magic
@@ -474,6 +474,7 @@ toPred sym ref ref2 (DoubleMinConstraint x y z) = do
   symZ <- toSym sym ref ref2 z
   floatMin sym symX symY >>= floatFpEq sym symZ
 
+-- TODO: comment
 isEq' :: IsExprBuilder sym => sym -> SymExpr sym tp -> SymExpr sym tp -> IO (Pred sym)
 isEq' sym x y = case exprType x of
   BaseBoolRepr      -> eqPred sym x y
@@ -496,12 +497,12 @@ varToSym sym ref ref2 i = do
   case findBinding i h of
     Nothing -> do
       e <- freshConstant sym (safeSymbol (show i)) what4BaseTypeRepr
-      case eqT @a @(CharFL FL) of
-        Just Refl -> do
+      case exprType e of
+        BaseStringRepr _ -> do
           symL <- stringLength sym e
           p <- intLit sym 1 >>= isEq' sym symL
           modifyIORef ref2 (p :)
-        _         -> return ()
+        _                -> return ()
       writeIORef ref (insertBinding i e h)
       return e
     Just e  -> return e
