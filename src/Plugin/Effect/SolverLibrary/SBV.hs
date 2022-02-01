@@ -69,12 +69,22 @@ instance SolverLibrary where
   intAbsConstraint    = Just $ liftSBV1 abs
   intSignumConstraint = Just $ liftSBV1 signum
 
+  intQuotConstraint = Just $ liftSBV2 sQuot
+  intRemConstraint  = Just $ liftSBV2 sRem
+  intDivConstraint  = Just $ liftSBV2 sDiv
+  intModConstraint  = Just $ liftSBV2 sMod
+
   integerPlusConstraint   = Just $ liftSBV2 (+)
   integerMinusConstraint  = Just $ liftSBV2 (-)
   integerMulConstraint    = Just $ liftSBV2 (*)
   integerNegateConstraint = Just $ liftSBV1 negate
   integerAbsConstraint    = Just $ liftSBV1 abs
   integerSignumConstraint = Just $ liftSBV1 signum
+
+  integerQuotConstraint = Just $ liftSBV2 sQuot
+  integerRemConstraint  = Just $ liftSBV2 sRem
+  integerDivConstraint  = Just $ liftSBV2 sDiv
+  integerModConstraint  = Just $ liftSBV2 sMod
 
   floatPlusConstraint   = Just $ liftSBV2 (+)
   floatMinusConstraint  = Just $ liftSBV2 (-)

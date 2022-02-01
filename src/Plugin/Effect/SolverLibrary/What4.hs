@@ -122,12 +122,22 @@ instance SolverLibrary where
   intAbsConstraint    = Just IntAbsConstraint
   intSignumConstraint = Just IntSignumConstraint
 
+  intQuotConstraint = Just IntQuotConstraint
+  intRemConstraint  = Just IntRemConstraint
+  intDivConstraint  = Just IntDivConstraint
+  intModConstraint  = Just IntModConstraint
+
   integerPlusConstraint   = Just IntegerPlusConstraint
   integerMinusConstraint  = Just IntegerMinusConstraint
   integerMulConstraint    = Just IntegerMulConstraint
   integerNegateConstraint = Just IntegerNegateConstraint
   integerAbsConstraint    = Just IntegerAbsConstraint
   integerSignumConstraint = Just IntegerSignumConstraint
+
+  integerQuotConstraint = Just IntegerQuotConstraint
+  integerRemConstraint  = Just IntegerRemConstraint
+  integerDivConstraint  = Just IntegerDivConstraint
+  integerModConstraint  = Just IntegerModConstraint
 
   floatPlusConstraint   = Just FloatPlusConstraint
   floatMinusConstraint  = Just FloatMinusConstraint
@@ -186,8 +196,12 @@ data What4Constraint where
   IntPlusConstraint, IntMinusConstraint, IntMulConstraint :: FLVal (IntFL FL) -> FLVal (IntFL FL) -> FLVal (IntFL FL) -> What4Constraint
   IntNegateConstraint, IntAbsConstraint, IntSignumConstraint:: FLVal (IntFL FL) -> FLVal (IntFL FL) -> What4Constraint
 
+  IntQuotConstraint, IntRemConstraint, IntDivConstraint, IntModConstraint :: FLVal (IntFL FL) -> FLVal (IntFL FL) -> FLVal (IntFL FL) -> What4Constraint
+
   IntegerPlusConstraint, IntegerMinusConstraint, IntegerMulConstraint :: FLVal (IntegerFL FL) -> FLVal (IntegerFL FL) -> FLVal (IntegerFL FL) -> What4Constraint
   IntegerNegateConstraint, IntegerAbsConstraint, IntegerSignumConstraint:: FLVal (IntegerFL FL) -> FLVal (IntegerFL FL) -> What4Constraint
+
+  IntegerQuotConstraint, IntegerRemConstraint, IntegerDivConstraint, IntegerModConstraint :: FLVal (IntegerFL FL) -> FLVal (IntegerFL FL) -> FLVal (IntegerFL FL) -> What4Constraint
 
   FloatPlusConstraint, FloatMinusConstraint, FloatMulConstraint :: FLVal (FloatFL FL) -> FLVal (FloatFL FL) -> FLVal (FloatFL FL) -> What4Constraint
   FloatNegateConstraint, FloatAbsConstraint, FloatSignumConstraint:: FLVal (FloatFL FL) -> FLVal (FloatFL FL) -> What4Constraint
@@ -256,6 +270,16 @@ toPred sym ref ref2 (IntSignumConstraint x y) = do
   symIs0 <- bvEq sym symX sym0
   symRes <- bvIte sym symIsNeg symNeg1 sym1 >>= bvIte sym symIs0 sym0
   bvEq sym symY symRes --TODO: check
+toPred sym ref ref2 (IntRemConstraint x y z) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  symZ <- toSym sym ref ref2 z
+  bvSrem sym symX symY >>= bvEq sym symZ
+toPred sym ref ref2 (IntDivConstraint x y z) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  symZ <- toSym sym ref ref2 z
+  bvSdiv sym symX symY >>= bvEq sym symZ
 toPred sym ref ref2 (IntegerPlusConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
@@ -289,6 +313,16 @@ toPred sym ref ref2 (IntegerSignumConstraint x y) = do
   symIs0 <- isEq' sym symX sym0
   symRes <- intIte sym symIsNeg symNeg1 sym1 >>= intIte sym symIs0 sym0
   isEq' sym symY symRes --TODO: check
+toPred sym ref ref2 (IntegerDivConstraint x y z) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  symZ <- toSym sym ref ref2 z
+  intDiv sym symX symY >>= isEq' sym symZ
+toPred sym ref ref2 (IntegerModConstraint x y z) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  symZ <- toSym sym ref ref2 z
+  intMod sym symX symY >>= isEq' sym symZ
 toPred sym ref ref2 (FloatPlusConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
