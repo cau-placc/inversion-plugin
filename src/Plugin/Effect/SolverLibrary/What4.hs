@@ -112,46 +112,61 @@ instance SolverLibrary where
             _           -> shutdownSolverProcess solver >> return []
     getModelsRecursive (noinline const () v)
 
-  eqConstraint = EqConstraint
+  eqConstraint  = EqConstraint
   notConstraint = NotConstraint
 
-  intPlusConstraint = Just IntPlusConstraint
-  intMinusConstraint = Just IntMinusConstraint
-  intMulConstraint = Just IntMulConstraint
-  integerPlusConstraint = Just IntegerPlusConstraint
-  integerMinusConstraint = Just IntegerMinusConstraint
-  integerMulConstraint = Just IntegerMulConstraint
-  floatPlusConstraint = Just FloatPlusConstraint
-  floatMinusConstraint = Just FloatMinusConstraint
-  floatMulConstraint = Just FloatMulConstraint
-  doublePlusConstraint = Just DoublePlusConstraint
-  doubleMinusConstraint = Just DoubleMinusConstraint
-  doubleMulConstraint = Just DoubleMulConstraint
+  intPlusConstraint   = Just IntPlusConstraint
+  intMinusConstraint  = Just IntMinusConstraint
+  intMulConstraint    = Just IntMulConstraint
+  intNegateConstraint = Just IntNegateConstraint
+  intAbsConstraint    = Just IntAbsConstraint
+  intSignumConstraint = Just IntSignumConstraint
 
-  intLtConstraint = Just IntLtConstraint
+  integerPlusConstraint   = Just IntegerPlusConstraint
+  integerMinusConstraint  = Just IntegerMinusConstraint
+  integerMulConstraint    = Just IntegerMulConstraint
+  integerNegateConstraint = Just IntegerNegateConstraint
+  integerAbsConstraint    = Just IntegerAbsConstraint
+  integerSignumConstraint = Just IntegerSignumConstraint
+
+  floatPlusConstraint   = Just FloatPlusConstraint
+  floatMinusConstraint  = Just FloatMinusConstraint
+  floatMulConstraint    = Just FloatMulConstraint
+  floatNegateConstraint = Just FloatNegateConstraint
+  floatAbsConstraint    = Just FloatAbsConstraint
+  floatSignumConstraint = Just FloatSignumConstraint
+
+  doublePlusConstraint   = Just DoublePlusConstraint
+  doubleMinusConstraint  = Just DoubleMinusConstraint
+  doubleMulConstraint    = Just DoubleMulConstraint
+  doubleNegateConstraint = Just DoubleNegateConstraint
+  doubleAbsConstraint    = Just DoubleAbsConstraint
+  doubleSignumConstraint = Just DoubleSignumConstraint
+
+  intLtConstraint  = Just IntLtConstraint
   intLeqConstraint = Just IntLeqConstraint
-  intGtConstraint = Just IntGtConstraint
+  intGtConstraint  = Just IntGtConstraint
   intGeqConstraint = Just IntGeqConstraint
 
-  integerLtConstraint = Just IntegerLtConstraint
+  integerLtConstraint  = Just IntegerLtConstraint
   integerLeqConstraint = Just IntegerLeqConstraint
-  integerGtConstraint = Just IntegerGtConstraint
+  integerGtConstraint  = Just IntegerGtConstraint
   integerGeqConstraint = Just IntegerGeqConstraint
 
-  floatLtConstraint = Just FloatLtConstraint
+  floatLtConstraint  = Just FloatLtConstraint
   floatLeqConstraint = Just FloatLeqConstraint
-  floatGtConstraint = Just FloatGtConstraint
+  floatGtConstraint  = Just FloatGtConstraint
   floatGeqConstraint = Just FloatGeqConstraint
 
-  doubleLtConstraint = Just DoubleLtConstraint
+  doubleLtConstraint  = Just DoubleLtConstraint
   doubleLeqConstraint = Just DoubleLeqConstraint
-  doubleGtConstraint = Just DoubleGtConstraint
+  doubleGtConstraint  = Just DoubleGtConstraint
   doubleGeqConstraint = Just DoubleGeqConstraint
 
-  charLtConstraint = Nothing --Just CharLtConstraint
-  charLeqConstraint = Nothing --Just CharLeqConstraint
-  charGtConstraint = Nothing --Just CharGtConstraint
-  charGeqConstraint = Nothing --Just CharGeqConstraint
+  charLtConstraint  = Nothing
+  charLeqConstraint = Nothing
+  charGtConstraint  = Nothing
+  charGeqConstraint = Nothing
 
 data What4Constraint where
   EqConstraint :: forall a. Constrainable a => FLVal a -> FLVal a -> What4Constraint
@@ -159,16 +174,24 @@ data What4Constraint where
   InternalNeqConstraint :: forall a. Constrainable a => ID -> GroundValue (What4BaseType a) -> Proxy a -> What4Constraint
 
   IntPlusConstraint, IntMinusConstraint, IntMulConstraint :: FLVal (IntFL FL) -> FLVal (IntFL FL) -> FLVal (IntFL FL) -> What4Constraint
+  IntNegateConstraint, IntAbsConstraint, IntSignumConstraint:: FLVal (IntFL FL) -> FLVal (IntFL FL) -> What4Constraint
+
   IntegerPlusConstraint, IntegerMinusConstraint, IntegerMulConstraint :: FLVal (IntegerFL FL) -> FLVal (IntegerFL FL) -> FLVal (IntegerFL FL) -> What4Constraint
+  IntegerNegateConstraint, IntegerAbsConstraint, IntegerSignumConstraint:: FLVal (IntegerFL FL) -> FLVal (IntegerFL FL) -> What4Constraint
+
   FloatPlusConstraint, FloatMinusConstraint, FloatMulConstraint :: FLVal (FloatFL FL) -> FLVal (FloatFL FL) -> FLVal (FloatFL FL) -> What4Constraint
+  FloatNegateConstraint, FloatAbsConstraint, FloatSignumConstraint:: FLVal (FloatFL FL) -> FLVal (FloatFL FL) -> What4Constraint
+
   DoublePlusConstraint, DoubleMinusConstraint, DoubleMulConstraint :: FLVal (DoubleFL FL) -> FLVal (DoubleFL FL) -> FLVal (DoubleFL FL) -> What4Constraint
+  DoubleNegateConstraint, DoubleAbsConstraint, DoubleSignumConstraint:: FLVal (DoubleFL FL) -> FLVal (DoubleFL FL) -> What4Constraint
 
   IntLtConstraint, IntLeqConstraint, IntGtConstraint, IntGeqConstraint :: FLVal (IntFL FL) -> FLVal (IntFL FL) -> What4Constraint
-  IntegerLtConstraint, IntegerLeqConstraint, IntegerGtConstraint, IntegerGeqConstraint :: FLVal (IntegerFL FL) -> FLVal (IntegerFL FL) -> What4Constraint
-  FloatLtConstraint, FloatLeqConstraint, FloatGtConstraint, FloatGeqConstraint :: FLVal (FloatFL FL) -> FLVal (FloatFL FL) -> What4Constraint
-  DoubleLtConstraint, DoubleLeqConstraint, DoubleGtConstraint, DoubleGeqConstraint :: FLVal (DoubleFL FL) -> FLVal (DoubleFL FL) -> What4Constraint
-  --CharLtConstraint, CharLeqConstraint, CharGtConstraint, CharGeqConstraint :: FLVal (CharFL FL) -> FLVal (CharFL FL) -> What4Constraint
 
+  IntegerLtConstraint, IntegerLeqConstraint, IntegerGtConstraint, IntegerGeqConstraint :: FLVal (IntegerFL FL) -> FLVal (IntegerFL FL) -> What4Constraint
+
+  FloatLtConstraint, FloatLeqConstraint, FloatGtConstraint, FloatGeqConstraint :: FLVal (FloatFL FL) -> FLVal (FloatFL FL) -> What4Constraint
+
+  DoubleLtConstraint, DoubleLeqConstraint, DoubleGtConstraint, DoubleGeqConstraint :: FLVal (DoubleFL FL) -> FLVal (DoubleFL FL) -> What4Constraint
 
 toPred :: IsSymExprBuilder sym => sym -> IORef Heap -> IORef [Pred sym] -> Constraint -> IO (Pred sym)
 toPred sym ref ref2 (EqConstraint x y) = do
@@ -199,6 +222,26 @@ toPred sym ref ref2 (IntMulConstraint x y z) = do
   symZ <- toSym sym ref ref2 z
   symRes <- snd <$> mulSignedOF sym symX symY
   isEq sym symZ symRes
+toPred sym ref ref2 (IntNegateConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  bvNeg sym symX >>= isEq sym symY
+toPred sym ref ref2 (IntAbsConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  symIsNeg <- bvIsNeg sym symX
+  symRes <- bvNeg sym symX >>= flip (bvIte sym symIsNeg) symX
+  isEq sym symY symRes --TODO: check
+toPred sym ref ref2 (IntSignumConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  sym0 <- lit sym (coerce @Int 0)
+  sym1 <- lit sym (coerce @Int 1)
+  symNeg1 <- lit sym (coerce @Int (-1))
+  symIsNeg <- bvIsNeg sym symX
+  symIs0 <- bvEq sym symX sym0
+  symRes <- bvIte sym symIsNeg symNeg1 sym1 >>= bvIte sym symIs0 sym0
+  isEq sym symY symRes --TODO: check
 toPred sym ref ref2 (IntegerPlusConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
@@ -214,6 +257,24 @@ toPred sym ref ref2 (IntegerMulConstraint x y z) = do
   symY <- toSym sym ref ref2 y
   symZ <- toSym sym ref ref2 z
   intMul sym symX symY >>= isEq sym symZ
+toPred sym ref ref2 (IntegerNegateConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  intNeg sym symX >>= isEq sym symY
+toPred sym ref ref2 (IntegerAbsConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  intAbs sym symX >>= isEq sym symY
+toPred sym ref ref2 (IntegerSignumConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  sym0 <- lit sym (coerce @Integer 0)
+  sym1 <- lit sym (coerce @Integer 1)
+  symNeg1 <- lit sym (coerce @Integer (-1))
+  symIsNeg <- intLt sym symX sym0
+  symIs0 <- isEq sym symX sym0
+  symRes <- intIte sym symIsNeg symNeg1 sym1 >>= intIte sym symIs0 sym0
+  isEq sym symY symRes --TODO: check
 toPred sym ref ref2 (FloatPlusConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
@@ -229,6 +290,29 @@ toPred sym ref ref2 (FloatMulConstraint x y z) = do
   symY <- toSym sym ref ref2 y
   symZ <- toSym sym ref ref2 z
   floatMul sym RTZ symX symY >>= isEq sym symZ
+toPred sym ref ref2 (FloatNegateConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  floatNeg sym symX >>= isEq sym symY
+toPred sym ref ref2 (FloatAbsConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  floatAbs sym symX >>= isEq sym symY
+toPred sym ref ref2 (FloatSignumConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  sym0 <- floatPZero sym floatFloatingPointPrecisionRepr
+  symNeg0 <- floatNZero sym floatFloatingPointPrecisionRepr
+  sym1 <- lit sym (coerce @Float 1.0)
+  symNeg1 <- lit sym (coerce @Float (-1.0))
+  symNaN <- floatNaN sym floatFloatingPointPrecisionRepr
+  symIsNaN <- floatIsNaN sym symX
+  symIsNeg <- floatIsNeg sym symX
+  symIs0 <- floatIsZero sym symX
+  sym0OrNeg0Res <- floatIte sym symIsNeg symNeg0 sym0
+  sym1OrNeg1Res <- floatIte sym symIsNeg symNeg1 sym1
+  symRes <- floatIte sym symIs0 sym0OrNeg0Res sym1OrNeg1Res >>= floatIte sym symIsNaN symNaN
+  isEq sym symY symRes --TODO: check
 toPred sym ref ref2 (DoublePlusConstraint x y z) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
@@ -244,6 +328,29 @@ toPred sym ref ref2 (DoubleMulConstraint x y z) = do
   symY <- toSym sym ref ref2 y
   symZ <- toSym sym ref ref2 z
   floatMul sym RTZ symX symY >>= isEq sym symZ
+toPred sym ref ref2 (DoubleNegateConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  floatNeg sym symX >>= isEq sym symY
+toPred sym ref ref2 (DoubleAbsConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  floatAbs sym symX >>= isEq sym symY
+toPred sym ref ref2 (DoubleSignumConstraint x y) = do
+  symX <- toSym sym ref ref2 x
+  symY <- toSym sym ref ref2 y
+  sym0 <- floatPZero sym doubleFloatingPointPrecisionRepr
+  symNeg0 <- floatNZero sym doubleFloatingPointPrecisionRepr
+  sym1 <- lit sym (coerce @Double 1.0)
+  symNeg1 <- lit sym (coerce @Double (-1.0))
+  symNaN <- floatNaN sym doubleFloatingPointPrecisionRepr
+  symIsNaN <- floatIsNaN sym symX
+  symIsNeg <- floatIsNeg sym symX
+  symIs0 <- floatIsZero sym symX
+  sym0OrNeg0Res <- floatIte sym symIsNeg symNeg0 sym0
+  sym1OrNeg1Res <- floatIte sym symIsNeg symNeg1 sym1
+  symRes <- floatIte sym symIs0 sym0OrNeg0Res sym1OrNeg1Res >>= floatIte sym symIsNaN symNaN
+  isEq sym symY symRes --TODO: check
 toPred sym ref ref2 (IntLtConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
@@ -347,22 +454,22 @@ instance What4Constrainable (IntegerFL FL) where
   lit sym = intLit sym . coerce
   fromGroundValue = coerce
 
-doubleFloatingPointRepr :: FloatPrecisionRepr Prec64
-doubleFloatingPointRepr = FloatingPointPrecisionRepr (knownNat @11) (knownNat @53)
+doubleFloatingPointPrecisionRepr :: FloatPrecisionRepr Prec64
+doubleFloatingPointPrecisionRepr = FloatingPointPrecisionRepr (knownNat @11) (knownNat @53)
 
 instance What4Constrainable (DoubleFL FL) where
   type instance What4BaseType (DoubleFL FL) = BaseFloatType Prec64
-  what4BaseTypeRepr = BaseFloatRepr doubleFloatingPointRepr
-  lit sym = floatLit sym doubleFloatingPointRepr . bfFromDouble . coerce
+  what4BaseTypeRepr = BaseFloatRepr doubleFloatingPointPrecisionRepr
+  lit sym = floatLit sym doubleFloatingPointPrecisionRepr . bfFromDouble . coerce
   fromGroundValue = coerce . fst . bfToDouble ToZero
 
-floatFloatingPointRepr :: FloatPrecisionRepr Prec32
-floatFloatingPointRepr = FloatingPointPrecisionRepr (knownNat @8) (knownNat @24)
+floatFloatingPointPrecisionRepr :: FloatPrecisionRepr Prec32
+floatFloatingPointPrecisionRepr = FloatingPointPrecisionRepr (knownNat @8) (knownNat @24)
 
 instance What4Constrainable (FloatFL FL) where
   type instance What4BaseType (FloatFL FL) = BaseFloatType Prec32
-  what4BaseTypeRepr = BaseFloatRepr floatFloatingPointRepr
-  lit sym = floatLit sym floatFloatingPointRepr . bfFromDouble . float2Double . coerce
+  what4BaseTypeRepr = BaseFloatRepr floatFloatingPointPrecisionRepr
+  lit sym = floatLit sym floatFloatingPointPrecisionRepr . bfFromDouble . float2Double . coerce
   fromGroundValue = coerce . double2Float . fst . bfToDouble ToZero
 
 instance What4Constrainable (CharFL FL) where

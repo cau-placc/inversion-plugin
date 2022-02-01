@@ -16,8 +16,13 @@
 {-# LANGUAGE TypeOperators          #-}
 {-# LANGUAGE UnboxedTuples          #-}
 {-# LANGUAGE UndecidableInstances   #-}
-{-# OPTIONS_GHC -Wno-orphans        #-}
-{-# OPTIONS_GHC -Wno-unused-foralls #-}
+
+{-# OPTIONS_GHC -Wno-orphans              #-}
+{-# OPTIONS_GHC -Wno-unused-foralls       #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+
+{-# HLINT ignore "Use newtype instead of data" #-}
+
 -- |
 -- Module      : Plugin.InversionPlugin.BuiltIn
 -- Description : Built-In functions, types and type classes
@@ -616,7 +621,6 @@ instance OrdFL (IntFL FL) where
   (<=#) = primitiveOrd2 (P.<=) intLeqConstraint
   (>#) = primitiveOrd2 (P.>) intGtConstraint
   (<#) = primitiveOrd2 (P.<) intLtConstraint
-  --TODO: primitiveCompare
 
 instance OrdFL (IntegerFL FL) where
   (>=#) = primitiveOrd2 (P.>=) integerGeqConstraint
@@ -673,36 +677,36 @@ instance NumFL (IntFL FL) where
   (+#) = primitive2 (P.+) intPlusConstraint
   (-#) = primitive2 (P.-) intMinusConstraint
   (*#) = primitive2 (P.*) intMulConstraint
-  negateFL = primitive1 P.negate P.undefined --intNotConstraint
-  absFL    = primitive1 P.abs P.undefined --intAbsConstraint
-  signumFL = primitive1 P.signum P.undefined --intSignumConstraint
+  negateFL = primitive1 P.negate intNegateConstraint
+  absFL    = primitive1 P.abs    intAbsConstraint
+  signumFL = primitive1 P.signum intSignumConstraint
   fromIntegerFL = liftFL1Convert P.fromInteger --TODO:
 
 instance NumFL (IntegerFL FL) where
   (+#) = primitive2 (P.+) integerPlusConstraint
   (-#) = primitive2 (P.-) integerMinusConstraint
   (*#) = primitive2 (P.*) integerMulConstraint
-  negateFL = primitive1 P.negate P.undefined
-  absFL    = primitive1 P.abs P.undefined
-  signumFL = primitive1 P.signum P.undefined
+  negateFL = primitive1 P.negate integerNegateConstraint
+  absFL    = primitive1 P.abs    integerAbsConstraint
+  signumFL = primitive1 P.signum integerSignumConstraint
   fromIntegerFL = returnFLF P.id
 
 instance NumFL (FloatFL FL) where
   (+#) = primitive2 (P.+) floatPlusConstraint
   (-#) = primitive2 (P.-) floatMinusConstraint
   (*#) = primitive2 (P.*) floatMulConstraint
-  negateFL = primitive1 P.negate P.undefined
-  absFL    = primitive1 P.abs P.undefined
-  signumFL = primitive1 P.signum P.undefined
+  negateFL = primitive1 P.negate floatNegateConstraint
+  absFL    = primitive1 P.abs    floatAbsConstraint
+  signumFL = primitive1 P.signum floatSignumConstraint
   fromIntegerFL = liftFL1Convert P.fromInteger
 
 instance NumFL (DoubleFL FL) where
   (+#) = primitive2 (P.+) doublePlusConstraint
   (-#) = primitive2 (P.-) doubleMinusConstraint
   (*#) = primitive2 (P.*) doubleMulConstraint
-  negateFL = primitive1 P.negate P.undefined
-  absFL    = primitive1 P.abs P.undefined
-  signumFL = primitive1 P.signum P.undefined
+  negateFL = primitive1 P.negate doubleNegateConstraint
+  absFL    = primitive1 P.abs    doubleAbsConstraint
+  signumFL = primitive1 P.signum doubleSignumConstraint
   fromIntegerFL = liftFL1Convert P.fromInteger
 -- * Lifted Fractional type class, instances and functions
 

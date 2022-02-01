@@ -58,46 +58,61 @@ instance SolverLibrary where
             _   -> return []
     in getModelsRecursive (initialC : cs)
 
-  eqConstraint = liftSBVOrd2 (.===)
+  eqConstraint  = liftSBVOrd2 (.===)
   notConstraint = sNot
   neqConstraint = liftSBVOrd2 (./==)
 
-  intPlusConstraint = Just $ liftSBV2 (+)
-  intMinusConstraint = Just $ liftSBV2 (-)
-  intMulConstraint = Just $ liftSBV2 (*)
-  integerPlusConstraint = Just $ liftSBV2 (+)
-  integerMinusConstraint = Just $ liftSBV2 (-)
-  integerMulConstraint = Just $ liftSBV2 (*)
-  floatPlusConstraint = Just $ liftSBV2 (+)
-  floatMinusConstraint = Just $ liftSBV2 (-)
-  floatMulConstraint = Just $ liftSBV2 (*)
-  doublePlusConstraint = Just $ liftSBV2 (+)
-  doubleMinusConstraint = Just $ liftSBV2 (-)
-  doubleMulConstraint = Just $ liftSBV2 (*)
+  intPlusConstraint   = Just $ liftSBV2 (+)
+  intMinusConstraint  = Just $ liftSBV2 (-)
+  intMulConstraint    = Just $ liftSBV2 (*)
+  intNegateConstraint = Just $ liftSBV1 negate
+  intAbsConstraint    = Just $ liftSBV1 abs
+  intSignumConstraint = Just $ liftSBV1 signum
 
-  intLtConstraint = Just $ liftSBVOrd2 (.<)
+  integerPlusConstraint   = Just $ liftSBV2 (+)
+  integerMinusConstraint  = Just $ liftSBV2 (-)
+  integerMulConstraint    = Just $ liftSBV2 (*)
+  integerNegateConstraint = Just $ liftSBV1 negate
+  integerAbsConstraint    = Just $ liftSBV1 abs
+  integerSignumConstraint = Just $ liftSBV1 signum
+
+  floatPlusConstraint   = Just $ liftSBV2 (+)
+  floatMinusConstraint  = Just $ liftSBV2 (-)
+  floatMulConstraint    = Just $ liftSBV2 (*)
+  floatNegateConstraint = Just $ liftSBV1 negate
+  floatAbsConstraint    = Just $ liftSBV1 abs
+  floatSignumConstraint = Just $ liftSBV1 signum
+
+  doublePlusConstraint   = Just $ liftSBV2 (+)
+  doubleMinusConstraint  = Just $ liftSBV2 (-)
+  doubleMulConstraint    = Just $ liftSBV2 (*)
+  doubleNegateConstraint = Just $ liftSBV1 negate
+  doubleAbsConstraint    = Just $ liftSBV1 abs
+  doubleSignumConstraint = Just $ liftSBV1 signum
+
+  intLtConstraint  = Just $ liftSBVOrd2 (.<)
   intLeqConstraint = Just $ liftSBVOrd2 (.<=)
-  intGtConstraint = Just $ liftSBVOrd2 (.>)
+  intGtConstraint  = Just $ liftSBVOrd2 (.>)
   intGeqConstraint = Just $ liftSBVOrd2 (.>=)
 
-  integerLtConstraint = Just $ liftSBVOrd2 (.<)
+  integerLtConstraint  = Just $ liftSBVOrd2 (.<)
   integerLeqConstraint = Just $ liftSBVOrd2 (.<=)
-  integerGtConstraint = Just $ liftSBVOrd2 (.>)
+  integerGtConstraint  = Just $ liftSBVOrd2 (.>)
   integerGeqConstraint = Just $ liftSBVOrd2 (.>=)
 
-  floatLtConstraint = Just $ liftSBVOrd2 (.<)
+  floatLtConstraint  = Just $ liftSBVOrd2 (.<)
   floatLeqConstraint = Just $ liftSBVOrd2 (.<=)
-  floatGtConstraint = Just $ liftSBVOrd2 (.>)
+  floatGtConstraint  = Just $ liftSBVOrd2 (.>)
   floatGeqConstraint = Just $ liftSBVOrd2 (.>=)
 
-  doubleLtConstraint = Just $ liftSBVOrd2 (.<)
+  doubleLtConstraint  = Just $ liftSBVOrd2 (.<)
   doubleLeqConstraint = Just $ liftSBVOrd2 (.<=)
-  doubleGtConstraint = Just $ liftSBVOrd2 (.>)
+  doubleGtConstraint  = Just $ liftSBVOrd2 (.>)
   doubleGeqConstraint = Just $ liftSBVOrd2 (.>=)
 
-  charLtConstraint = Just $ liftSBVOrd2 (.<)
+  charLtConstraint  = Just $ liftSBVOrd2 (.<)
   charLeqConstraint = Just $ liftSBVOrd2 (.<=)
-  charGtConstraint = Just $ liftSBVOrd2 (.>)
+  charGtConstraint  = Just $ liftSBVOrd2 (.>)
   charGeqConstraint = Just $ liftSBVOrd2 (.>=)
 
   --TODO: max, min
@@ -108,6 +123,9 @@ type family SBVType a = b | b -> a where
   SBVType (FloatFL FL) = Float
   SBVType (DoubleFL FL) = Double
   SBVType (CharFL FL) = Char
+
+liftSBV1 :: (Constrainable a, Constrainable b) => (SBV (SBVType a) -> SBV (SBVType b)) -> FLVal a -> FLVal b -> SBool
+liftSBV1 sF x y = sF (toSBV x) .=== toSBV y
 
 liftSBV2 :: (Constrainable a, Constrainable b, Constrainable c) => (SBV (SBVType a) -> SBV (SBVType b) -> SBV (SBVType c)) -> FLVal a -> FLVal b -> FLVal c -> SBool
 liftSBV2 sOp x y z = toSBV x `sOp` toSBV y .=== toSBV z
