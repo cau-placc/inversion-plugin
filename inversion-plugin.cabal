@@ -19,6 +19,12 @@ source-repository head
   type:     git
   location: https://github.com/cau-placc/inversion-plugin
 
+flag type-safe {
+  Description: Ensure type safety via Typeable class
+  Default:     False
+  Manual:      True
+}
+
 flag use-what4 {
   Description: Use What4 instead of SBV
   Default:     False
@@ -56,6 +62,8 @@ common deps
     bv-sized            ^>= 1.0.3,
     OneTuple            ^>= 0.3.1
   ghc-options: -Wall -Wincomplete-uni-patterns
+  if flag(type-safe)
+    cpp-options: -DTYPED
   if flag(use-what4)
     cpp-options: -DUSE_WHAT4
   if flag(use-cvc)

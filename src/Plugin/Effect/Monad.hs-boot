@@ -11,8 +11,11 @@ import Control.Monad.Reader     (ReaderT)
 import Control.Monad.SearchTree (Search)
 
 import qualified Data.Kind
-import           Data.Map  (Map)
-import           Data.Set  (Set)
+import           Data.Map      (Map)
+import           Data.Set      (Set)
+#ifdef TYPED
+import           Data.Typeable (Typeable)
+#endif
 
 import Plugin.Lifted
 
@@ -50,7 +53,8 @@ findBinding :: ID -> Heap -> Maybe a
 
 --------------------------------------------------------------------------------
 
-class Narrowable (a :: *)
+class Narrowable a where
+  narrow :: ID -> [(a, Integer)]
 
 --------------------------------------------------------------------------------
 
@@ -115,15 +119,16 @@ data ConstraintStore = ConstraintStore {
 data PrimitiveInfo a = Narrowable a => NoPrimitive
                      | Constrainable a => Primitive
 
-class HasPrimitiveInfo (a :: *)
+#ifdef TYPED
+class Typeable a => HasPrimitiveInfo a where
+#else
+class HasPrimitiveInfo a where
+#endif
+  primitiveInfo :: PrimitiveInfo a
 
 --------------------------------------------------------------------------------
 
-#ifdef TYPED
-data FLVal a = (HasPrimitiveInfo a, Typeable a) => Var ID | Val a
-#else
 data FLVal a = HasPrimitiveInfo a => Var ID | Val a
-#endif
 
 --------------------------------------------------------------------------------
 

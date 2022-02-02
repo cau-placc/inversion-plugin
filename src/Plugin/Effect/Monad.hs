@@ -180,16 +180,16 @@ generate i = getModels i . constraints
 data PrimitiveInfo a = Narrowable a => NoPrimitive
                      | Constrainable a => Primitive
 
+#ifdef TYPED
+class Typeable a => HasPrimitiveInfo a where
+#else
 class HasPrimitiveInfo a where
+#endif
   primitiveInfo :: PrimitiveInfo a
 
 --------------------------------------------------------------------------------
 
-#ifdef TYPED
-data FLVal a = (HasPrimitiveInfo a, Typeable a) => Var ID | Val a
-#else
 data FLVal a = HasPrimitiveInfo a => Var ID | Val a
-#endif
 
 --------------------------------------------------------------------------------
 
@@ -224,11 +224,7 @@ resolve fl = unFL fl >>= \case
     Nothing -> return (Var i)
     Just x  -> return (Val x)
 
-#ifdef TYPED
-instantiate :: forall a. (HasPrimitiveInfo a, Typeable a) => ID -> ND FLState a
-#else
 instantiate :: forall a. HasPrimitiveInfo a => ID -> ND FLState a
-#endif
 instantiate i = get >>= \ FLState { .. } ->
   case primitiveInfo @a of
     NoPrimitive -> msum (map update (narrow nextID))
@@ -255,11 +251,7 @@ instance MonadPlus FL
 instance MonadFail FL where
   fail s = FL (fail s)
 
-#ifdef TYPED
-free :: (HasPrimitiveInfo a, Typeable a) => ID -> FL a
-#else
 free :: HasPrimitiveInfo a => ID -> FL a
-#endif
 free i = FL (return (Var i))
 
 --------------------------------------------------------------------------------
