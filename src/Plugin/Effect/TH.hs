@@ -56,16 +56,15 @@ genInverse originalString originalTy fixedArgs useGNF liftedName = do
         let originalArity = arrowArity originalTy'
             nonFixedArgs = filter (`notElem` fixedArgs) [0 .. originalArity - 1]
             ids = take (originalArity - length fixedArgs) [-1, -2 ..]
-            freePExps = zip nonFixedArgs $ map (mkFreeP . mkIntExp) ids --TODO freeP = freeFL
+            freeExps = zip nonFixedArgs $ map (mkFreeP . mkIntExp) ids
         fixedArgNames <- replicateM (length fixedArgs) (newName "arg")
-        let toPExps = zip fixedArgs $ map (AppE (VarE 'toFL) . VarE) fixedArgNames
-            argExps = map snd $ sortOn fst $ freePExps ++ toPExps
+        let toFLExps = zip fixedArgs $ map (AppE (VarE 'toFL) . VarE) fixedArgNames
+            argExps = map snd $ sortOn fst $ freeExps ++ toFLExps
         funPatExp <- genLiftedApply (SigE (VarE liftedName) (AppT (ConT ''FL) (mkLifted (ConT ''FL) originalTy'))) argExps
         resName <- newName "res"
         let invArgPats = map VarP $ fixedArgNames ++ [resName]
             matchExp = applyExp (VarE 'matchFL) [VarE resName, funPatExp]
-            returnExp = mkLiftedTupleE (map snd freePExps)
-        -- evalExp <- [| \m r -> map from $ bfs $ evalFL (m >> r) |]
+            returnExp = mkLiftedTupleE (map snd freeExps)
         let bodyExp = applyExp (VarE 'map) [VarE (if useGNF then 'fromIdentity else 'fromEither), AppE (VarE 'bfs) (applyExp (VarE 'evalWith)
               [ VarE (if useGNF then 'groundNormalFormFL else 'normalFormFL)
               , applyExp (VarE '(>>)) [matchExp, returnExp]])]
@@ -200,17 +199,20 @@ mkPlus e1 e2 = applyExp (VarE '(+)) [e1, e2]
 genMTy :: Q Type
 genMTy = VarT <$> newName "m"
 
+genLifted :: Type -> Type -> [Type] -> Type -> DecsQ
+genLifted originalTc liftedTc liftedTyVars mTy = do
+  let genLiftedApp n =
+        let relevantVars = take n liftedTyVars
+        in TySynInstD $ TySynEqn Nothing (mkLifted mTy (applyType originalTc relevantVars)) (applyType liftedTc (map (mkLifted mTy) relevantVars))
+  return $ map genLiftedApp [0 .. length liftedTyVars]
+
 genInstances :: Dec -> Dec -> DecsQ
-genInstances (ClassD _ originalName _ _ _) (ClassD _ liftedName liftedTyVarBndrs _ _) = do
+genInstances (ClassD _ originalName _ _ _) (ClassD _ liftedName liftedTyVarBndrs _ _) =
   let liftedTyVarNames = map getTyVarBndrName liftedTyVarBndrs
       liftedTyVars = map VarT liftedTyVarNames
       originalTc = ConT originalName
       liftedTc = ConT liftedName
-      mTy = ConT ''FL
-  let genOne n = --TODO: auslagern
-        let relevantVars = take n liftedTyVars
-        in TySynInstD $ TySynEqn Nothing (mkLifted mTy (applyType originalTc relevantVars)) (applyType liftedTc (map (mkLifted mTy) relevantVars))
-  return $ map genOne [0 .. length liftedTyVars] :: DecsQ
+  in genLifted originalTc liftedTc liftedTyVars (ConT ''FL)
 genInstances (TySynD _ _ _) (TySynD _ _ _) = do
   return []
 genInstances originalDataDec liftedDataDec = do
@@ -244,12 +246,6 @@ genInstances originalDataDec liftedDataDec = do
             dec = FunD 'narrow [Clause [VarP jName] body []]
             ctxt = map mkHasPrimitiveInfoConstraint liftedConArgs
         return $ InstanceD Nothing ctxt (mkNarrowableConstraint liftedTy) [dec]
-
-      genLifted = do
-        let genOne n =
-              let relevantVars = take n liftedTyVars
-              in TySynInstD $ TySynEqn Nothing (mkLifted mTy (applyType originalTc relevantVars)) (applyType liftedTc (map (mkLifted mTy) relevantVars))
-        return $ map genOne [0 .. length liftedTyVars] :: DecsQ
 
       genConvertible = do
         let genTo = do
@@ -292,7 +288,7 @@ genInstances originalDataDec liftedDataDec = do
                      map mkMatchableConstraint originalConArgs
         return $ InstanceD Nothing ctxt (mkMatchableConstraint originalTy) [dec]
 
-      genGroundable = do
+      genNormalForm = do
         nfName <- newName "nf"
         let genMatch liftedConInfo = do
               let liftedConName = conName liftedConInfo
@@ -312,7 +308,8 @@ genInstances originalDataDec liftedDataDec = do
         let ctxt = map mkInvertibleConstraint originalConArgs
         return $ InstanceD Nothing ctxt (mkInvertibleConstraint originalTy) [] :: Q Dec
 
-  (++) <$> genLifted <*> sequence [genHasPrimitiveInfo, genNarrowable, genConvertible, genMatchable, genGroundable, genInvertible]
+  (++) <$> genLifted originalTc liftedTc liftedTyVars mTy
+       <*> sequence [genHasPrimitiveInfo, genNarrowable, genConvertible, genMatchable, genNormalForm, genInvertible]
 
 replaceMTyVar :: Name -> Type -> Type -> Type
 replaceMTyVar var replacement = go
