@@ -48,7 +48,7 @@ instance SolverLibrary where
   getModels :: forall a. Constrainable a => ID -> [Constraint] -> [a]
   getModels i cs =
     let v = varToSBV @(SBVType a) i
-        dummyV = sym @(SBV (SBVType a)) "dummy" # TODO: Comment that this is needed in order to get character models
+        dummyV = sym @(SBV (SBVType a)) "dummy" -- TODO: Comment that this is needed in order to get character models
         initialC = v .=== dummyV
         getModelsRecursive cs' = unsafePerformIO $ runSBVSolver $ do
           query $ checkSatAssuming cs' >>= \case
