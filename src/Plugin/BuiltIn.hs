@@ -159,8 +159,8 @@ failFLStrFL = P.return $ Func $ P.const P.empty
 seq :: forall (k :: RuntimeRep) a b. a -> b -> b
 seq = P.seq
 
-seqFL :: forall (k :: RuntimeRep) a b. FL (FL a -> FL (FL b -> FL b))
-seqFL = P.return $ \a -> P.return $ \b ->
+seqFL :: forall (k :: RuntimeRep) a b. FL (a :--> b :--> b)
+seqFL = returnFLF $ \a -> returnFLF $ \b ->
   a P.>>= \a' -> P.seq a' b
 -- TODO try seq
 
