@@ -209,10 +209,10 @@ sndFL :: FL (Tuple2FL FL a b :--> b)
 sndFL = returnFLF $ \x -> x P.>>= \case
   Tuple2FL _ b -> b
 
-undefinedFL :: forall (r :: RuntimeRep) . forall (a :: P.Type) . P.HasCallStack => FL a
+undefinedFL :: forall (r :: RuntimeRep) . forall (a :: P.Type) . FL a
 undefinedFL = P.empty
 
-errorFL :: forall (r :: RuntimeRep) . forall (a :: P.Type) . P.HasCallStack => FL (StringFL FL :--> a)
+errorFL :: forall (r :: RuntimeRep) . forall (a :: P.Type) . FL (StringFL FL :--> a)
 errorFL = failFLStrFL
 
 notFL :: FL (BoolFL FL :--> BoolFL FL)

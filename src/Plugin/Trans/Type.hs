@@ -167,7 +167,8 @@ liftType ftc mty s tcs = liftType' s
     -- Lift a type application of a type constructor.
     -- If it is a type class constraint or ANY, do not wrap it with our monad.
     liftType' us (TyConApp tc tys)
-      | isClassTyCon tc || anyTyCon == tc = do
+      | anyTyCon == tc = return $ TyConApp tc tys
+      | isClassTyCon tc = do
         tc' <- lookupTyConMap GetNew tcs tc
         tys' <- mapM (liftInnerTy ftc mty us tcs) tys
         return (TyConApp tc' tys')

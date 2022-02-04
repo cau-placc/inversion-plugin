@@ -214,11 +214,14 @@ isBuiltIn nm =
   "krep$" `isPrefixOf` str ||
   "$tc"   `isPrefixOf` str ||
   "$dm"   `isPrefixOf` str ||
-  "noMethodBindingError"  `isPrefixOf` str ||
-  "recSelError"  `isPrefixOf` str ||
+  ("noMethodBindingError" == str  && nameModule_maybe nm == Just cONTROL_EXCEPTION_BASE) ||
+  ("recSelError"  == str && nameModule_maybe nm == Just cONTROL_EXCEPTION_BASE) ||
+  ("undefined"  == str && nameModule_maybe nm == Just gHC_ERR) ||
+  ("error" == str && nameModule_maybe nm == Just gHC_ERR) ||
   nameUnique nm == tagToEnumKey ||
   nameUnique nm == coerceKey
-  where str = occNameString (occName nm)
+  where
+    str = occNameString (occName nm)
 
 lookupByOccName :: Module -> OccName -> TcM (Maybe Var)
 lookupByOccName mdl occ = discardErrs $ recoverM

@@ -26,6 +26,7 @@ import Finder
 
 import Plugin.Trans.TysWiredIn
 import Plugin.Trans.Util
+import Plugin.Trans.Var
 
 -- | look up the replacement for a wired-in function or return the original
 -- if no replacement is known or required.
@@ -38,7 +39,7 @@ lookupWiredInFunc v ty = do
       hscEnv <- getTopEnv
       Found _ mdl <- liftIO $
         findImportedModule hscEnv (mkModuleName builtInModule) Nothing
-      lookupId =<< lookupOrig mdl (occName n)
+      lookupId =<< lookupOrig mdl (addNameSuffix $ occName n)
 
 -- | Look up the Name for a given RdrName
 -- where the original name is already known.
@@ -64,6 +65,7 @@ wiredIn =
   , mkOrig gHC_BASE    (mkVarOcc "eqString")
   , mkOrig gHC_CLASSES (mkVarOcc "eqChar")
   , mkOrig gHC_ERR     (mkVarOcc "error")
+  , mkOrig gHC_ERR     (mkVarOcc "undefined")
   , mkOrig gHC_PRIM    (mkVarOcc "<#")
   , mkOrig gHC_PRIM    (mkVarOcc "==#")
   , mkOrig gHC_BASE    (mkVarOcc "++")
