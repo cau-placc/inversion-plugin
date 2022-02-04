@@ -242,60 +242,9 @@ liftInnerTy ftc mty us tcs ty = do
   return $ case splitTyConApp_maybe ty' of
     Just (tc, [inner]) | mkTyConTy tc `eqType` mty
       -> inner
-    _ -> ty'
-
--- | Lift the type of a data value constructor.
-liftConType :: TyCon -> Type -> UniqSupply -> TyConMap -> Type -> IO Type
-liftConType = liftConTypeWith False
-
--- | Lift the type of a newtype value constructor.
-liftNewConType :: TyCon -> Type -> UniqSupply -> TyConMap -> Type -> IO Type
-liftNewConType = liftConTypeWith True
-
--- When lifting the type of a constructor, we only want to lift constructor args
--- and not `->` or the result.
--- To do this, we generally do not create any applications of mty,
--- but instead switch to the normal lifting function
--- when we are to the left of an arrow.
--- For newtypes, we also do not want to wrap the constructor args,
--- so use liftInnerTy to the left of functions, if required
--- | Lift a data or newtype value constructor.
-liftConTypeWith :: Bool        -- ^ Is a newtype value constructor
-                -> TyCon       -- ^ 'Fun' type constructor
-                -> Type        -- ^ 'Nondet' type
-                -> UniqSupply  -- ^ Fresh supply of unique keys
-                -> TyConMap    -- ^ Type constructor map
-                -> Type        -- ^ Type to be lifted
-                -> IO Type     -- ^ Lifted type
-liftConTypeWith isNew ftc mty us tcs = liftType'
-  where
-    liftType' :: Type -> IO Type
-    liftType' (ForAllTy bs ty) =
-      ForAllTy bs <$> liftType' ty
-    liftType' (FunTy InvisArg ty1 ty2) =
-        FunTy InvisArg <$> replaceTyconTy tcs ty1 <*> liftType' ty2
-    liftType' (FunTy VisArg ty1 ty2)
-      | isDictTy ty1 =
-        FunTy VisArg <$> replaceTyconTy tcs ty1 <*> liftType' ty2
-      | isNew =
-        FunTy VisArg <$> liftInnerTy ftc mty us tcs ty1 <*> liftType' ty2
-      | otherwise =
-        FunTy VisArg <$> liftType ftc mty us tcs ty1 <*> liftType' ty2
-    liftType' (CastTy ty kc) =
-      flip CastTy kc <$> liftType' ty
-    liftType' (CoercionTy c) =
-      return (CoercionTy c)
-    liftType' (LitTy l) =
-      return (LitTy l)
-    liftType' (AppTy ty1 ty2) =
-      AppTy <$> liftInnerTy ftc mty us tcs ty1
-            <*> liftInnerTy ftc mty us tcs ty2
-    liftType' (TyConApp tc tys) = do
-      tc' <- lookupTyConMap GetNew tcs tc
-      tys' <- mapM (liftInnerTy ftc mty us tcs) tys
-      return (TyConApp tc' tys')
-    liftType' (TyVarTy v) =
-      return (TyVarTy v)
+    _ -> case splitAppTy_maybe ty' of
+      Just (ty1, ty2) | ty1 `eqType` mty -> ty2
+      _                                  -> ty'
 
 -- | Replace all type constructors in a type with its lifted version.
 replaceTyconTy :: TyConMap -> Type -> IO Type
