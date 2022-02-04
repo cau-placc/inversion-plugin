@@ -374,7 +374,10 @@ toTHType m ty@(ForAllTy _ _) = ForallT bndrs' cxt $ toTHType m ty'
         (cxt, bndrs') = partitionEithers $ map categorize bndrs
         categorize (Named bndr) = Right (toTHTyVar m (binderVar bndr))
         categorize (Anon _ pty) = Left (toTHType m pty)
-toTHType m (FunTy _ ty1 ty2)  = mkArrowT (toTHType m ty1) (toTHType m ty2)
+toTHType m (FunTy InvisArg ty1 ty2) = case toTHType m ty2 of
+  ForallT vs bs ty -> ForallT vs (toTHType m ty1:bs) ty
+  ty               -> ForallT [] [toTHType m ty1] ty
+toTHType m (FunTy _ ty1 ty2) = mkArrowT (toTHType m ty1) (toTHType m ty2)
 toTHType _ (LitTy _) = error "type literals are not supported"
 toTHType _ (CastTy _ _) = error "kind casts are not supported"
 toTHType _ (CoercionTy _) = error "coercions are not supported"
