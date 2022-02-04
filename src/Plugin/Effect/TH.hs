@@ -150,7 +150,7 @@ genLiftedTupleDataDecl ar = do
   mVar <- newName "m"
   tyVarNames <- replicateM ar (newName "a")
   let con = NormalC name $ map (\tyVarName -> (Bang NoSourceUnpackedness NoSourceStrictness, AppT (VarT mVar) (VarT tyVarName))) tyVarNames
-  return $ DataD [] name (map PlainTV (mVar : tyVarNames)) Nothing [con] []
+  return $ DataD [] name (KindedTV mVar (AppT (AppT ArrowT StarT) StarT) : map PlainTV tyVarNames) Nothing [con] []
 
 genLiftedTupleDataDeclAndInstances :: Int -> DecsQ
 genLiftedTupleDataDeclAndInstances ar = do
