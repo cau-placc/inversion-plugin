@@ -39,7 +39,6 @@ module Plugin.BuiltIn where
 import qualified Control.Monad as P
 import qualified GHC.Base      as P hiding (mapM)
 import qualified GHC.Real      as P
-import qualified GHC.Stack     as P
 import qualified GHC.Exts      as P
 import qualified Prelude       as P hiding (mapM)
 import           GHC.Types (RuntimeRep, Type)
