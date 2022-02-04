@@ -73,16 +73,17 @@ liftTycon dflags instEnvs ftycon mtycon supply tcs tcsM tc
     return (supply3, (tc, Just tycon))
   | isTypeSynonymTyCon tc = do
     let u = uniqFromSupply supply
-        (supply1, supply2) = splitUniqSupply supply
+        (supply1, tmp) = splitUniqSupply supply
+        (supply2, supply3) = splitUniqSupply tmp
     Just (_, origty) <- return $ synTyConDefn_maybe tc
+    let mVar = mkTyVar (mkInternalName (uniqFromSupply supply2) (mkVarOcc "m") noSrcSpan) (mkVisFunTy liftedTypeKind liftedTypeKind)
     -- lift only the "inner" type of synonyms
     ty <- replaceTyconTyPure tcs
-      <$> liftInnerTy ftycon (mkTyConTy mtycon) supply2 tcsM origty
-    let name | isClassTyCon tc = tyConName tc
-             | otherwise       = liftName (tyConName tc) u
+      <$> liftInnerTy ftycon (mkTyVarTy mVar) supply3 tcsM origty
+    let name = liftName (tyConName tc) u
         tycon = mkSynonymTyCon
-          name (tyConBinders tc) (tyConResKind tc)
-          (tyConRoles tc) ty (isTauTyCon tc) (isFamFreeTyCon tc)
+          name (mkAnonTyConBinder VisArg mVar : tyConBinders tc) (tyConResKind tc)
+          (Representational : tyConRoles tc) ty (isTauTyCon tc) (isFamFreeTyCon tc)
     return (supply1, (tc, Just tycon))
   | isFamilyTyCon tc = mdo
       let u1 = uniqFromSupply supply
@@ -181,8 +182,7 @@ liftAlgRhs isClass dflags instEnvs ftycon mvar mtycon tcs tcsM tycon us
                   | otherwise = liftName axName u
 
     -- Create new coercion axiom.
-    let (vars, roles) = if isClass then (tyConTyVars tycon, tyConRoles tycon)
-                                   else (mvar : tyConTyVars tycon, Representational : tyConRoles tycon)
+    let (vars, roles) = (tyConTyVars tycon, tyConRoles tycon)
     -- Create new coercion axiom.
     let (etavs, etaroles, etarhs) = etaReduce (reverse vars) (reverse roles) rhs'
     let co' = mkNewTypeCoAxiom axNameNew tycon etavs etaroles etarhs
