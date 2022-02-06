@@ -25,20 +25,20 @@ import Plugin.Trans.TysWiredIn
 
 genInverses :: Name -> Type -> String -> DecsQ
 genInverses liftedName originalTy originalString = do
-  concat <$> sequence [genInverse originalString originalTy fixedArgs useGNF liftedName | fixedArgs <- fixedArgss, useGNF <- [False ..]]
+  concat <$> sequence [genInverse originalString originalTy fixedArgs nonGround liftedName | fixedArgs <- fixedArgss, nonGround <- [False ..]]
   where
     (_ ,_ , originalTy') = decomposeForallT originalTy
     arity = arrowArity originalTy'
     fixedArgss = subsequences [0.. arity - 1]
 
 mkInverseName :: String -> [Int] -> Bool -> Name
-mkInverseName originalName fixedArgs useGNF
-  | isLexVarSym (mkFastString originalName) = mkName $ originalName ++ "$$$" ++ concat ["-%" | useGNF] ++ intercalate "$" (map ((`replicate` '+') . succ) fixedArgs)
-  | otherwise                               = mkName $ originalName ++ "Inv" ++ concat ["NF" | useGNF] ++ intercalate "_" (map show fixedArgs)
+mkInverseName originalName fixedArgs nonGround
+  | isLexVarSym (mkFastString originalName) = mkName $ originalName ++ "$$$" ++ concat ["-%" | nonGround] ++ intercalate "$" (map ((`replicate` '+') . succ) fixedArgs)
+  | otherwise                               = mkName $ originalName ++ "Inv" ++ concat ["NG" | nonGround] ++ intercalate "_" (map show fixedArgs)
 
 genInverse :: String -> Type -> [Int] -> Bool -> Name -> DecsQ
-genInverse originalString originalTy fixedArgs useGNF liftedName = do
-  let invName = mkInverseName originalString fixedArgs useGNF
+genInverse originalString originalTy fixedArgs nonGround liftedName = do
+  let invName = mkInverseName originalString fixedArgs nonGround
       (originalTyVarBndrs, originalCxt, originalTy') = decomposeForallT originalTy
       (originalArgTys, originalResTy) = arrowUnapply originalTy'
       (fixedOriginalArgTys, nonFixedOriginalArgTys) = partitionByIndices fixedArgs originalArgTys
@@ -65,8 +65,8 @@ genInverse originalString originalTy fixedArgs useGNF liftedName = do
         let invArgPats = map VarP $ fixedArgNames ++ [resName]
             matchExp = applyExp (VarE 'matchFL) [VarE resName, funPatExp]
             returnExp = mkLiftedTupleE (map snd freeExps)
-        let bodyExp = applyExp (VarE 'map) [VarE (if useGNF then 'fromIdentity else 'fromEither), AppE (VarE 'bfs) (applyExp (VarE 'evalWith)
-              [ VarE (if useGNF then 'groundNormalFormFL else 'normalFormFL)
+        let bodyExp = applyExp (VarE 'map) [VarE (if nonGround then 'fromEither else 'fromIdentity), AppE (VarE 'bfs) (applyExp (VarE 'evalWith)
+              [ VarE (if nonGround then 'normalFormFL else 'groundNormalFormFL)
               , applyExp (VarE '(>>)) [matchExp, returnExp]])]
             body = NormalB bodyExp
         return $ FunD invName [Clause invArgPats body []]

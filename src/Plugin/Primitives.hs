@@ -26,10 +26,10 @@ inv :: Name -> ExpQ
 inv = flip partialInv []
 
 partialInv :: Name -> [Int] -> ExpQ
-partialInv name fixedArgs = genericInv name fixedArgs True
+partialInv name fixedArgs = genericInv name fixedArgs False
 
 genericInv :: Name -> [Int] -> Bool -> ExpQ
-genericInv name fixedArgs useGNF = do
+genericInv name fixedArgs nonGround = do
   info <- reify name
   (_, _, ty) <- decomposeForallT <$> case info of
     VarI _ ty' _     -> return ty'
@@ -40,14 +40,14 @@ genericInv name fixedArgs useGNF = do
   when (any (`notElem` validFixedArgs) fixedArgs) $ fail $
     "Invalid argument index sequence for partial inverse provided (" ++ hint ++ ")."
   vs <- replicateM (length fixedArgs + 1) (newName "p")
-  let invE = VarE $ mkNameG_v (fromMaybe "" $ namePackage name) (fromMaybe "" $ nameModule name) $ nameBase $ mkInverseName (nameBase name) (sort $ nub fixedArgs) useGNF
+  let invE = VarE $ mkNameG_v (fromMaybe "" $ namePackage name) (fromMaybe "" $ nameModule name) $ nameBase $ mkInverseName (nameBase name) (sort $ nub fixedArgs) nonGround
   return $ LamE (map VarP vs) (applyExp invE (map VarE vs))
 
 weakInv :: Name -> ExpQ
 weakInv name = [| foldr const (error "no weak inverse") . $(inv name) |]
 
 funPatPartialInv :: Name -> [Int] -> ExpQ
-funPatPartialInv name fixedArgs = genericInv name fixedArgs False
+funPatPartialInv name fixedArgs = genericInv name fixedArgs True
 
 funPat :: FunPat p => Name -> p
 funPat f = funPat' f []
