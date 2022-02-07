@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP             #-}
 {-# LANGUAGE TemplateHaskell #-}
 module Plugin.Effect.TH where
 
@@ -65,7 +66,12 @@ genInverse originalString originalTy fixedArgs nonGround liftedName = do
         let invArgPats = map VarP $ fixedArgNames ++ [resName]
             matchExp = applyExp (VarE 'matchFL) [VarE resName, funPatExp]
             returnExp = mkLiftedTupleE (map snd freeExps)
-        let bodyExp = applyExp (VarE 'map) [VarE (if nonGround then 'fromEither else 'fromIdentity), AppE (VarE 'bfs) (applyExp (VarE 'evalWith)
+#ifdef PARALLEL
+            searchFunNm = 'ps
+#else
+            searchFunNm = 'bfs
+#endif
+            bodyExp = applyExp (VarE 'map) [VarE (if nonGround then 'fromEither else 'fromIdentity), AppE (VarE searchFunNm) (applyExp (VarE 'evalWith)
               [ VarE (if nonGround then 'normalFormFL else 'groundNormalFormFL)
               , applyExp (VarE '(>>)) [matchExp, returnExp]])]
             body = NormalB bodyExp
@@ -126,7 +132,7 @@ mkTupleT tys  = applyType (TupleT (length tys)) tys
 
 mkTupleP :: [Pat] -> Pat
 mkTupleP [p] = ConP 'Solo [p]
-mkTupleP ps  = TupP ps
+mkTupleP ps' = TupP ps'
 
 mkArrowT :: Type -> Type -> Type
 mkArrowT ty1 ty2 = applyType ArrowT [ty1, ty2]

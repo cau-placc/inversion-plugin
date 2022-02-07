@@ -37,6 +37,12 @@ flag use-cvc {
   Manual:      True
 }
 
+flag parallel-search {
+  Description: Perform parallel search instead of breadth-first search
+  Default:     False
+  Manual:      True
+}
+
 common deps
   hs-source-dirs: src
   build-depends:
@@ -68,6 +74,8 @@ common deps
     cpp-options: -DUSE_WHAT4
   if flag(use-cvc)
     cpp-options: -DUSE_CVC
+  if flag(parallel-search)
+    cpp-options: -DPARALLEL
   default-language: Haskell2010
   other-extensions:
     DefaultSignatures,
