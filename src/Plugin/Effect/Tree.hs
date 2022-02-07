@@ -1,9 +1,12 @@
 module Plugin.Effect.Tree
  ( module Control.Monad.SearchTree
- , dfs, bfs )
+ , dfs, bfs, ps )
  where
 
+import Control.Concurrent
 import Control.Monad.SearchTree
+
+import GHC.IO (unsafePerformIO)
 
 import qualified Data.Sequence as Seq
 
@@ -22,3 +25,16 @@ bfs t' = bfs' (Seq.singleton (searchTree t'))
           None -> bfs' ts
           One x -> x : bfs' ts
           Choice l r -> bfs' (ts Seq.:|> l Seq.:|> r)
+
+ps :: Search a -> [a]
+ps t' = unsafePerformIO $ do
+  ch <- newChan
+  let psIO t = case t of
+        None -> return ()
+        One x -> writeChan ch x
+        Choice l r -> do
+          _ <- forkIO $ psIO l
+          _ <- forkIO $ psIO r
+          return ()
+  psIO (searchTree t')
+  getChanContents ch
