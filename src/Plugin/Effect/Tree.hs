@@ -6,9 +6,12 @@ module Plugin.Effect.Tree
 import Control.Concurrent
 import Control.Monad.SearchTree
 
-import GHC.IO (unsafePerformIO)
+import           Data.Maybe
 
 import qualified Data.Sequence as Seq
+
+import System.IO.Unsafe
+import System.Mem.Weak
 
 dfs :: Search a -> [a]
 dfs t' = dfs' [searchTree t']
@@ -31,6 +34,66 @@ ps t' = unsafePerformIO $ do
   ch <- newChan
   let psIO t = case t of
         None -> return ()
+        One x -> writeChan ch (Just x)
+        Choice l r -> do
+          mvarl <- newEmptyMVar
+          mvarr <- newEmptyMVar
+          _ <- forkFinally (psIO l) $ \_ -> putMVar mvarl ()
+          _ <- forkFinally (psIO r) $ \_ -> putMVar mvarr ()
+          takeMVar mvarl
+          takeMVar mvarr
+  tid <- forkFinally (psIO $ searchTree t') $ \_ -> writeChan ch Nothing
+  res <- catMaybes . takeWhile isJust <$> getChanContents ch
+  addFinalizer res $ killThread tid
+  return res
+
+{-
+ps :: Search a -> [a]
+ps t' = unsafePerformIO $ do
+  ch <- newChan
+  let psIO t = case t of
+        None -> return ()
+        One x -> writeChan ch (Just x)
+        Choice l r -> do
+          mvarl <- newEmptyMVar
+          mvarr <- newEmptyMVar
+          _ <- forkFinally (psIO l) $ \_ -> putMVar mvarl ()
+          _ <- forkFinally (psIO r) $ \_ -> putMVar mvarr ()
+          takeMVar mvarl
+          takeMVar mvarr
+  _ <- forkFinally (psIO $ searchTree t') $ \_ -> writeChan ch Nothing
+  catMaybes . takeWhile isJust <$> getChanContents ch
+-}
+
+{-
+ps1 :: Search a -> [a]
+ps1 t' = unsafePerformIO $ do
+  ch <- newChan
+  let psIO mvar t = case t of
+        None -> putMVar mvar ()
+        One x -> do
+          writeChan ch (Just x)
+          putMVar mvar ()
+        Choice l r -> do
+          mvarl <- newEmptyMVar
+          mvarr <- newEmptyMVar
+          _ <- forkIO $ psIO mvarl l
+          _ <- forkIO $ psIO mvarr r
+          takeMVar mvarl
+          takeMVar mvarr
+          putMVar mvar ()
+  mvar <- newEmptyMVar
+  _ <- forkIO $ psIO mvar (searchTree t')
+  _ <- forkIO $ do
+    takeMVar mvar
+    writeChan ch Nothing
+  catMaybes . takeWhile isJust <$> getChanContents ch
+
+ps2 :: Search a -> [a]
+ps2 t' = unsafePerformIO $ do
+  ch <- newChan
+  let psIO t = case t of
+        None -> return ()
         One x -> writeChan ch x
         Choice l r -> do
           _ <- forkIO $ psIO l
@@ -38,3 +101,4 @@ ps t' = unsafePerformIO $ do
           return ()
   psIO (searchTree t')
   getChanContents ch
+-}
