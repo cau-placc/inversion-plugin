@@ -31,8 +31,10 @@ import UniqMap
 import IfaceSyn
 import TcEvidence
 import Predicate
+import Exception
 
 import Plugin.Trans.Var
+import Plugin.Trans.Import
 
 -- This Type contains an IORef, because looking up the mapping between
 -- new <-> old type constructors needs IO.
@@ -40,10 +42,11 @@ import Plugin.Trans.Var
 -- we will probably only need a fraction of those anyway
 -- | A mapping between the lifted and unlifted version of each type constructor,
 -- loaded in lazily.
-type TyConMap = (HscEnv, TcRef (UniqMap TyCon TyCon, -- Old -> New
-                                UniqMap TyCon TyCon, -- New -> Old
-                                UniqSet TyCon,       -- Old
-                                UniqSet TyCon))      -- New
+type TyConMap = ( Env TcGblEnv TcLclEnv
+                , TcRef (UniqMap TyCon TyCon, -- Old -> New
+                         UniqMap TyCon TyCon, -- New -> Old
+                         UniqSet TyCon,       -- Old
+                         UniqSet TyCon))      -- New
 
 -- | Get the 'Nondet' monad type constructor.
 getMonadTycon :: TcM TyCon
@@ -352,7 +355,7 @@ data LookupDirection = GetNew -- ^ Look up the lifted version with the unlifted.
 -- or return the argument unchanged if the requested version does not exist.
 -- This function lazily loads any new type constructor mappings on demand.
 lookupTyConMap :: LookupDirection -> TyConMap -> TyCon -> IO TyCon
-lookupTyConMap d (hsc, ref) tc = do
+lookupTyConMap d (env, ref) tc = do
   -- Get the current state of our map.
   tcs@(mn, mo, sn, so) <- readIORef ref
   -- Establish the correct variables for the given lookup direction.
@@ -368,7 +371,8 @@ lookupTyConMap d (hsc, ref) tc = do
       Just mdl | moduleUnitId mdl == thisPackage flags,
                  not (isOneShot (ghcMode flags))
                   -> lookupTyConHome mdl m s tcs
-      _           -> lookupTyConExtern m s tcs
+               | otherwise -> lookupTyConExtern mdl m s tcs
+      Nothing -> fail $ "TyCon without module: " ++ show (occNameString (occName n))
   where
     -- | Look up a type constructor replacement from a home package module.
     lookupTyConHome mdl m s tcs = do
@@ -383,21 +387,32 @@ lookupTyConMap d (hsc, ref) tc = do
         _ -> processResult m s tcs Nothing
 
     -- | Look up a type constructor replacement from an external package module.
-    lookupTyConExtern m s tcs = do
-      -- Get the table of external packages.
-      ext <- eps_PTE <$> readIORef (hsc_EPS hsc)
-      -- Find the correct declaration and insert the result into our map.
-      let result = fmap snd (find tyThingFinder (nonDetUFMToList ext))
-      processResult m s tcs result
+    lookupTyConExtern mdl m s tcs
+      | Just mdl' <- lookup (moduleNameString (moduleName mdl), moduleUnitId mdl) supportedBuiltInModules = do
+        let thisMdl = mkModuleName mdl'
+        foundMdl <- findImportedModule hsc thisMdl Nothing >>= \case
+           Found _ mdl'' -> return mdl''
+           _             -> fail $ "Could not find module for built-in type of the imported module: " ++ mdl'
+        result <- runIOEnv env (do
+          orig <- lookupOrig foundMdl occ2
+          Just <$> lookupThing orig) `catch` (\(SomeException _) -> return Nothing)
+        case result of
+          Just r  -> processResult m s tcs (Just r)
+          Nothing -> fail $ "No lifted type available for: " ++ occNameString (occName n)
+      | otherwise =  do
+        -- Get the table of external packages.
+        ext <- eps_PTE <$> readIORef (hsc_EPS hsc)
+        -- Find the correct declaration and insert the result into our map.
+        let result = fmap snd (find (tyThingFinder mdl occ2) (nonDetUFMToList ext))
+        processResult m s tcs result
 
     -- | Checks if the given declaration uses the name we are looking for.
     declFinder (_, f) = occName (ifName f) == occ2
 
     -- | Check if the given TyCon uses the name we are looking for.
-    tyThingFinder (_, ATyCon tc') = occName n' == occ2 &&
-                                    nameModule_maybe n' == mbMdl
+    tyThingFinder mdl occ (_, ATyCon tc') = trace (occNameString (occName n')) (occName n') == occ && nameModule_maybe n' == Just mdl
       where n' = tyConName tc'
-    tyThingFinder _               = False
+    tyThingFinder _   _   _               = False
 
     -- | Insert a lookup result into the correct map on success.
     -- Regardless of success or not, update the set of TyCons that we have
@@ -417,13 +432,13 @@ lookupTyConMap d (hsc, ref) tc = do
         writeIORef ref (mn, mo, sn, addOneToUniqSet s tc)
         return tc
 
+    hsc = env_top env
     mbMdl = nameModule_maybe n
     flags = hsc_dflags hsc
     n = tyConName tc
-    occ = occName n
     occ2 = case d of
-      GetNew -> addNameSuffix occ
-      GetOld -> removeNameSuffix occ
+      GetNew -> addNameSuffix (occName n)
+      GetOld -> removeNameSuffix (occName n)
 
 -- | Update the type constructors in a type with a pure,
 -- side-effect free replacement map.

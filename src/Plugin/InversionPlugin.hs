@@ -64,6 +64,7 @@ import Plugin.Effect.Annotation
 import Plugin.Effect.TH
 import Plugin.Trans.Var
 import Plugin.Primitives
+import Plugin.Prelude ()
 
 -- | This GHC plugin turns GHC into a "compiler" for
 -- the functional-logic programming language Curry.
@@ -101,9 +102,9 @@ liftMonadPlugin mdopts env = do
   -- remove any dummy evidence introduced by the constraint solver plugin
   let tcg_ev_binds' = filterBag (not . isDummyEv) (tcg_ev_binds env)
 
-  hsc <- getTopEnv
+  fullEnv <- getEnv
   mapRef <- loadDefaultTyConMap
-  let tyconsMap = (hsc, mapRef)
+  let tyconsMap = (fullEnv, mapRef)
 
   -- lift datatypes, we need the result for the lifting of datatypes itself
   s <- getUniqueSupplyM

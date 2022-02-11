@@ -18,12 +18,11 @@ rewrites of selected expressions.
 module Plugin.Trans.Preprocess (preprocessBinding) where
 
 import Prelude hiding (lookup)
+import qualified Prelude as P (lookup)
 import Data.Generics (everywhereM, mkM)
 import Data.Map.Strict
 import Data.List (isPrefixOf)
-import Data.Maybe
 import Control.Monad.State
-import qualified Language.Haskell.TH as TH
 
 import GHC.Hs.Binds
 import GHC.Hs.Extension
@@ -42,11 +41,11 @@ import IfaceEnv
 import PrimOp (tagToEnumKey)
 import PrelNames
 
+import Plugin.Trans.Import
 import Plugin.Trans.Util
 import Plugin.Trans.Var
 import Plugin.Trans.PatternMatching
 import Plugin.Trans.Type
-import Plugin.BuiltIn (notFL)
 
 type PM = StateT (Map Unique Name) TcM
 
@@ -244,19 +243,18 @@ preprocessExpr e@(L l1 (HsVar x (L l2 v))) = do
   if nameIsLocalOrFrom mdl nm
     then L l1 . HsVar x . L l2 <$> rename v
     else case nameModule_maybe nm of
+      -- TODO: Just mdl' | Just mbprel <- lookup mdl mappedMdls
       Just mdl' | not $ isBuiltIn nm -> do
           hsc <- lift getTopEnv
-          let unitID = moduleUnitId mdl'
-          let pluginModName = mkModuleName $ fromJust $ TH.nameModule 'notFL
-          mbprel <- liftIO $ findImportedModule hsc pluginModName Nothing
-          prel <- case mbprel of
-            Found _ m -> return m
-            _         -> lift $ failWithTc "Could not find module for built-in primitives"
-          let definiteMdl = if unitID == baseUnitId || unitID == primUnitId
-                              then prel
-                              else mdl'
+          replacementModule <- case P.lookup (moduleNameString (moduleName mdl'), moduleUnitId mdl') supportedBuiltInModules of
+            Just s  -> do
+              mbprel <- liftIO $ findImportedModule hsc (mkModuleName s) Nothing
+              case mbprel of
+                Found _ m -> return m
+                _         -> lift $ failWithTc $ "Could not find module for built-in primitives of the imported module:" <+> text s
+            Nothing -> return mdl'
           let definiteName = addNameSuffix (occName nm)
-          mv <- lift $ lookupByOccName definiteMdl definiteName
+          mv <- lift $ lookupByOccName replacementModule definiteName
           lift $ case mv of
             Just v' -> return (L l1 (HsVar x (L l2 (v' `setVarType` varType v))))
             Nothing -> failWithTc ("No inverse available for:" <+> ppr nm)

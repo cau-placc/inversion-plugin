@@ -132,6 +132,8 @@ library
   import: deps
   exposed-modules:
     Plugin.BuiltIn
+    Plugin.BuiltIn.Char
+    Plugin.BuiltIn.Identity
     Plugin.BuiltIn.Primitive
     Plugin.Effect.Annotation
     Plugin.Effect.Monad
