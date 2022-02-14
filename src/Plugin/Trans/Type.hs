@@ -309,9 +309,9 @@ liftWrapper ftc mty us tcs = liftWrapper'
       WpCompose <$> liftWrapper' w1 <*> liftWrapper' w2
     liftWrapper' (WpFun w1 w2 ty sd) =
       WpFun <$> liftWrapper' w1 <*> liftWrapper' w2
-            <*> replaceTyconTy tcs ty <*> pure sd
+            <*> liftInnerTy ftc mty us tcs ty <*> pure sd
     liftWrapper' (WpCast (SubCo (Refl ty))) =
-      WpCast . SubCo . Refl <$> replaceTyconTy tcs ty
+      WpCast . SubCo . Refl <$> liftInnerTy ftc mty us tcs ty
     liftWrapper' (WpTyApp app) =
       WpTyApp <$> liftInnerTy ftc mty us tcs app
     -- remove any other thing that was here after typechecking
@@ -325,26 +325,6 @@ liftWrapperTcM tcs w = do
   ftc <- getFunTycon
   us <- getUniqueSupplyM
   liftIO (liftWrapper ftc mty us tcs w)
-
--- | Update type constructors inside a wrapper.
-replaceWrapper :: TyConMap -> HsWrapper -> IO HsWrapper
-replaceWrapper tcs = replaceWrapper'
-  where
-    replaceWrapper' (WpCompose w1 w2) =
-      WpCompose <$> replaceWrapper' w1 <*> replaceWrapper' w2
-    replaceWrapper' (WpFun w1 w2 ty sd) =
-      WpFun <$> replaceWrapper' w1 <*> replaceWrapper' w2
-            <*> replaceTyconTy tcs ty <*> pure sd
-    replaceWrapper' (WpCast (SubCo (Refl ty))) =
-      WpCast . SubCo . Refl <$> replaceTyconTy tcs ty
-    replaceWrapper' (WpTyApp app) =
-      WpTyApp <$> replaceTyconTy tcs app
-    replaceWrapper' (WpEvApp t) =
-      WpEvApp <$> everywhereM (mkM replaceCore) t
-    replaceWrapper' w =
-      return w
-
-    replaceCore v = setVarType v <$> replaceTyconTy tcs (varType v)
 
 -- | Enumeration of lookup directions for the type constructor map.
 data LookupDirection = GetNew -- ^ Look up the lifted version with the unlifted.

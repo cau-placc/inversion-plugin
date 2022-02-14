@@ -83,7 +83,7 @@ liftDictExpr cls w tcs (L l ex) = L l <$> liftDictExpr' ex
     -- The dictionary constructor is lifted by getting the lifted constructor
     -- and lifting its wrapper.
     liftDictExpr' (HsWrap _ cw (HsConLikeOut _ (RealDataCon dc))) = do
-      cw' <- liftIO (replaceWrapper tcs cw)
+      cw' <- liftWrapperTcM tcs cw
       dc' <- liftIO (getLiftedCon dc tcs)
       return (HsWrap noExtField cw' (HsConLikeOut noExtField (RealDataCon dc')))
     liftDictExpr' (HsConLikeOut _ (RealDataCon dc)) = do

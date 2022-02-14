@@ -64,6 +64,7 @@ supportedBuiltInModules =
   [ (("Prelude",                baseUnitId), "Plugin.BuiltIn")
   , (("Data.Kind",              baseUnitId), "Plugin.BuiltIn")
   , (("GHC.Exts",               baseUnitId), "Plugin.BuiltIn")
+  , (("GHC.Show",               baseUnitId), "Plugin.BuiltIn")
   , (("Data.Char",              baseUnitId), "Plugin.BuiltIn.Char")
   , (("GHC.Char",               baseUnitId), "Plugin.BuiltIn.Char")
   , (("Data.Functor.Identity",  baseUnitId), "Plugin.BuiltIn.Identity")
