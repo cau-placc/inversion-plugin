@@ -1,4 +1,3 @@
-{-# LANGUAGE TupleSections #-}
 {-|
 Module      : Plugin.Trans.DictInstFun
 Description : Lift the dictionary binding of a type class.

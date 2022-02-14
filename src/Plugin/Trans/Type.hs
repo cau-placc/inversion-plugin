@@ -14,8 +14,6 @@ module Plugin.Trans.Type where
 import Data.IORef
 import Data.List
 import Data.Maybe
-import Data.Generics.Aliases
-import Data.Generics.Schemes
 import Control.Arrow ( Arrow(first) )
 
 import OccName    hiding (varName)
