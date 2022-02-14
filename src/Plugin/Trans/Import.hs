@@ -8,7 +8,7 @@ Maintainer  : kai.prott@hotmail.de
 This module implements the Renamer plugin that checks if all imported
 modules have been compiled with the plugin or marked as compatible.
 -}
-module Plugin.Trans.Import (processImportPlugin, supportedBuiltInModules) where
+module Plugin.Trans.Import (processImportPlugin, lookupSupportedBuiltInModule) where
 
 import Prelude hiding ((<>))
 import Data.Maybe
@@ -61,18 +61,27 @@ checkImports env = do
 -- If you add a module here, you need to import its related lifted module in the lifted Prelude.
 supportedBuiltInModules :: [((String, UnitId), String)]
 supportedBuiltInModules =
-  [ (("Prelude",                baseUnitId), "Plugin.BuiltIn")
-  , (("Data.Kind",              baseUnitId), "Plugin.BuiltIn")
-  , (("GHC.Exts",               baseUnitId), "Plugin.BuiltIn")
-  , (("GHC.Show",               baseUnitId), "Plugin.BuiltIn")
-  , (("Data.Char",              baseUnitId), "Plugin.BuiltIn.Char")
+  [ (("Data.Char",              baseUnitId), "Plugin.BuiltIn.Char")
   , (("GHC.Char",               baseUnitId), "Plugin.BuiltIn.Char")
   , (("Data.Functor.Identity",  baseUnitId), "Plugin.BuiltIn.Identity")
   ]
+{- For documentation:
+  [ (("Prelude",                baseUnitId), "Plugin.BuiltIn")
+  , (("Data.Kind",              baseUnitId), "Plugin.BuiltIn")
+  , (("GHC.Classes",            primUnitId), "Plugin.BuiltIn")
+  , (("GHC.Exts",               baseUnitId), "Plugin.BuiltIn")
+  , (("GHC.Show",               baseUnitId), "Plugin.BuiltIn")
+  ]
+-}
+
+lookupSupportedBuiltInModule :: Module -> Maybe String
+lookupSupportedBuiltInModule mdl = case lookup (moduleNameString (moduleName mdl), moduleUnitId mdl) supportedBuiltInModules of
+  Nothing | moduleUnitId mdl `elem` [baseUnitId, primUnitId] -> Just "Plugin.BuiltIn"
+  m -> m
 
 isSupportedBuiltInModule :: (Module, [ImportedBy]) -> Bool
-isSupportedBuiltInModule (Module u n, _) =
-  n == mkModuleName "Plugin.BuiltIn" || (n, u) `elem` map ((\ (a, b) -> (mkModuleName a, b)) . fst) supportedBuiltInModules
+isSupportedBuiltInModule (mdl@(Module _ n), _) =
+  n == mkModuleName "Plugin.BuiltIn" || isJust (lookupSupportedBuiltInModule mdl)
 
 -- | Get any 'NondetTag' module annotations for a given module
 -- and the source span of the import declaration, if available.

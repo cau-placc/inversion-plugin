@@ -16,7 +16,6 @@ rewrites of selected expressions.
 module Plugin.Trans.Preprocess (preprocessBinding) where
 
 import Prelude hiding (lookup)
-import qualified Prelude as P (lookup)
 import Data.Generics (everywhereM, mkM)
 import Data.Map.Strict
 import Data.List (isPrefixOf)
@@ -241,10 +240,9 @@ preprocessExpr e@(L l1 (HsVar x (L l2 v))) = do
   if nameIsLocalOrFrom mdl nm
     then L l1 . HsVar x . L l2 <$> rename v
     else case nameModule_maybe nm of
-      -- TODO: Just mdl' | Just mbprel <- lookup mdl mappedMdls
       Just mdl' | not $ isBuiltIn nm -> do
           hsc <- lift getTopEnv
-          replacementModule <- case P.lookup (moduleNameString (moduleName mdl'), moduleUnitId mdl') supportedBuiltInModules of
+          replacementModule <- case lookupSupportedBuiltInModule mdl' of
             Just s  -> do
               mbprel <- liftIO $ findImportedModule hsc (mkModuleName s) Nothing
               case mbprel of

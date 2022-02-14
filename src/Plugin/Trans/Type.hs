@@ -366,7 +366,7 @@ lookupTyConMap d (env, ref) tc = do
 
     -- | Look up a type constructor replacement from an external package module.
     lookupTyConExtern mdl m s tcs
-      | Just mdl' <- lookup (moduleNameString (moduleName mdl), moduleUnitId mdl) supportedBuiltInModules = do
+      | Just mdl' <- lookupSupportedBuiltInModule mdl = do
         let thisMdl = mkModuleName mdl'
         foundMdl <- findImportedModule hsc thisMdl Nothing >>= \case
            Found _ mdl'' -> return mdl''
@@ -388,7 +388,7 @@ lookupTyConMap d (env, ref) tc = do
     declFinder (_, f) = occName (ifName f) == occ2
 
     -- | Check if the given TyCon uses the name we are looking for.
-    tyThingFinder mdl occ (_, ATyCon tc') = trace (occNameString (occName n')) (occName n') == occ && nameModule_maybe n' == Just mdl
+    tyThingFinder mdl occ (_, ATyCon tc') = occName n' == occ && nameModule_maybe n' == Just mdl
       where n' = tyConName tc'
     tyThingFinder _   _   _               = False
 
