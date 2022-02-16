@@ -58,6 +58,7 @@ instance MonadUnique (StateT s TcM) where
 rename :: Var -> PM Var
 rename v
   | '$':'d':_<- occNameString (occName v) = return v
+  | isRecordSelector v = renameRec v
   | otherwise = get >>= \s -> case lookup (varUnique v) s of
     Nothing -> do
       u <- getUniqueM

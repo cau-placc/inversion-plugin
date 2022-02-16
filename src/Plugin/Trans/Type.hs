@@ -283,7 +283,7 @@ liftResultTy ftc mty us tcs = liftResultTy'
     liftResultTy' (ForAllTy b ty) =
       ForAllTy b <$> liftResultTy' ty
     liftResultTy' (FunTy f ty1 ty2) =
-      FunTy f <$> replaceTyconTy tcs ty1 <*> liftResultTy' ty2
+      FunTy f <$> liftInnerTy ftc mty us tcs ty1 <*> liftResultTy' ty2
     liftResultTy' (CastTy ty kc) =
       flip CastTy kc <$> liftResultTy' ty
     liftResultTy' ty = liftType ftc mty us tcs ty

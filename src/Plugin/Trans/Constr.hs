@@ -153,13 +153,7 @@ getLiftedRecSel ftc mty us tcs (RecSelData origTc) v = do
   -- Get the index of the record selector in its original definition.
   case midx of
     Just y -> do
-      -- Check if it is a newtype record.
-      let normalNewty = isNewTyCon origTc && not (isClassTyCon origTc)
-      -- Lift it accordingly. Note that we only want to lift the result type
-      -- of the selector. It should still be a unary function.
-      ty <- if normalNewty
-        then replaceTyconTy tcs (varType v)
-        else liftResultTy ftc mty us tcs (varType v)
+      ty <- liftResultTy ftc mty us tcs (varType v)
       -- Use the index to find its new name in the new definition
       let nm = flSelector (tyConFieldLabels tc' !! y)
       return (setIdDetails (setVarName (setVarType (setVarUnique v

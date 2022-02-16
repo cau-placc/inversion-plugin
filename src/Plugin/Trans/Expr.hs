@@ -457,9 +457,8 @@ liftMonadicExpr given tcs
     ce' <- liftConExpr tcs c' ce
     fs' <- liftMonadicRecFields given tcs fs
     let e = L l1 (RecordCon (RecordConTc (RealDataCon c') ce') (L l2 cn') fs')
-    if isNewTyCon (dataConTyCon c')
-      then return e
-      else getTypeOrPanic e >>= flip (mkApp mkNewReturnTh) [e]
+    ety <- getTypeOrPanic e
+    mkApp mkNewReturnTh ety [e]
 liftMonadicExpr _ _ e@(L l (RecordCon (RecordConTc (PatSynCon _) _) _ _)) = do
     flags <- getDynFlags
     reportError (mkErrMsg flags l neverQualify
@@ -646,21 +645,16 @@ liftVarWithWrapper given tcs w v
     us <- getUniqueSupplyM
 
     let apps = collectTyApps w'
-    let (arg, res) = splitFunTy (instantiateWith apps (varType v))
 
     let p = sel_tycon (idDetails v)
     v' <- liftIO (getLiftedRecSel ftc mty us tcs p v)
+    let (arg, res) = splitFunTy (instantiateWith apps (varType v'))
 
     let vExpr = noLoc (mkHsWrap w' (HsVar noExtField (noLoc v')))
-    e <- case p of
-      RecSelData tc
-        -- translate any newtype  record selector "sel" to "return (fmap sel)"
-        | isNewTyCon tc -> mkApp (mkNewFmapTh arg) res [vExpr]
-        -- translate any datatype record selector "sel" to "return (>>= sel)"
-      _                 -> noLoc . flip (SectionR noExtField) vExpr <$>
+    e <- noLoc . flip (SectionR noExtField) vExpr <$>
                              mkAppWith (mkNewBindTh arg) given (bindingType res) []
     ety <- getTypeOrPanic e
-    mkApp mkNewReturnTh ety [noLoc (HsPar noExtField e)]
+    mkApp mkNewReturnFunTh ety [noLoc (HsPar noExtField e)]
   | otherwise          = do
   -- lift type
   w' <- liftWrapperTcM tcs w
@@ -775,8 +769,11 @@ liftExplicitTuple given tcs args b = liftExplicitTuple' [] WpHole args
 liftConExpr :: TyConMap -> DataCon -> PostTcExpr -> TcM PostTcExpr
 liftConExpr tcs dc (HsWrap _ w _) = do
   w' <- liftWrapperTcM tcs w
-  return (HsWrap noExtField w' (HsConLikeOut noExtField (RealDataCon dc)))
-liftConExpr _ dc _ = return (HsConLikeOut noExtField (RealDataCon dc))
+  mty <- mkTyConTy <$> getMonadTycon
+  return (HsWrap noExtField (w' <.> WpTyApp mty) (HsConLikeOut noExtField (RealDataCon dc)))
+liftConExpr _ dc _ = do
+  mty <- mkTyConTy <$> getMonadTycon
+  return (HsWrap noExtField (WpTyApp mty) (HsConLikeOut noExtField (RealDataCon dc)))
 
 liftMonadicRecFields :: [Ct] -> TyConMap
                      -> HsRecordBinds GhcTc
