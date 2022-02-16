@@ -10,6 +10,7 @@ This module contains various utility functions.
 module Plugin.Trans.Util where
 
 import Language.Haskell.TH            ( Exp, Q, runQ )
+import Control.Exception
 import Control.Monad.IO.Class
 import Data.Tuple.Extra
 import Data.Typeable
@@ -50,8 +51,15 @@ mkNewAny ex ty = do
 getType :: LHsExpr GhcTc -> TcM (Maybe Type)
 getType e = do
   hs_env <- getTopEnv
-  (_, mbe) <- liftIO (deSugarExpr hs_env e)
+  (_, mbe) <- liftIO (deSugarExpr hs_env e `catch` (\(SomeException _) -> return (undefined, Nothing)))
   return (exprType <$> mbe)
+
+printDesugared :: LHsExpr GhcTc -> TcM ()
+printDesugared e = do 
+  hs_env <- getTopEnv 
+  (_, mbe) <- liftIO (deSugarExpr hs_env e `catch` (\(SomeException _) -> return (undefined, Nothing)))
+  liftIO $ putStr "desugared: "
+  getDynFlags >>= liftIO . putStrLn . flip showPpr mbe
 
 -- | Get the type of the given expression or panic
 -- if its type annotations are inconsistent.

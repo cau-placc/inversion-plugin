@@ -80,7 +80,7 @@ liftRecSelMG :: TyConMap -> Var
              -> TcM (MatchGroup GhcTc (LHsExpr GhcTc))
 liftRecSelMG tcs f (MG (MatchGroupTc args res) (L _ alts) orig)
   = do
-    args' <- liftIO (mapM (replaceTyconTy tcs) args)
+    args' <- mapM (liftInnerTyTcM tcs) args
     -- Lift the result type of this match group accordingly.
     res' <- liftTypeTcM tcs res
     alts' <- mapM (liftRecSelAlt tcs f) alts
@@ -134,7 +134,7 @@ mkRecSelFun tcs v = do
   res <- liftTypeTcM tcs unliftedRes
 
 
-  let monotype = mkTyConApp mtc [mkTyConApp ftc [arg, bindingType res]]
+  let monotype = mkTyConApp mtc [mkTyConApp ftc [mty, arg, bindingType res]]
   let polytype = mkForAllTys (map (`Bndr` Inferred) pis) monotype
 
   let w = foldr ((<.>) . toWrap) WpHole pis

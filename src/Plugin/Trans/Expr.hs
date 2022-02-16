@@ -320,8 +320,9 @@ liftMonadicExpr _ tcs (L _ (HsConLikeOut _ (RealDataCon c)))
     let ty = mkTyConApp mtycon [mkTyConApp ftycon [intTy, intTy]]
     mkApp (mkNewAny idExp) ty []
   | otherwise = do
+    mty <- mkTyConTy <$> getMonadTycon
     c' <- liftIO (getLiftedCon c tcs)
-    let tys = dataConOrigArgTys c'
+    let tys = conLikeInstOrigArgTys (RealDataCon c') [mty]
     e <- fst <$> mkConLam Nothing c' tys []
     return $ noLoc $ HsPar noExtField e
 liftMonadicExpr _ tcs (L _ (HsWrap _ w (HsConLikeOut _ (RealDataCon c)))) = do
@@ -652,7 +653,7 @@ liftVarWithWrapper given tcs w v
 
     let vExpr = noLoc (mkHsWrap w' (HsVar noExtField (noLoc v')))
     e <- noLoc . flip (SectionR noExtField) vExpr <$>
-                             mkAppWith (mkNewBindTh arg) given (bindingType res) []
+            mkAppWith (mkNewBindTh arg) given (bindingType res) []
     ety <- getTypeOrPanic e
     mkApp mkNewReturnFunTh ety [noLoc (HsPar noExtField e)]
   | otherwise          = do
@@ -782,11 +783,13 @@ liftMonadicRecFields given tcs (HsRecFields flds dotdot) =
   flip HsRecFields dotdot <$> mapM (liftMonadicRecField given tcs) flds
 
 liftMonadicRecordUpd :: TyConMap -> RecordUpdTc -> TcM RecordUpdTc
-liftMonadicRecordUpd tcs (RecordUpdTc cs intys outtys wrap) =
-  RecordUpdTc <$> mapM conLike cs
-            <*> mapM (liftInnerTyTcM tcs) intys
-            <*> mapM (liftInnerTyTcM tcs) outtys
-            <*> liftWrapperTcM tcs wrap
+liftMonadicRecordUpd tcs (RecordUpdTc cs intys outtys wrap) = do 
+  mty <- mkTyConTy <$> getMonadTycon
+  cs' <- mapM conLike cs
+  intys' <- mapM (liftInnerTyTcM tcs) intys
+  outtys' <- mapM (liftInnerTyTcM tcs) outtys
+  w' <- liftWrapperTcM tcs wrap
+  return $ RecordUpdTc cs' (mty:intys') (mty:outtys') w'
   where
     conLike (RealDataCon c) = RealDataCon <$> liftIO (getLiftedCon c tcs)
     conLike p@(PatSynCon _) = do
@@ -816,16 +819,17 @@ liftMonadicRecField given tcs (L l1 (HsRecField (L l2 occ) e pun)) = do
 -- By looking it up in the type environment again, we fix this.
 liftFieldOcc :: TyConMap -> FieldOcc GhcTc -> TcM (FieldOcc GhcTc)
 liftFieldOcc tcs (FieldOcc v _) = do
-  tenv <- tcg_type_env <$> getGblEnv
-  Just (AnId realV) <- return $ lookupTypeEnv tenv (varName v)
-  case idDetails realV of
+  mty <- mkTyConTy <$> getMonadTycon
+  us <- getUniqueSupplyM
+  ftc <- getFunTycon
+  case idDetails v of
     RecSelId parent _ -> do
-      mty <- mkTyConTy <$> getMonadTycon
-      us <- getUniqueSupplyM
-      ftc <- getFunTycon
       v' <- liftIO (getLiftedRecSel ftc mty us tcs parent v)
       return (FieldOcc v' (noLoc (nameRdrName (varName v'))))
-    _ -> panicBndr "Expected RecSel in FieldOcc of Record operation" v
+    _ -> do
+      v' <- setVarType v <$> liftTypeTcM tcs (varType v)
+      printBndrUnsafe "v''" v'
+      return (FieldOcc v' (noLoc (nameRdrName (varName v'))))
 liftFieldOcc _ occ = return occ
 
 liftAmbiguousFieldOcc :: TyConMap -> AmbiguousFieldOcc GhcTc
