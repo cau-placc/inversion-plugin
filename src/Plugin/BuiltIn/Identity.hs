@@ -29,7 +29,7 @@ instance Convertible a => Convertible (Identity a) where
 instance (Convertible a, Matchable a) => Matchable (Identity a) where
   match (Identity x) (IdentityFL y) = matchFL x y
 
-instance NormalForm a a' => NormalForm (Identity a) (IdentityFL FL a') where
+instance NormalForm a => NormalForm (Identity a) where
   normalFormWith nf = \case
     IdentityFL x ->
       nf x >>= \y ->

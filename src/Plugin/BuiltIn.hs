@@ -4,7 +4,6 @@
 {-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE LambdaCase             #-}
 {-# LANGUAGE MagicHash              #-}
-{-# LANGUAGE MultiParamTypeClasses  #-}
 {-# LANGUAGE NoStarIsType           #-}
 {-# LANGUAGE PolyKinds              #-}
 {-# LANGUAGE RankNTypes             #-}
@@ -76,7 +75,7 @@ instance Convertible a => Convertible (Solo a) where
 instance (Convertible a, Matchable a) => Matchable (Solo a) where
   match (Solo x) (SoloFL y) = matchFL x y
 
-instance NormalForm a a' => NormalForm (Solo a) (SoloFL FL a') where
+instance NormalForm a => NormalForm (Solo a) where
   normalFormWith nf = \case
     SoloFL x ->
       nf x P.>>= \y ->
@@ -110,7 +109,7 @@ instance (Convertible a, Matchable a) => Matchable [a] where
   match (x : xs) (ConsFL y ys) = matchFL x y P.>> matchFL xs ys
   match _ _ = P.empty
 
-instance NormalForm a a' => NormalForm [a] (ListFL FL a') where
+instance (NormalForm a, NormalForm [a]) => NormalForm [a] where
   normalFormWith nf = \case
       NilFL -> P.return (P.pure NilFL)
       ConsFL x xs ->
@@ -138,7 +137,7 @@ instance Convertible a => Convertible (P.Ratio a) where
 instance (Convertible a, Matchable a) => Matchable (P.Ratio a) where
   match (a P.:% b) (x :%# y) = matchFL a x P.>> matchFL b y
 
-instance NormalForm a a' => NormalForm (P.Ratio a) (RatioFL FL a') where
+instance NormalForm a => NormalForm (P.Ratio a) where
    normalFormWith nf = \case
        a :%# b ->
          nf a P.>>= \x ->
@@ -275,7 +274,7 @@ instance Matchable Bool where
   match True  TrueFL  = P.return ()
   match _     _       = P.empty
 
-instance NormalForm Bool (BoolFL FL) where
+instance NormalForm Bool where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
 instance Invertible Bool
@@ -297,7 +296,7 @@ instance Convertible () where
 instance Matchable () where
   match () UnitFL = P.return ()
 
-instance NormalForm () (UnitFL FL) where
+instance NormalForm () where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
 instance Invertible ()
@@ -328,7 +327,7 @@ instance Matchable Ordering where
   match GT GTFL = P.return ()
   match _  _    = P.empty
 
-instance NormalForm Ordering (OrderingFL FL) where
+instance NormalForm Ordering where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
 instance Invertible Ordering
@@ -343,7 +342,7 @@ instance Convertible Integer where
 instance Matchable Integer where
   match x y = P.guard (x P.== P.coerce y)
 
-instance NormalForm Integer (IntegerFL FL) where
+instance NormalForm Integer where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
 instance Invertible Integer
@@ -358,7 +357,7 @@ instance Convertible Int where
 instance Matchable Int where
   match i1 (IntFL i2) = P.guard (i1 P.== i2)
 
-instance NormalForm Int (IntFL FL) where
+instance NormalForm Int where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
 instance Invertible Int
@@ -373,7 +372,7 @@ instance Convertible Float where
 instance Matchable Float where
   match x y = P.guard (x P.== P.coerce y)
 
-instance NormalForm Float (FloatFL FL) where
+instance NormalForm Float where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
 instance Invertible Float
@@ -388,7 +387,7 @@ instance Convertible Double where
 instance Matchable Double where
   match x y = P.guard (x P.== P.coerce y)
 
-instance NormalForm Double (DoubleFL FL) where
+instance NormalForm Double where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
 instance Invertible Double
@@ -403,7 +402,7 @@ instance Convertible P.Char where
 instance Matchable P.Char where
   match x y = P.guard (x P.== P.coerce y)
 
-instance NormalForm P.Char (CharFL FL) where
+instance NormalForm P.Char where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
 instance Invertible P.Char

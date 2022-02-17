@@ -307,8 +307,8 @@ genInstances originalDataDec liftedDataDec = do
         matches <- mapM genMatch liftedConInfos
         let body = NormalB (LamCaseE matches)
             dec = FunD 'normalFormWith [Clause [VarP nfName] body []]
-            ctxt = zipWith mkNormalFormConstraint originalConArgs liftedConArgs
-        return $ InstanceD Nothing ctxt (mkNormalFormConstraint originalTy liftedTy) [dec]
+            ctxt = map mkNormalFormConstraint originalConArgs
+        return $ InstanceD Nothing ctxt (mkNormalFormConstraint originalTy) [dec]
 
       genInvertible = do
         let ctxt = map mkInvertibleConstraint originalConArgs
@@ -346,8 +346,8 @@ mkConvertibleConstraint ty = applyType (ConT ''Convertible) [ty]
 mkMatchableConstraint :: Type -> Type
 mkMatchableConstraint ty = applyType (ConT ''Matchable) [ty]
 
-mkNormalFormConstraint :: Type -> Type -> Type
-mkNormalFormConstraint ty1 ty2 = applyType (ConT ''NormalForm) [ty1, ty2]
+mkNormalFormConstraint :: Type -> Type
+mkNormalFormConstraint ty = applyType (ConT ''NormalForm) [ty]
 
 mkInvertibleConstraint :: Type -> Type
 mkInvertibleConstraint ty = applyType (ConT ''Invertible) [ty]

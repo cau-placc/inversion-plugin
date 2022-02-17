@@ -4,9 +4,9 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts          #-}
 {-# LANGUAGE FlexibleInstances         #-}
-{-# LANGUAGE FunctionalDependencies    #-}
 {-# LANGUAGE GADTs                     #-}
 {-# LANGUAGE LambdaCase                #-}
+{-# LANGUAGE MultiParamTypeClasses     #-}
 {-# LANGUAGE RankNTypes                #-}
 {-# LANGUAGE RecordWildCards           #-}
 {-# LANGUAGE ScopedTypeVariables       #-}
@@ -256,21 +256,21 @@ free i = FL (return (Var i))
 
 --------------------------------------------------------------------------------
 
-class b ~ Lifted FL a => NormalForm a b | a -> b, b -> a where
-  normalFormWith :: Applicative m => (forall c. NormalForm c (Lifted FL c) => FL (Lifted FL c) -> ND FLState (m (Lifted m c))) -> b -> ND FLState (m (Lifted m a))
+class NormalForm a where
+  normalFormWith :: Applicative m => (forall b. NormalForm b => FL (Lifted FL b) -> ND FLState (m (Lifted m b))) -> Lifted FL a -> ND FLState (m (Lifted m a))
 
 --TODO: groundNormalFormND or groundNormalForm?
-groundNormalFormFL :: NormalForm a (Lifted FL a) => FL (Lifted FL a) -> ND FLState (Identity (Lifted Identity a))
+groundNormalFormFL :: NormalForm a => FL (Lifted FL a) -> ND FLState (Identity (Lifted Identity a))
 groundNormalFormFL fl = resolve fl >>= \case
   Val x -> normalFormWith groundNormalFormFL x
   Var i -> instantiate i >>= normalFormWith groundNormalFormFL
 
-normalFormFL :: NormalForm a (Lifted FL a) => FL (Lifted FL a) -> ND FLState (Either ID (Lifted (Either ID) a))
+normalFormFL :: NormalForm a => FL (Lifted FL a) -> ND FLState (Either ID (Lifted (Either ID) a))
 normalFormFL fl = resolve fl >>= \case
   Val x -> normalFormWith normalFormFL x
   Var i -> return (Left i)
 
-evalWith :: NormalForm a (Lifted FL a) => (forall b. NormalForm b (Lifted FL b) => FL (Lifted FL b) -> ND FLState (m (Lifted m b))) -> FL (Lifted FL a) -> Search (m (Lifted m a))
+evalWith :: NormalForm a => (forall b. NormalForm b => FL (Lifted FL b) -> ND FLState (m (Lifted m b))) -> FL (Lifted FL a) -> Search (m (Lifted m a))
 evalWith nf fl = evalND (nf fl) initFLState
 
 --------------------------------------------------------------------------------
@@ -334,7 +334,7 @@ matchFL x fl = FL $ resolve fl >>= \case
 
 --------------------------------------------------------------------------------
 
-class (Matchable a, Convertible a, NormalForm a (Lifted FL a), HasPrimitiveInfo (Lifted FL a)) => Invertible a
+class (Matchable a, Convertible a, NormalForm a, HasPrimitiveInfo (Lifted FL a)) => Invertible a
 
 --------------------------------------------------------------------------------
 
@@ -344,7 +344,7 @@ type (:-->) = (-->) FL
 
 data (-->) (m :: * -> *) (a :: *) (b :: *) where
   Func        :: (m a -> m b) -> (-->) m a b
-  HaskellFunc :: (Convertible c, NormalForm c (Lifted FL c), Convertible d) => (c -> d) -> (-->) FL (Lifted FL c) (Lifted FL d)
+  HaskellFunc :: (Convertible c, NormalForm c, Convertible d) => (c -> d) -> (-->) FL (Lifted FL c) (Lifted FL d)
 
 infixr 0 -->
 
@@ -357,7 +357,7 @@ type instance Lifted m ((->) a b) = (-->) m (Lifted m a) (Lifted m b)
 decomposeInjectivity :: Lifted m a ~ Lifted m b => a :~: b
 decomposeInjectivity = unsafeCoerce Refl
 
-instance (Convertible a, NormalForm a (Lifted FL a), Convertible b) => Convertible (a -> b) where
+instance (Convertible a, NormalForm a, Convertible b) => Convertible (a -> b) where
   to f = HaskellFunc f
 
   -- TODO: GHC injectivity check cannot do decomposition, https://gitlab.haskell.org/ghc/ghc/-/issues/10833
