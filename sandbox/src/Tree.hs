@@ -3,7 +3,7 @@
 module Tree where
 
 data Tree a = Empty
-            | Node (Tree a ) a (Tree a)
+            | Node (Tree a) a (Tree a)
   deriving Show
 
 preorder :: Tree a -> [a]
