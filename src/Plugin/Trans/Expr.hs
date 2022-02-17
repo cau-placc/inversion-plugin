@@ -317,7 +317,7 @@ liftMonadicExpr _ tcs (L _ (HsConLikeOut _ (RealDataCon c)))
     idExp <- liftQ [| returnFLF id |]
     mtycon <- getMonadTycon
     ftycon <- getFunTycon
-    let ty = mkTyConApp mtycon [mkTyConApp ftycon [intTy, intTy]]
+    let ty = mkTyConApp mtycon [mkTyConApp ftycon [mkTyConTy mtycon, intTy, intTy]]
     mkApp (mkNewAny idExp) ty []
   | otherwise = do
     mty <- mkTyConTy <$> getMonadTycon
@@ -597,7 +597,9 @@ liftMonadicStmts ctxt ctxtSwitch ty given tcs (s:ss) = do
     trans1 (SyntaxExpr e ws w) = do
       e1 <- liftMonadicExpr given tcs (noLoc (HsWrap noExtField w e))
       e1ty <- getTypeOrPanic e1
-      let (ty1, ty2) = both bindingType (splitFunTy (bindingType e1ty))
+      mtc <- getMonadTycon
+      ftc <- getFunTycon
+      let (ty1, ty2) = both bindingType (splitMyFunTy ftc mtc (bindingType e1ty))
       e2 <- mkApp (mkNewApply1 ty1) ty2 [e1]
       ws' <- mapM (liftWrapperTcM tcs) ws
       return (SyntaxExpr (unLoc e2) ws' WpHole)
@@ -605,8 +607,10 @@ liftMonadicStmts ctxt ctxtSwitch ty given tcs (s:ss) = do
     transBind (SyntaxExpr e ws w) = do
       e1 <- liftMonadicExpr given tcs (noLoc (HsWrap noExtField w e))
       e1ty <- getTypeOrPanic e1
-      let (ty1, restty) = both bindingType (splitFunTy (bindingType e1ty))
-      let (ty2, ty3)  = both bindingType (splitFunTy restty)
+      mtc <- getMonadTycon
+      ftc <- getFunTycon
+      let (ty1, restty) = both bindingType (splitMyFunTy ftc mtc (bindingType e1ty))
+      let (ty2, ty3)  = both bindingType (splitMyFunTy ftc mtc restty)
       e2 <- mkApp (mkNewApply2Unlifted ty1 ty2) ty3 [e1]
       ws' <- mapM (liftWrapperTcM tcs) ws
       return (SyntaxExpr (unLoc e2) ws' WpHole)
@@ -614,8 +618,10 @@ liftMonadicStmts ctxt ctxtSwitch ty given tcs (s:ss) = do
     trans2 (SyntaxExpr e ws w) = do
       e1 <- liftMonadicExpr given tcs (noLoc (HsWrap noExtField w e))
       e1ty <- getTypeOrPanic e1
-      let (ty1, restty) = both bindingType (splitFunTy (bindingType e1ty))
-      let (ty2, ty3)  = both bindingType (splitFunTy restty)
+      mtc <- getMonadTycon
+      ftc <- getFunTycon
+      let (ty1, restty) = both bindingType (splitMyFunTy ftc mtc (bindingType e1ty))
+      let (ty2, ty3)  = both bindingType (splitMyFunTy ftc mtc restty)
       e2 <- mkApp (mkNewApply2 ty1 ty2) ty3 [e1]
       ws' <- mapM (liftWrapperTcM tcs) ws
       return (SyntaxExpr (unLoc e2) ws' WpHole)
@@ -783,7 +789,7 @@ liftMonadicRecFields given tcs (HsRecFields flds dotdot) =
   flip HsRecFields dotdot <$> mapM (liftMonadicRecField given tcs) flds
 
 liftMonadicRecordUpd :: TyConMap -> RecordUpdTc -> TcM RecordUpdTc
-liftMonadicRecordUpd tcs (RecordUpdTc cs intys outtys wrap) = do 
+liftMonadicRecordUpd tcs (RecordUpdTc cs intys outtys wrap) = do
   mty <- mkTyConTy <$> getMonadTycon
   cs' <- mapM conLike cs
   intys' <- mapM (liftInnerTyTcM tcs) intys

@@ -185,28 +185,23 @@ mkNewToFL ty1 ty2 = do
 -- | Create a 'apply1' for the given argument types.
 mkNewApply1 :: Type -> Type -> TcM (LHsExpr GhcTc)
 mkNewApply1 ty1 ty2 = do
+  ftycon <- getFunTycon
   mtycon <- getMonadTycon
-  th_expr <- liftQ [| appFL |]
-  let expType =
-        mkVisFunTy (mkTyConApp mtycon                     -- Nondet
-                  [mkVisFunTy (mkTyConApp mtycon [ty1])   --  ( Nondet a ->
-                           (mkTyConApp mtycon [ty2])])    --    Nondet b ) ->
-          (mkVisFunTy (mkTyConApp mtycon [ty1])           -- Nondet a ->
-                   (mkTyConApp mtycon [ty2]))             -- Nondet b
-  mkNewAny th_expr expType
+  mkNewAppTh (mkTyConApp ftycon [mkTyConTy mtycon, ty1, ty2]) ty1
 
 -- | Create a 'apply2' for the given argument types.
 mkNewApply2 :: Type -> Type -> Type -> TcM (LHsExpr GhcTc)
 mkNewApply2 ty1 ty2 ty3 = do
   mtycon <- getMonadTycon
+  ftycon <- getFunTycon
+  let mty = mkTyConTy mtycon
   th_expr <- liftQ [| \f a b -> f `appFL` a `appFL` b |]
   let expType =
         mkTyConApp mtycon                                    -- Nondet
-                  [mkVisFunTy (mkTyConApp mtycon [ty1])      --  (Nondet a ->
-                    (mkTyConApp mtycon                       --   Nondet
-                       [mkVisFunTy (mkTyConApp mtycon [ty2]) --     (Nondet b ->
-                         (mkTyConApp mtycon [ty3])])]        --      Nondet c )
-        `mkVisFunTy`                                         --  ) ->
+                  [mkTyConApp ftycon [mty, ty1,              --  (a :->
+                    mkTyConApp ftycon [mty, ty2,             --   b :->
+                       ty3]]]                                --   c)
+        `mkVisFunTy`                                         --  ->
         mkVisFunTy (mkTyConApp mtycon [ty1])                 -- Nondet a ->
           (mkVisFunTy (mkTyConApp mtycon [ty2])              -- Nondet b ->
                    (mkTyConApp mtycon [ty3]))                -- Nondet c
@@ -216,14 +211,15 @@ mkNewApply2 ty1 ty2 ty3 = do
 mkNewApply2Unlifted :: Type -> Type -> Type -> TcM (LHsExpr GhcTc)
 mkNewApply2Unlifted ty1 ty2 ty3 = do
   mtycon <- getMonadTycon
+  ftycon <- getFunTycon
+  let mty = mkTyConTy mtycon
   th_expr <- liftQ [| \f a b -> f `appFL` a `appFL` return b |]
   let expType =
         mkTyConApp mtycon                                    -- Nondet
-                  [mkVisFunTy (mkTyConApp mtycon [ty1])      --  ( Nondet a ->
-                    (mkTyConApp mtycon                       --    Nondet
-                       [mkVisFunTy (mkTyConApp mtycon [ty2]) --      ( Nondet b ->
-                         (mkTyConApp mtycon [ty3])])]        --        Nondet c )
-        `mkVisFunTy`                                         --  ) ->
+                  [mkTyConApp ftycon [mty, ty1,              --  (a :->
+                    mkTyConApp ftycon [mty, ty2,             --   b :->
+                       ty3]]]                                --   c)
+        `mkVisFunTy`                                         --  ->
         mkVisFunTy (mkTyConApp mtycon [ty1])                 -- Nondet a ->
           (mkVisFunTy ty2                                    --        b ->
                    (mkTyConApp mtycon [ty3]))                -- Nondet c
