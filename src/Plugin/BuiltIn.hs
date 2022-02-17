@@ -81,8 +81,6 @@ instance NormalForm a => NormalForm (Solo a) where
       nf x P.>>= \y ->
         P.return (P.pure (SoloFL y))
 
-instance Invertible a => Invertible (Solo a)
-
 -- * Lifted list type and internal instances
 
 data ListFL m a = NilFL | ConsFL (m a) (m (ListFL m a))
@@ -116,8 +114,6 @@ instance (NormalForm a, NormalForm [a]) => NormalForm [a] where
         nf x P.>>= \y ->
           nf xs P.>>= \ys ->
             P.return (P.pure (ConsFL y ys))
-
-instance Invertible a => Invertible [a]
 
 data RatioFL m a = m a :%# m a
 
@@ -277,8 +273,6 @@ instance Matchable Bool where
 instance NormalForm Bool where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
-instance Invertible Bool
-
 data UnitFL (m :: Type -> Type) = UnitFL
 
 type instance Lifted m () = UnitFL m
@@ -298,8 +292,6 @@ instance Matchable () where
 
 instance NormalForm () where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
-
-instance Invertible ()
 
 data OrderingFL (m :: Type -> Type) = LTFL | EQFL | GTFL
 
@@ -330,8 +322,6 @@ instance Matchable Ordering where
 instance NormalForm Ordering where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
-instance Invertible Ordering
-
 instance HasPrimitiveInfo (IntegerFL FL) where
   primitiveInfo = Primitive
 
@@ -344,8 +334,6 @@ instance Matchable Integer where
 
 instance NormalForm Integer where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
-
-instance Invertible Integer
 
 instance HasPrimitiveInfo (IntFL FL) where
   primitiveInfo = Primitive
@@ -360,8 +348,6 @@ instance Matchable Int where
 instance NormalForm Int where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
-instance Invertible Int
-
 instance HasPrimitiveInfo (FloatFL FL) where
   primitiveInfo = Primitive
 
@@ -374,8 +360,6 @@ instance Matchable Float where
 
 instance NormalForm Float where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
-
-instance Invertible Float
 
 instance HasPrimitiveInfo (DoubleFL FL) where
   primitiveInfo = Primitive
@@ -390,8 +374,6 @@ instance Matchable Double where
 instance NormalForm Double where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
-instance Invertible Double
-
 instance HasPrimitiveInfo (CharFL FL) where
   primitiveInfo = Primitive
 
@@ -404,8 +386,6 @@ instance Matchable P.Char where
 
 instance NormalForm P.Char where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
-
-instance Invertible P.Char
 
 -- | Lifted ShowS type
 type ShowSFL m = (-->) m (StringFL m) (StringFL m)

@@ -310,16 +310,8 @@ genInstances originalDataDec liftedDataDec = do
             ctxt = map mkNormalFormConstraint originalConArgs
         return $ InstanceD Nothing ctxt (mkNormalFormConstraint originalTy) [dec]
 
-      genInvertible = do
-        let ctxt = [ mkConvertibleConstraint originalTy
-                   , mkMatchableConstraint originalTy
-                   , mkNormalFormConstraint originalTy
-                   , mkHasPrimitiveInfoConstraint (mkLifted (ConT ''FL) originalTy)
-                   ]
-        return $ InstanceD Nothing ctxt (mkInvertibleConstraint originalTy) [] :: Q Dec
-
   (++) <$> genLifted originalTc liftedTc liftedTyVars mTy
-       <*> sequence [genHasPrimitiveInfo, genNarrowable, genConvertible, genMatchable, genNormalForm, genInvertible]
+       <*> sequence [genHasPrimitiveInfo, genNarrowable, genConvertible, genMatchable, genNormalForm]
 
 replaceMTyVar :: Name -> Type -> Type -> Type
 replaceMTyVar var replacement = go

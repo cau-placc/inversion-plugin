@@ -334,7 +334,8 @@ matchFL x fl = FL $ resolve fl >>= \case
 
 --------------------------------------------------------------------------------
 
-class (Matchable a, Convertible a, NormalForm a, HasPrimitiveInfo (Lifted FL a)) => Invertible a
+type Invertible a = (Matchable a, Convertible a, NormalForm a, HasPrimitiveInfo (Lifted FL a))
+
 
 --------------------------------------------------------------------------------
 

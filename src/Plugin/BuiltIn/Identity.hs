@@ -34,5 +34,3 @@ instance NormalForm a => NormalForm (Identity a) where
     IdentityFL x ->
       nf x >>= \y ->
         return (pure (IdentityFL y))
-
-instance Invertible a => Invertible (Identity a)
