@@ -7,6 +7,8 @@ import Control.Monad
 
 import Data.Bifunctor
 import Data.List (intercalate, partition, sortOn, subsequences)
+import qualified Data.Map as Map
+import Data.Maybe
 import Data.Tuple.Solo
 
 import FastString
@@ -37,10 +39,36 @@ mkInverseName originalName fixedArgs nonGround
   | isLexVarSym (mkFastString originalName) = mkName $ originalName ++ "$$$" ++ concat ["-%" | nonGround] ++ intercalate "$" (map ((`replicate` '+') . succ) fixedArgs)
   | otherwise                               = mkName $ originalName ++ "Inv" ++ concat ["NG" | nonGround] ++ intercalate "_" (map show fixedArgs)
 
+renameWithFresh :: Type -> Type
+renameWithFresh = go Map.empty freshVars
+  where
+    freshVars = [mkName str | str <- [[c] | c <- ['a' .. 'z']] ++ [c : show n | c <- ['a' .. 'z'], n <- [(0 :: Int) ..]]]
+
+    binderName (PlainTV  n  ) = n
+    binderName (KindedTV n _) = n
+
+    lookupOrKeep n m = fromMaybe n (Map.lookup n m)
+
+    go m fresh (ForallT vs ctxt ty) =
+      let m' = foldr (uncurry Map.insert) m $ zipWith (\a b -> (binderName a, b)) vs fresh
+      in ForallT (map (goTV m' fresh) vs) (map (go m' fresh) ctxt) (go m' fresh ty)
+    go m _ (VarT n) = VarT (lookupOrKeep n m)
+    go m fresh (AppT     ty1 ty2) = AppT (go m fresh ty1) (go m fresh ty2)
+    go m fresh (SigT     ty1 ty2) = SigT (go m fresh ty1) (go m fresh ty2)
+    go m fresh (AppKindT ty1 ty2) = AppKindT (go m fresh ty1) (go m fresh ty2)
+    go m fresh (InfixT  ty1 n ty2) = InfixT (go m fresh ty1) (lookupOrKeep n m) (go m fresh ty2)
+    go m fresh (UInfixT ty1 n ty2) = UInfixT (go m fresh ty1) (lookupOrKeep n m) (go m fresh ty2)
+    go m fresh (ParensT ty) = ParensT (go m fresh ty)
+    go m fresh (ImplicitParamT s ty) = ImplicitParamT s (go m fresh ty)
+    go _ _ ty = ty
+
+    goTV m _ (PlainTV n) = PlainTV (lookupOrKeep n m)
+    goTV m fresh (KindedTV n ty) = KindedTV (lookupOrKeep n m) (go m fresh ty)
+
 genInverse :: String -> Type -> [Int] -> Bool -> Name -> DecsQ
 genInverse originalString originalTy fixedArgs nonGround liftedName = do
   let invName = mkInverseName originalString fixedArgs nonGround
-      (originalTyVarBndrs, originalCxt, originalTy') = decomposeForallT originalTy
+      (originalTyVarBndrs, originalCxt, originalTy') = decomposeForallT (renameWithFresh originalTy)
       (originalArgTys, originalResTy) = arrowUnapply originalTy'
       (fixedOriginalArgTys, nonFixedOriginalArgTys) = partitionByIndices fixedArgs originalArgTys
 
@@ -311,7 +339,11 @@ genInstances originalDataDec liftedDataDec = do
         return $ InstanceD Nothing ctxt (mkNormalFormConstraint originalTy) [dec]
 
       genInvertible = do
-        let ctxt = map mkInvertibleConstraint originalConArgs
+        let ctxt = [ mkConvertibleConstraint originalTy
+                   , mkMatchableConstraint originalTy
+                   , mkNormalFormConstraint originalTy
+                   , mkHasPrimitiveInfoConstraint (mkLifted (ConT ''FL) originalTy)
+                   ] ++ map mkInvertibleConstraint originalConArgs
         return $ InstanceD Nothing ctxt (mkInvertibleConstraint originalTy) [] :: Q Dec
 
   (++) <$> genLifted originalTc liftedTc liftedTyVars mTy
