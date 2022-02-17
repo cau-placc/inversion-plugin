@@ -31,6 +31,7 @@ library
     Main
     Arith
     DataLift
+    Tree
 
     ExampleSubmission
     MainSubmission
