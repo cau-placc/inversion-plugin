@@ -249,6 +249,13 @@ mapFL = returnFLF $ \f -> returnFLF $ \xs ->
     NilFL -> P.return NilFL
     ConsFL a as -> P.return (ConsFL (f `appFL` a) (mapFL `appFL` f `appFL` as))
 
+-- | Lifted (++) function for lists
+(++#) :: FL (ListFL FL a :--> ListFL FL a :--> ListFL FL a)
+(++#) = returnFLF $ \xs -> returnFLF $ \ys ->
+  xs P.>>= \case
+    NilFL -> ys
+    ConsFL a as -> P.return (ConsFL a ((++#) `appFL` as `appFL` ys))
+
 data BoolFL (m :: Type -> Type) = FalseFL | TrueFL
 
 type instance Lifted m Bool = BoolFL m
