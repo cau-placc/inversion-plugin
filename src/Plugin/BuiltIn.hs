@@ -92,19 +92,19 @@ type StringFL m = ListFL m (CharFL m)
 type instance Lifted m [] = ListFL m
 type instance Lifted m [a] = ListFL m (Lifted m a)
 
-instance HasPrimitiveInfo a => HasPrimitiveInfo (ListFL FL a) where
+instance (HasPrimitiveInfo a, HasPrimitiveInfo (ListFL FL a)) => HasPrimitiveInfo (ListFL FL a) where
   primitiveInfo = NoPrimitive
 
-instance HasPrimitiveInfo a => Narrowable (ListFL FL a) where
+instance (HasPrimitiveInfo a, HasPrimitiveInfo (ListFL FL a)) => Narrowable (ListFL FL a) where
   narrow j = [(NilFL, 0), (ConsFL (free j) (free (j P.+ 1)), 2)]
 
-instance Convertible a => Convertible [a] where
+instance (Convertible a, Convertible [a]) => Convertible [a] where
   to [] = NilFL
   to (x : xs) = ConsFL (toFL x) (toFL xs)
   fromWith _ NilFL = []
   fromWith ff (ConsFL x xs) = ff x : ff xs
 
-instance (Convertible a, Matchable a) => Matchable [a] where
+instance (Convertible a, Matchable a, Matchable [a], Convertible [a]) => Matchable [a] where
   match [] NilFL = P.return ()
   match (x : xs) (ConsFL y ys) = matchFL x y P.>> matchFL xs ys
   match _ _ = P.empty
