@@ -144,6 +144,8 @@ instance NormalForm a => NormalForm (P.Ratio a) where
            nf b P.>>= \y ->
              P.return (P.pure (x :%# y))
 
+instance Invertible a => Invertible (P.Ratio a)
+
 type RationalFL m = RatioFL m (IntegerFL m)
 
 -- * For plugin purposes only.
