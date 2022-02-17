@@ -311,7 +311,11 @@ genInstances originalDataDec liftedDataDec = do
         return $ InstanceD Nothing ctxt (mkNormalFormConstraint originalTy) [dec]
 
       genInvertible = do
-        let ctxt = map mkInvertibleConstraint originalConArgs
+        let ctxt = [ mkConvertibleConstraint originalTy
+                   , mkMatchableConstraint originalTy
+                   , mkNormalFormConstraint originalTy
+                   , mkHasPrimitiveInfoConstraint (mkLifted (ConT ''FL) originalTy)
+                   ]
         return $ InstanceD Nothing ctxt (mkInvertibleConstraint originalTy) [] :: Q Dec
 
   (++) <$> genLifted originalTc liftedTc liftedTyVars mTy
