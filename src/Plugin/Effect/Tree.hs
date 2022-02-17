@@ -36,12 +36,12 @@ ps t' = unsafePerformIO $ do
         None -> return ()
         One x -> writeChan ch (Just x)
         Choice l r -> do
-          mvarl <- newEmptyMVar
-          mvarr <- newEmptyMVar
-          _ <- forkFinally (psIO l) $ \_ -> putMVar mvarl ()
-          _ <- forkFinally (psIO r) $ \_ -> putMVar mvarr ()
-          takeMVar mvarl
-          takeMVar mvarr
+          mvarL <- newEmptyMVar
+          mvarR <- newEmptyMVar
+          _ <- forkFinally (psIO l) $ \_ -> putMVar mvarL ()
+          _ <- forkFinally (psIO r) $ \_ -> putMVar mvarR ()
+          takeMVar mvarL
+          takeMVar mvarR
   tid <- forkFinally (psIO $ searchTree t') $ \_ -> writeChan ch Nothing
   res <- catMaybes . takeWhile isJust <$> getChanContents ch
   addFinalizer res $ killThread tid
