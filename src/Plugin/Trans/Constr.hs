@@ -11,7 +11,7 @@ functions to get the lifted constructors and record selectors from
 the type constructor map.
 -}
 module Plugin.Trans.Constr
-  ( liftConstr, getLiftedCon, getLiftedRecSel, RecordLiftingException(..)
+  ( liftConstr, liftRepName, getLiftedCon, getLiftedRecSel, RecordLiftingException(..)
   ) where
 
 import Data.List
@@ -72,7 +72,8 @@ liftConstr isClass dflags instEnvs ftycon mvar mtycon tcs tcsM tycon s cn = do
   let (s1, tmp1) = splitUniqSupply s
       (s2, tmp2) = splitUniqSupply tmp1
       (s3, tmp3) = splitUniqSupply tmp2
-      (s4, s5  ) = splitUniqSupply tmp3
+      (s4, tmp4) = splitUniqSupply tmp3
+      (s5, s6  ) = splitUniqSupply tmp4
       ss = listSplitUniqSupply s4
 
   -- Lift all constructor arguments and update any type constructors.
@@ -104,7 +105,7 @@ liftConstr isClass dflags instEnvs ftycon mvar mtycon tcs tcsM tycon s cn = do
                 mkDataConRep dflags instEnvs wrap' (Just bangs) dc
       -- Create the new constructor.
       dc = mkDataCon
-        name1 (dataConIsInfix cn) (tyConName $ promoteDataCon cn)
+        name1 (dataConIsInfix cn) (maybe (tyConName $ promoteDataCon cn) (liftRepName s6) (tyConRepName_maybe tycon))
         (dataConSrcBangs cn) fs (if isClass then dataConUnivTyVars cn else mvar : dataConUnivTyVars cn)
         (dataConExTyCoVars cn) (if isClass then dataConUserTyVarBinders cn else Bndr mvar Specified : dataConUserTyVarBinders cn) (dataConEqSpec cn)
         (dataConTheta cn) argtys resty NoRRI tycon
@@ -172,3 +173,6 @@ getLiftedRecSel _ _ _ _ p@(RecSelPatSyn _) v =
   throw (RecordLiftingException v p reason)
     where
       reason = "Pattern synonyms are not supported by the plugin yet"
+
+liftRepName :: UniqSupply -> TyConRepName -> TyConRepName
+liftRepName u n = mkSystemName (uniqFromSupply u) (mkOccName (occNameSpace (occName n)) (occNameString (occName n) ++ "FL"))

@@ -50,7 +50,8 @@ liftTycon dflags instEnvs ftycon mtycon supply tcs tcsM tc
     -- The tycon definition is cyclic, so we use this let-construction.
     let u = uniqFromSupply supply
         (supply1, other) = splitUniqSupply supply
-        (supply2, supply3) = splitUniqSupply supply1
+        (supply2, supply5) = splitUniqSupply supply1
+        (supply4, supply3) = splitUniqSupply supply5
     -- Lift the rhs of the underlying datatype definition.
     -- For classes, this lifts the implicit datatype for its dictionary.
     let mVar = mkTyVar (mkInternalName (uniqFromSupply supply2) (mkVarOcc "m") noSrcSpan) (mkVisFunTy liftedTypeKind liftedTypeKind)
@@ -58,9 +59,9 @@ liftTycon dflags instEnvs ftycon mtycon supply tcs tcsM tc
       (algTyConRhs tc)
     -- Potentially lift any class information
     flav <- case (tyConRepName_maybe tc, tyConClass_maybe tc) of
-          (Just p, Just c ) -> flip ClassTyCon p <$>
+          (Just p, Just c ) -> flip ClassTyCon (liftRepName supply4 p) <$>
             liftClass ftycon mtycon tcs tcsM tycon us2 c
-          (Just p, Nothing) -> return (VanillaAlgTyCon p)
+          (Just p, Nothing) -> return (VanillaAlgTyCon (liftRepName supply4 p))
           _                 ->
             panicAnyUnsafe "Unknown flavour of type constructor" tc
     -- Create the new TyCon.

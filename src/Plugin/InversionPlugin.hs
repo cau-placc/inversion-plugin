@@ -47,6 +47,7 @@ import GHC.ThToHs (convertToHsDecls)
 import TcRnDriver (tcTopSrcDecls, rnTopSrcDecls)
 import Class
 import FamInst
+import TcTypeable
 
 import Plugin.Dump
 import Plugin.Trans.Expr
@@ -164,13 +165,20 @@ liftMonadPlugin mdopts env = do
   let anns' = a : anns
   let tenv = plusTypeEnv (tcg_type_env env) (typeEnvFromEntities [] tcg_tcs' [])
   writeTcRef (tcg_type_env_var env) tenv
-  let env1 = env { tcg_tcs        = tcg_tcs'
+
+  let notTypeableBind :: LHsBindLR GhcTc GhcTc -> Bool
+      notTypeableBind (L _ (VarBind _ nm _ _)) = let str = occNameString (occName nm)
+                                                 in not ("$tc" `isPrefixOf` str || "$trModule" `isPrefixOf` str)
+      notTypeableBind _                        = True
+  let env0 = env { tcg_tcs        = tcg_tcs'
                  , tcg_type_env   = tenv
                  , tcg_ann_env    = aenv'
                  , tcg_anns       = anns'
                  , tcg_rdr_env    = rdr
                  , tcg_ev_binds   = tcg_ev_binds'
+                 , tcg_binds      = filterBag notTypeableBind (tcg_binds env)
                  , tcg_tc_plugins = [] }
+  env1 <- setGblEnv env0 mkTypeableBinds -- derive typeable again
 
   -- set temporary flags needed for all further steps
   -- (enable some language extentions and disable all warnings)
