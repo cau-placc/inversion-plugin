@@ -15,7 +15,7 @@ expressions as well as do notation.
 The pattern match compilation is the main preprocessing phase
 before lifting a function.
 -}
-module Plugin.Trans.PatternMatching (compileMatchGroup, matchExpr) where
+module Plugin.Trans.PatternMatching (compileMatchGroup, matchExpr, compileLetBind) where
 
 import Data.List
 import Data.Data     (Data)
@@ -469,7 +469,7 @@ mkVarMatch n vs ty err eqs = do
     then mkSeq v e
     else return e
 
--- HACK: since Int# is "invisible" to the lifting and any I# constructor for Int is removed, 
+-- HACK: since Int# is "invisible" to the lifting and any I# constructor for Int is removed,
 -- this function has to see through any I# constructor
 bindVarAlt :: Var -> (LPat GhcTc, LMatch GhcTc (LHsExpr GhcTc))
            -> TcM (LMatch GhcTc (LHsExpr GhcTc))
@@ -480,10 +480,10 @@ bindVarAlt v (L _ (LazyPat _ p  ), m) = bindVarAlt v (p, m)
 bindVarAlt v (L _ (ParPat _ p   ), m) = bindVarAlt v (p, m)
 bindVarAlt v (L _ (SigPat _ p _ ), m) = bindVarAlt v (p, m)
 bindVarAlt v (L _ (CoPat _ _ p _), m) = bindVarAlt v (noLoc p, m)
-bindVarAlt v (L _ p@ConPatOut {} , m) 
+bindVarAlt v (L _ p@ConPatOut {} , m)
   | L _ (RealDataCon c) <- pat_con p
   , c == intDataCon
-  , [arg] <- hsConPatArgs (pat_args p) = 
+  , [arg] <- hsConPatArgs (pat_args p) =
       bindVarAlt v (arg, m)
 bindVarAlt _ (_,m) = return m
 
@@ -644,7 +644,7 @@ mkNaturalOrSimpleAlt ty1 _ _ e1 p (Right e2) =
   return $ Left [ noLoc (mkSimpleAlt CaseAlt e1 [p])
                 , noLoc (mkSimpleAlt CaseAlt e2 [noLoc (WildPat ty1)])]
 
--- HACK: since Int# is "invisible" to the lifting and any I# constructor for Int is removed, 
+-- HACK: since Int# is "invisible" to the lifting and any I# constructor for Int is removed,
 -- this function has to see through any I# constructor
 preprocessAs :: Var -> (LPat GhcTc, LMatch GhcTc (LHsExpr GhcTc))
              -> (LPat GhcTc, LMatch GhcTc (LHsExpr GhcTc))
@@ -662,7 +662,7 @@ preprocessAs v (L _ (ParPat _ p), m) =
 preprocessAs v (L _ p@ConPatOut {}, m)
   | L _ (RealDataCon c) <- pat_con p
   , c == intDataCon
-  , [arg] <- hsConPatArgs (pat_args p) = 
+  , [arg] <- hsConPatArgs (pat_args p) =
     preprocessAs v (arg, m)
 preprocessAs _ (p, m) = (p, m)
 
@@ -810,7 +810,7 @@ isConstrPat (L _ (SigPat _ p _ )) = isConstrPat p
 isConstrPat (L _ (CoPat _ _ p _)) = isConstrPat (noLoc p)
 isConstrPat (L _ (XPat _       )) = False
 
--- HACK: since Int# is "invisible" to the lifting and any I# constructor for Int is removed, 
+-- HACK: since Int# is "invisible" to the lifting and any I# constructor for Int is removed,
 -- this function has to see through any I# constructor
 isVarPat :: LPat GhcTc -> Bool
 isVarPat (L _ (WildPat _    )) = True
@@ -823,10 +823,10 @@ isVarPat (L _ (ListPat _ _  )) = False
 isVarPat (L _ TuplePat {}    ) = False
 isVarPat (L _ SumPat {}      ) = False
 isVarPat (L _ (ConPatIn _ _ )) = False
-isVarPat (L _ p@ConPatOut{}    ) 
+isVarPat (L _ p@ConPatOut{}    )
   | L _ (RealDataCon c) <- pat_con p
   , c == intDataCon
-  , [arg] <- hsConPatArgs (pat_args p) 
+  , [arg] <- hsConPatArgs (pat_args p)
                                = isVarPat arg
   | otherwise                  = False
 isVarPat (L _ ViewPat{}      ) = False

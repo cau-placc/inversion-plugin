@@ -213,7 +213,7 @@ liftMonadPlugin mdopts env = do
       setGblEnv env3 $ setLclEnv lcl7 $ do
         -- compile pattern matching
         (prep, um) <- runStateT
-          (liftBag (preprocessBinding False) (tcg_binds env1))
+          (listToBag <$> concatMapM (\(L l bind) -> Prelude.map (L l) <$> preprocessBinding True bind) (bagToList (tcg_binds env1)))
           mempty
         dumpWith DumpPatternMatched dopts (bagToList prep)
 

@@ -37,6 +37,7 @@ import Finder
 import IfaceEnv
 import PrimOp (tagToEnumKey)
 import PrelNames
+import Bag
 
 import Plugin.Trans.Import
 import Plugin.Trans.Util
@@ -93,7 +94,7 @@ renameName v = get >>= \s -> case lookup (nameUnique v) s of
 
 -- | Preprocess a binding before lifting, to get rid of nested pattern matching.
 -- Also removes some explicit type applications and fuses HsWrapper.
-preprocessBinding :: Bool -> HsBindLR GhcTc GhcTc -> PM (HsBindLR GhcTc GhcTc)
+preprocessBinding :: Bool -> HsBindLR GhcTc GhcTc -> PM [HsBindLR GhcTc GhcTc]
 preprocessBinding lcl (AbsBinds a b c d e f g)
   -- Record selectors should stay like they are for now.
   | any (isRecordSelector . abe_poly) d = do
@@ -102,15 +103,15 @@ preprocessBinding lcl (AbsBinds a b c d e f g)
           preprocessExportRec x = return x
 
       d' <- mapM preprocessExportRec d
-      return (AbsBinds a b c d' e f g)
+      return [AbsBinds a b c d' e f g]
   | any (isDictFun . abe_poly) d = do
-      bs <- liftBag (preprocessBinding lcl) f
-      return (AbsBinds a b c d e bs g)
+      bs <- listToBag <$> concatMapM (\(L l bind) -> Prelude.map (L l) <$> preprocessBinding lcl bind) (bagToList f)
+      return [AbsBinds a b c d e bs g]
   | otherwise = do
       -- Preprocess each binding seperate.
-      bs <- liftBag (preprocessBinding lcl) f
+      bs <- listToBag <$> concatMapM (\(L l bind) -> Prelude.map (L l) <$> preprocessBinding lcl bind) (bagToList f)
       d' <- mapM preprocessExport d
-      return (AbsBinds a b c d' e bs g)
+      return [AbsBinds a b c d' e bs g]
   where
     isDictFun v = case occNameString (occName v) of
       '$':'f':_ -> True
@@ -123,11 +124,16 @@ preprocessBinding lcl (FunBind a (L b name) eqs c ticks) = do
   -- Preprocess the inner part of the declaration afterwards.
   eqs' <- preprocessEquations matched
   name' <- rename name
-  return (FunBind a (L b name') eqs' c ticks)
+  return [FunBind a (L b name') eqs' c ticks]
 preprocessBinding _ (VarBind x v e inl) = do
   e' <- preprocessExpr e
   v' <- rename v
-  return (VarBind x v' e' inl)
+  return [VarBind x v' e' inl]
+preprocessBinding _ (PatBind (NPatBindTc fvs ty) p grhs ticks) = do
+  p' <- preprocessPat p
+  grhs' <- preprocessRhs grhs
+  fvs' <- mkNameSet <$> mapM renameName (nameSetElemsStable fvs)
+  Prelude.map unLoc <$> lift (compileLetBind (noLoc (PatBind (NPatBindTc fvs' ty) p' grhs' ticks)))
 preprocessBinding _ a = panicAny "unexpected binding type" a
 
 preprocessExport :: ABExport GhcTc -> PM (ABExport GhcTc)
@@ -509,5 +515,5 @@ preprocessValBinds (XValBindsLR (NValBinds bs sigs)) = do
     preprocessNV :: (RecFlag, LHsBinds GhcTc)
                  -> PM (RecFlag, LHsBinds GhcTc)
     preprocessNV (rf, b) = do
-      bs' <- liftBag (preprocessBinding True) b
+      bs' <- listToBag <$> concatMapM (\(L l bind) -> Prelude.map (L l) <$> preprocessBinding True bind) (bagToList b)
       return (rf, bs')
