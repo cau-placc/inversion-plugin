@@ -98,7 +98,8 @@ liftPat' tcs (TuplePat tys args box) = do
   let lc = noLoc (RealDataCon con)
   (args', vs) <- unzip <$> mapM (liftPat tcs) args
   let det = PrefixCon args'
-  tys' <- mapM (liftInnerTyTcM tcs) tys
+  mty <- mkTyConTy <$> getMonadTycon
+  tys' <- (mty:) <$> mapM (liftInnerTyTcM tcs) tys
   return (ConPatOut lc tys' [] [] (EvBinds emptyBag) det WpHole, concat vs)
 liftPat' _ p@SumPat {} = do
   flags <- getDynFlags
