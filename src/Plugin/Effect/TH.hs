@@ -186,10 +186,10 @@ convertExp freeMap = \case
             | otherwise   -> fail "forbidden function application in input/output specification of an inverse" --TODO
     _ -> AppE <$> convertExp freeMap exp' <*> convertExp freeMap exp2
   ParensE exp' -> ParensE <$> convertExp freeMap exp'
-  InfixE m_exp exp' ma -> InfixE <$> traverse (convertExp freeMap) m_exp <*> convertExp freeMap exp' <*> traverse (convertExp freeMap) ma
-  TupE m_exps -> TupE <$> mapM (traverse (convertExp freeMap)) m_exps
-  ListE exps -> ListE <$> mapM (convertExp freeMap) exps
-  UnboundVarE na -> error $ "unbound variable " ++ show na --TODO: fail
+  InfixE m_exp exp' ma | isJust m_exp && isJust ma -> convertExp freeMap (applyExp exp' (map fromJust [m_exp, ma]))
+  TupE m_exps | all isJust m_exps -> mkLiftedTupleE <$> mapM (convertExp freeMap . fromJust) m_exps
+  ListE exps -> convertExp freeMap (foldr (\x xs -> applyExp (ConE '(:)) [x, xs]) (ConE '[]) exps)
+  UnboundVarE na -> fail $ "Variable not in scope: " ++ show na --TODO: fail
   e -> fail $ "unsupported syntax in convertExp: " ++ show e
   where
     createLambda name ty = do
