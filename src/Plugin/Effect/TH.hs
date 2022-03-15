@@ -79,11 +79,15 @@ var _ = error "free is undefined outside of inverse contexts"
 
 -- exp <- unType <$>  runQ (([|| (,) (var 1) (var 2) ||] :: Q (TExp (Bool, Bool))))
 --putStrLn $(makeFreeMap (createIDMapping exp) >>= \fm -> convertExp fm exp >>= \e -> stringE $ pprint e)
-outClassInv :: InClass p => Name -> ExpQ -> p
-outClassInv _ = undefined
+--outClassInv :: InClass p => Name -> ExpQ -> p
+--outClassInv _ = undefined
 
 -- inv name = inClassInv [| var 1 |] [| var 2 |]
 -- partialInv name x.. = inClassInv name [| x1 |] [| x2 |]
+
+inClassInv f = inClassInverse f []
+
+--inOutClassn
 
 instance InClass p => InClass (ExpQ -> p) where
   inClassInverse name args = \arg -> inClassInverse name (arg : args)
@@ -173,13 +177,19 @@ convertExp freeMap = \case
       _ -> fail "unexpected result from reification of a constructor"
   LitE lit -> return $ AppE (VarE 'toFL) (LitE lit)
   AppE exp' exp2 -> case exp' of
-    VarE na | na == 'Plugin.Effect.TH.var,
-              LitE (IntegerL i) <- exp2 -> case lookup i freeMap of
-                                             Nothing -> fail "internal error: free var not found"
-                                             Just n  -> return $ VarE n
+    VarE na | na == 'Plugin.Effect.TH.var ->
+                case exp2 of
+                  _ | LitE (IntegerL i) <- exp2 -> case lookup i freeMap of
+                                                      Nothing -> fail "internal error: free var not found"
+                                                      Just n  -> return $ VarE n
+                    | otherwise -> error "wrong form of input class"
             | otherwise   -> fail "forbidden function application in input/output specification of an inverse" --TODO
     _ -> AppE <$> convertExp freeMap exp' <*> convertExp freeMap exp2
   ParensE exp' -> ParensE <$> convertExp freeMap exp'
+  InfixE m_exp exp' ma -> InfixE <$> traverse (convertExp freeMap) m_exp <*> convertExp freeMap exp' <*> traverse (convertExp freeMap) ma
+  TupE m_exps -> TupE <$> mapM (traverse (convertExp freeMap)) m_exps
+  ListE exps -> ListE <$> mapM (convertExp freeMap) exps
+  UnboundVarE na -> error $ "unbound variable " ++ show na --TODO: fail
   e -> fail $ "unsupported syntax in convertExp: " ++ show e
   where
     createLambda name ty = do
@@ -188,10 +198,6 @@ convertExp freeMap = \case
       nms <- replicateM argsNum (newName "arg")
       return $ LamE (map VarP nms) (AppE (VarE 'return) (foldl AppE (ConE (liftTHName name)) (map VarE nms)))
   {- TODO
-  InfixE m_exp exp' ma -> _
-  TupE m_exps -> _
-  ListE exps -> _
-  UnboundVarE na -> _
 
   RecConE na x0 -> _
   ArithSeqE ra -> _
