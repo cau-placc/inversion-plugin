@@ -28,7 +28,6 @@ import Control.Monad.Reader
 import Control.Monad.SearchTree
 import Control.Monad.State
 
-import           Data.Either               (fromRight)
 import qualified Data.Kind
 import           Data.Map                  (Map)
 import qualified Data.Map           as Map
@@ -36,7 +35,8 @@ import           Data.Set                  (Set)
 import qualified Data.Set           as Set
 import           Data.Typeable             (type (:~:)(..))
 #ifdef TYPED
-import           Data.Typeable             (Typeable)
+import           Data.Maybe                (fromMaybe)
+import           Data.Typeable             (Typeable, cast)
 #endif
 
 #ifndef USE_WHAT4
@@ -64,29 +64,41 @@ type ID = Integer
 --------------------------------------------------------------------------------
 
 #ifdef TYPED
-data Untyped = forall a. Typeable a => Untyped a
+data Typed = forall a. Typeable a => Typed a
 #else
 data Untyped = forall a. Untyped a
 #endif
 
+#ifdef TYPED
+type Heap = Map ID Typed
+#else
 type Heap = Map ID Untyped
+#endif
 
 emptyHeap :: Heap
 emptyHeap = Map.empty
 
 #ifdef TYPED
 insertBinding :: Typeable a => ID -> a -> Heap -> Heap
+insertBinding i = Map.insert i . Typed
 #else
 insertBinding :: ID -> a -> Heap -> Heap
-#endif
 insertBinding i = Map.insert i . Untyped
+#endif
 
 #ifdef TYPED
+data TypeCastException = TypeCastException
+
+instance Show TypeCastException where
+  show TypeCastException = "type cast failed"
+
+instance Exception TypeCastException
+
 findBinding :: Typeable a => ID -> Heap -> Maybe a
-findBinding i = fmap (\(Untyped x) -> undefined x) . Map.lookup i --TODO
+findBinding i = fmap (\ (Typed x) -> fromMaybe (throw TypeCastException) (cast x)) . Map.lookup i
 #else
 findBinding :: ID -> Heap -> Maybe a
-findBinding i = fmap (\(Untyped x) -> unsafeCoerce x) . Map.lookup i
+findBinding i = fmap (\ (Untyped x) -> unsafeCoerce x) . Map.lookup i
 #endif
 
 --------------------------------------------------------------------------------
