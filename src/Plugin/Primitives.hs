@@ -3,7 +3,7 @@
 
 module Plugin.Primitives
   ( Invertible, Lifted
-  , inv, partialInv, genericInv, weakInv, mkInClassInverse, inClassInverse, var
+  , inv, partialInv, genericInv, weakInv, inClassInv, var
   , funPat
   ) where
 

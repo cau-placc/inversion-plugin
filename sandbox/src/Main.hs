@@ -6,10 +6,10 @@ module Main where
 import Plugin.InversionPlugin
 
 test :: _ => _
-test = $(mkInClassInverse '(++) [ [| var 1 |], [| (:) (var 2) ((:) (var 2) []) |]])
+test = $(inClassInv '(++) [| var 1 |] [| (:) (var 2) ((:) (var 2) []) |])
 
 test' :: _ => _
-test' = $(mkInClassInverse '(++) [ [| (:) True [] |], [| (:) (var 2) ((:) (var 2) []) |]])
+test' = $(inClassInv '(++) [| (:) True [] |] [| (:) (var 2) ((:) (var 2) []) |])
 
 test2 :: _ => _
 test2 = let x = someShit 1 in (x,x)
@@ -18,10 +18,10 @@ someShit :: Ord n => Integer -> [n]
 someShit _ = []
 
 appendInv42 :: _ => _
-appendInv42 x = $(inClassInverse '(++) [] [| var 1 |] [| var 2 |])
+appendInv42 x = $(inClassInv '(++) [| var 1 |] [| var 2 |])
 
 --test3 :: [Int]
-test3 = map snd (($(mkInClassInverse '(++) [ [| var 1 |], [| (:) (var 2) ((:) (var 2) []) |]]) :: _) [True])
+test3 = map snd ($(inClassInv '(++) [| var 1 |] [| (:) (var 2) ((:) (var 2) []) |]) [True])
 
 
 -- (...) :: _ =>
