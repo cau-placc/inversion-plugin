@@ -304,15 +304,15 @@ fromM unM = fromWith (fromM unM) . unM
 fromIdentity :: Convertible a => Identity (Lifted Identity a) -> a
 fromIdentity = fromM runIdentity
 
-data FreeVariableException = FreeVariableException
+data FreeVariableException = FreeVariableException ID
 
 instance Show FreeVariableException where
-  show FreeVariableException = "free variable occured"
+  show (FreeVariableException _) = "free variable occured"
 
 instance Exception FreeVariableException
 
 fromEither :: Convertible a => Either ID (Lifted (Either ID) a) -> a
-fromEither = fromM (fromRight (throw FreeVariableException))
+fromEither = fromM (either (throw . FreeVariableException) id)
 
 --------------------------------------------------------------------------------
 
