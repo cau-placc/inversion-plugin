@@ -248,6 +248,7 @@ instantiate i = get >>= \ FLState { .. } ->
               let c = eqConstraint (Var i) (Val x)
               put (FLState { heap =  insertBinding i x heap, constraintStore = insertConstraint c [i] constraintStore, .. })
               return x
+
 instance Monad FL where
   fl >>= f = FL $
     resolve fl >>= \case
@@ -324,14 +325,17 @@ matchFL x fl = FL $ resolve fl >>= \case
   Var i -> get >>= \ FLState { .. } ->
     case primitiveInfo @(Lifted FL a) of
       NoPrimitive -> do
-        put (FLState { heap = insertBinding i (to x) heap, .. })
+        put (FLState { heap = insertBinding i (to x) heap
+                     , .. })
         return (Val ())
       Primitive   ->
         let c = eqConstraint (Var i) (Val (to x))
             constraintStore' = insertConstraint c [i] constraintStore
         in if isUnconstrained i constraintStore || isConsistent constraintStore'
           then do
-            put (FLState { heap = insertBinding i (to x) heap, constraintStore = constraintStore', .. })
+            put (FLState { heap = insertBinding i (to x) heap
+                         , constraintStore = constraintStore'
+                         , .. })
             return (Val ())
           else empty
   Val y  -> unFL $ match x y
