@@ -1,9 +1,37 @@
-{-# LANGUAGE TemplateHaskell, StandaloneDeriving, FlexibleContexts, ExtendedDefaultRules, ViewPatterns, ScopedTypeVariables #-}
+--{-# LANGUAGE TemplateHaskell, StandaloneDeriving, FlexibleContexts, ExtendedDefaultRules, ViewPatterns, ScopedTypeVariables #-}
 -- TODO: Palindrome example needs flexible contexts.
-
+{-# LANGUAGE TemplateHaskell, FlexibleContexts, PartialTypeSignatures #-}
 module Main where
 
-import Control.Applicative
+import Plugin.InversionPlugin
+
+test :: _ => _
+test = $(mkInClassInverse '(++) [ [| var 1 |], [| (:) (var 2) ((:) (var 2) []) |]])
+
+test' :: _ => _
+test' = $(mkInClassInverse '(++) [ [| (:) True [] |], [| (:) (var 2) ((:) (var 2) []) |]])
+
+test2 :: _ => _
+test2 = let x = someShit 1 in (x,x)
+
+someShit :: Ord n => Integer -> [n]
+someShit _ = []
+
+appendInv42 :: _ => _
+appendInv42 x = $(inClassInverse '(++) [] [| var 1 |] [| var 2 |])
+
+--test3 :: [Int]
+test3 = map snd (($(mkInClassInverse '(++) [ [| var 1 |], [| (:) (var 2) ((:) (var 2) []) |]]) :: _) [True])
+
+
+-- (...) :: _ =>
+-- let b :: _ => _
+--     b = (...)
+-- in b
+
+main = return ()
+
+{-import Control.Applicative
 import Control.Monad
 import Data.Maybe
 
@@ -112,3 +140,4 @@ decomposePalindrome $(funPat 'mkPalindrome [p| mx |]  [p| xs |]) = (mx, xs)
 -- f4 :: [Int] -> String
 -- f4 $(funPat 'f4Helper [p| x |] [p| _ |] [p| _ |] [p| _ |] [p| _ |] [p| _ |]) = "matched"
 -- f4 _ = "not matched"
+-}

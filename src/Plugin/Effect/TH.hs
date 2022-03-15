@@ -1,30 +1,35 @@
-{-# LANGUAGE CPP             #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE CPP               #-}
+{-# LANGUAGE TemplateHaskell   #-}
+{-# LANGUAGE TupleSections     #-}
+{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE FlexibleInstances #-}
 module Plugin.Effect.TH where
 
 import Control.Applicative
 import Control.Monad
 
 import Data.Bifunctor
-import Data.List (intercalate, partition, sortOn, subsequences)
+import Data.List (intercalate, partition, sortOn, subsequences, nub)
 import qualified Data.Map as Map
 import Data.Maybe
 import Data.Tuple.Solo
 
 import FastString
+import GHC (mkModule, mkModuleName)
+import GhcPlugins (DefUnitId(DefUnitId), UnitId (DefiniteUnitId), InstalledUnitId (InstalledUnitId))
+import Lexeme
 
 import Generics.SYB
 
 import Language.Haskell.TH hiding (match)
-import Language.Haskell.TH.Syntax (Name(..), NameFlavour(..), pkgString, mkNameG_v, OccName (OccName))
+import Language.Haskell.TH.Syntax (Name(..), NameFlavour(..), pkgString, mkNameG_v, OccName (OccName), PkgName (PkgName), ModName (ModName))
 
-import Lexeme
 
 import Plugin.Lifted
 import Plugin.Effect.Monad
 import Plugin.Effect.Tree
 import Plugin.Trans.TysWiredIn
-
+import Plugin.Trans.Import (lookupSupportedBuiltInModule)
 
 genInverses :: Name -> Type -> String -> DecsQ
 genInverses liftedName originalTy originalString = do
@@ -38,6 +43,207 @@ mkInverseName :: String -> [Int] -> Bool -> Name
 mkInverseName originalName fixedArgs nonGround
   | isLexVarSym (mkFastString originalName) = mkName $ originalName ++ "$$$" ++ concat ["-%" | nonGround] ++ intercalate "$" (map ((`replicate` '+') . succ) fixedArgs)
   | otherwise                               = mkName $ originalName ++ "Inv" ++ concat ["NG" | nonGround] ++ intercalate "_" (map show fixedArgs)
+
+lookupBuiltin :: String -> Maybe String
+lookupBuiltin "[]" = Just "NilFL"
+lookupBuiltin ":" = Just "ConsFL"
+lookupBuiltin "()" = Just "UnitFL"
+lookupBuiltin s | Just n <- tupleConArity s = Just $ "Tuple" ++ show n ++ "FL"
+                | otherwise                 = Nothing
+  where tupleConArity ('(':rest) = Just $ succ $ length $ takeWhile (== ',') rest
+        tupleConArity _          = Nothing
+
+liftTHName :: Name -> Name
+liftTHName (Name (OccName str) flav) = Name withSuffix flav'
+  where
+    withSuffix | Just str' <- lookupBuiltin str = OccName str'
+               | isLexVarSym (mkFastString str) = OccName $ str ++ "#"
+               | isLexConSym (mkFastString str) = OccName $ str ++ "#"
+               | otherwise                      = OccName $ str ++ "FL"
+    flav' = case flav of
+      NameS -> NameS
+      NameQ mn -> NameQ mn
+      NameU n -> NameU n
+      NameL n -> NameL n
+      NameG ns (PkgName pn) (ModName mn) ->
+        let ghcModule = mkModule (DefiniteUnitId (DefUnitId (InstalledUnitId (mkFastString pn)))) (mkModuleName mn)
+            (pkgNm', mdlNm') = maybe (pn, mn) (thisPkgName,) $
+                               lookupSupportedBuiltInModule ghcModule
+        in NameG ns (PkgName pkgNm') (ModName mdlNm')
+
+--runQ ([||  ||]) >>= print . (\(Name _ flav) -> flav) . (\(VarE s) -> s) . unType
+
+-- TODO: rename to "var" or "unknown"
+var :: Integer -> a
+var _ = error "free is undefined outside of inverse contexts"
+
+-- exp <- unType <$>  runQ (([|| (,) (var 1) (var 2) ||] :: Q (TExp (Bool, Bool))))
+--putStrLn $(makeFreeMap (createIDMapping exp) >>= \fm -> convertExp fm exp >>= \e -> stringE $ pprint e)
+outClassInv :: InClass p => Name -> ExpQ -> p
+outClassInv _ = undefined
+
+-- inv name = inClassInv [| var 1 |] [| var 2 |]
+-- partialInv name x.. = inClassInv name [| x1 |] [| x2 |]
+
+instance InClass p => InClass (ExpQ -> p) where
+  inClassInverse name args = \arg -> inClassInverse name (arg : args)
+
+instance InClass ExpQ where
+  inClassInverse name = mkInClassInverse name . reverse
+class InClass p where
+  inClassInverse :: Name -> [ExpQ] -> p
+
+mkInClassInverse :: Name -> [ExpQ] -> ExpQ
+mkInClassInverse name expsQ = do
+  info <- reify name
+  (_, _, ty) <- decomposeForallT <$> case info of
+    VarI _ ty' _     -> return ty'
+    ClassOpI _ ty' _ -> return ty'
+    _                -> fail $ show name ++ " is no function or class method."
+  let originalArity = arrowArity ty
+  if originalArity == length expsQ
+    then do
+      exps <- sequence expsQ
+      mapping <- makeFreeMap (createIDMapping exps)
+      let liftedName = liftTHName name
+      argExps <- mapM (convertExp (map (second fst) mapping)) exps
+      funPatExp <- genLiftedApply (VarE liftedName) argExps
+      resName <- newName "res"
+      let invArgPats = [resName]
+          matchExp = applyExp (VarE 'matchFL) [VarE resName, funPatExp]
+          freeNames = map (fst . snd) mapping
+          letExp = DoE [NoBindS matchExp, NoBindS returnExp ]
+          returnExp = mkLiftedTupleE (map VarE freeNames)
+#ifdef DEPTH_FIRST
+          searchFunNm = 'dfs
+#elif defined(PARALLEL)
+          searchFunNm = 'ps
+#else
+          searchFunNm = 'bfs
+#endif
+          bodyExp = applyExp (VarE 'map) [VarE (if False {-nonGround-} then 'fromEither else 'fromIdentity), AppE (VarE searchFunNm) (applyExp (VarE 'evalWith)
+            [ VarE (if False {-nonGround-} then 'normalFormFL else 'groundNormalFormFL)
+            , letExp])]
+      bNm <- newName "b"
+      let letDecs = [FunD bNm [Clause (map VarP freeNames) (NormalB bodyExp) []]]
+      return $ LamE (map VarP invArgPats) (LetE letDecs (applyExp (VarE bNm) (map (snd . snd) mapping)))
+    else fail $ "Not enough arguments. Expected " ++ show originalArity ++ ", but received" ++ show (length expsQ)
+{-mkInClassInverse name expsQ = do
+  info <- reify name
+  (_, _, ty) <- decomposeForallT <$> case info of
+    VarI _ ty' _     -> return ty'
+    ClassOpI _ ty' _ -> return ty'
+    _                -> fail $ show name ++ " is no function or class method."
+  let originalArity = arrowArity ty
+  -- TODO check arity
+  exps <- sequence expsQ
+  mapping <- makeFreeMap (createIDMapping exps)
+  let liftedName = liftTHName name
+  argExps <- mapM (convertExp (map (second fst) mapping)) exps
+  funPatExp <- genLiftedApply (VarE liftedName) argExps
+  resName <- newName "res"
+  let invArgPats = [resName]
+      matchExp = applyExp (VarE 'matchFL) [VarE resName, funPatExp]
+      freeExps = map (VarE . fst . snd) mapping
+      letExp = DoE [LetS (map (snd . snd) mapping), NoBindS matchExp, NoBindS returnExp ]
+      returnExp = mkLiftedTupleE freeExps
+#ifdef DEPTH_FIRST
+      searchFunNm = 'dfs
+#elif defined(PARALLEL)
+      searchFunNm = 'ps
+#else
+      searchFunNm = 'bfs
+#endif
+      bodyExp = applyExp (VarE 'map) [VarE (if False {-nonGround-} then 'fromEither else 'fromIdentity), AppE (VarE searchFunNm) (applyExp (VarE 'evalWith)
+        [ VarE (if False {-nonGround-} then 'normalFormFL else 'groundNormalFormFL)
+        , letExp])]
+  bNm <- newName "b"
+  let letDecs = [SigD bNm (ForallT [] [WildCardT] WildCardT), FunD bNm [Clause (map VarP invArgPats) (NormalB bodyExp) []]]
+  return $ LetE letDecs (VarE bNm)-}
+
+convertTExp :: [(Integer, Name)] -> TExp a -> Q Exp
+convertTExp freeMap = convertExp freeMap . unType
+
+convertExp :: [(Integer, Name)] -> Exp -> Q Exp
+convertExp freeMap = \case
+  VarE na -> return $ AppE (VarE 'toFL) (VarE na)
+  ConE na ->
+    reify na >>= \case
+      DataConI _ ty _ -> createLambda na ty
+      _ -> fail "unexpected result from reification of a constructor"
+  LitE lit -> return $ AppE (VarE 'toFL) (LitE lit)
+  AppE exp' exp2 -> case exp' of
+    VarE na | na == 'Plugin.Effect.TH.var,
+              LitE (IntegerL i) <- exp2 -> case lookup i freeMap of
+                                             Nothing -> fail "internal error: free var not found"
+                                             Just n  -> return $ VarE n
+            | otherwise   -> fail "forbidden function application in input/output specification of an inverse" --TODO
+    _ -> AppE <$> convertExp freeMap exp' <*> convertExp freeMap exp2
+  ParensE exp' -> ParensE <$> convertExp freeMap exp'
+  e -> fail $ "unsupported syntax in convertExp: " ++ show e
+  where
+    createLambda name ty = do
+      let (_, _, ty') = decomposeForallT ty
+          argsNum = arrowArity ty'
+      nms <- replicateM argsNum (newName "arg")
+      return $ LamE (map VarP nms) (AppE (VarE 'return) (foldl AppE (ConE (liftTHName name)) (map VarE nms)))
+  {- TODO
+  InfixE m_exp exp' ma -> _
+  TupE m_exps -> _
+  ListE exps -> _
+  UnboundVarE na -> _
+
+  RecConE na x0 -> _
+  ArithSeqE ra -> _
+  AppTypeE exp' ty -> _
+  SigE exp' ty -> _
+
+  UInfixE exp' exp2 exp3 -> _
+  LamE pats exp' -> _
+  LamCaseE mas -> _
+  UnboxedTupE m_exps -> _
+  UnboxedSumE exp' n i -> _
+  CondE exp' exp2 exp3 -> _
+  MultiIfE x0 -> _
+  LetE decs exp' -> _
+  CaseE exp' mas -> _
+  DoE sts -> _
+  MDoE sts -> _
+  CompE sts -> _
+  RecUpdE exp' x0 -> _
+  StaticE exp' -> _
+  LabelE s -> _
+  ImplicitParamVarE s -> _-}
+
+-- let x = ... :: _1
+--     y = ... :: _1
+
+-- f free1 free2 = (..)
+-- f (free 1) (free 2)
+
+makeFreeMap :: [(Integer, ID)] -> Q [(Integer, (Name, Exp))]
+makeFreeMap = mapM (\(i1, i2) -> do
+  nm <- newName $ "free" ++ show (abs i2)
+  return (i1, (nm, AppE (VarE 'Plugin.Effect.Monad.free) (LitE (IntegerL i2)))))
+
+createIDMapping :: [Exp] -> [(Integer, ID)]
+createIDMapping exps = zip (nub $ map (\case
+  AppE exp' exp2 -> case exp' of
+    VarE na | na == 'var,
+              LitE (IntegerL n) <- exp2 -> n
+    _ -> error "cannot happen"
+  _ -> error "cannot happen") $ listify (\case
+  AppE exp' exp2 -> case exp' of
+    VarE na | na == 'var,
+              LitE (IntegerL _) <- exp2 -> True
+            | otherwise   -> False
+    _ -> False
+  _ -> False) exps) [-1, -2 ..]
+
+thisPkgName :: String
+thisPkgName = case 'toFL of
+  Name _ (NameG _ (PkgName s) _) -> s
+  _                              -> error "could not deduce package name of the plugin package"
 
 renameWithFresh :: Type -> Type
 renameWithFresh = go Map.empty freshVars
@@ -94,7 +300,9 @@ genInverse originalString originalTy fixedArgs nonGround liftedName = do
         let invArgPats = map VarP $ fixedArgNames ++ [resName]
             matchExp = applyExp (VarE 'matchFL) [VarE resName, funPatExp]
             returnExp = mkLiftedTupleE (map snd freeExps)
-#ifdef PARALLEL
+#ifdef DEPTH_FIRST
+            searchFunNm = 'dfs
+#elif defined(PARALLEL)
             searchFunNm = 'ps
 #else
             searchFunNm = 'bfs
@@ -132,7 +340,7 @@ getTyVarBndrName (PlainTV  name  ) = name
 getTyVarBndrName (KindedTV name _) = name
 
 mkFreeP :: Exp -> Exp
-mkFreeP = AppE (VarE 'free)
+mkFreeP = AppE (VarE 'Plugin.Effect.Monad.free)
 
 mkIntExp :: Int -> Exp
 mkIntExp = LitE . IntegerL . fromIntegral
@@ -350,12 +558,12 @@ genInstances originalDataDec liftedDataDec = do
        <*> sequence [genHasPrimitiveInfo, genNarrowable, genConvertible, genMatchable, genNormalForm, genInvertible]
 
 replaceMTyVar :: Name -> Type -> Type -> Type
-replaceMTyVar var replacement = go
+replaceMTyVar tvar replacement = go
   where
     go :: Type -> Type
     go ty = case ty of
       AppT ty1 ty2       -> AppT (go ty1) (go ty2)
-      VarT n | n == var  -> replacement
+      VarT n | n == tvar -> replacement
              | otherwise -> VarT n
       _                  -> ty
 

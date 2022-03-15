@@ -15,6 +15,7 @@
 {-# LANGUAGE TypeOperators          #-}
 {-# LANGUAGE UnboxedTuples          #-}
 {-# LANGUAGE UndecidableInstances   #-}
+{-# LANGUAGE NoMonoLocalBinds       #-}
 
 {-# OPTIONS_GHC -Wno-orphans              #-}
 {-# OPTIONS_GHC -Wno-unused-foralls       #-}
@@ -48,10 +49,13 @@ import           Prelude ( Bool (..), Double, Float, Integer, Ordering (..), ($)
 import           Plugin.BuiltIn.Primitive
 import           Plugin.Effect.Monad as M
 import           Plugin.Effect.Util  as M
-import           Plugin.Effect.TH
+import           Plugin.Effect.TH hiding (free)
 import           Plugin.Lifted
 import           Plugin.Trans.TysWiredIn
 import           Data.Tuple.Solo
+
+import Plugin.Effect.Tree
+import Documentation.SBV.Examples.ProofTools.Strengthen (S(x))
 
 -- * Lifted tuple types and internal instances
 
@@ -226,27 +230,69 @@ idFL = returnFLF P.id
 (.#) = returnFLF $ \f -> returnFLF $ \g -> returnFLF $ \a ->
   f `appFL` (g `appFL` a)
 
+flipFL :: FL ((a :--> b :--> c) :--> b :--> a :--> c)
+flipFL = returnFLF $ \f -> returnFLF $ \x -> returnFLF $ \y ->
+  f `appFL` y `appFL` x
+
+curryFL :: FL ((Tuple2FL FL a b :--> c) :--> a :--> b :--> c)
+curryFL = returnFLF $ \f -> returnFLF $ \x -> returnFLF $ \y ->
+  f `appFL` P.return (Tuple2FL x y)
+
+uncurryFL :: FL ((a :--> b :--> c) :--> Tuple2FL FL a b :--> c)
+uncurryFL = returnFLF $ \f -> returnFLF $ \p ->
+  p P.>>= \case
+    Tuple2FL x y -> f `appFL` x `appFL` y
+
 -- | Lifted const function
 constFL :: FL (a :--> b :--> a)
 constFL = returnFLF $ \a -> returnFLF $ P.const a
 
 -- | Lifted logical and
 (&&#) :: FL (BoolFL FL :--> BoolFL FL :--> BoolFL FL)
-(&&#) = liftFL2Convert (P.&&)
+(&&#) = returnFLF $ \a -> returnFLF $ \b -> a P.>>= \case
+  FalseFL -> P.return FalseFL
+  TrueFL  -> b
 
--- | Lifted append function for lists
-appendFL :: FL (ListFL FL a :--> ListFL FL a:--> ListFL FL a)
-appendFL = returnFLF $ \xs -> returnFLF $ \ys ->
+-- | Lifted logical and
+(||#) :: FL (BoolFL FL :--> BoolFL FL :--> BoolFL FL)
+(||#) = returnFLF $ \a -> returnFLF $ \b -> a P.>>= \case
+  FalseFL -> b
+  TrueFL  -> P.return TrueFL
+
+-- | Lifted otherwise
+otherwiseFL :: FL (BoolFL FL)
+otherwiseFL = P.return TrueFL
+
+-- | Lifted (++) function for lists
+(++#) :: FL (ListFL FL a :--> ListFL FL a :--> ListFL FL a)
+(++#) = returnFLF $ \xs -> returnFLF $ \ys ->
   xs P.>>= \case
     NilFL -> ys
-    ConsFL a as -> P.return (ConsFL a (appendFL `appFL` as `appFL` ys))
+    ConsFL a as -> P.return (ConsFL a ((++#) `appFL` as `appFL` ys))
 
--- | Lifted concatMap function for lists
-concatMapFL :: FL ((a :--> ListFL FL b) :--> ListFL FL a :--> ListFL FL b)
-concatMapFL = returnFLF $ \f -> returnFLF $ \xs ->
-  xs P.>>= \case
-    NilFL -> P.return NilFL
-    ConsFL a as -> appendFL `appFL` (f `appFL` a) `appFL` (concatMapFL `appFL` f `appFL` as)
+appendInv :: forall a. Invertible a => [a] -> [([a], [a])]
+appendInv arg = P.map fromIdentity $ bfs $ evalWith groundNormalFormFL $ do
+  matchFL arg ((++#) P.>>= \ (Func f1) -> f1 (free (-1)) P.>>= \ (Func f2) -> f2 (free (-2)))
+  P.return (Tuple2FL (free (-1)) (free (-2)))
+
+-- $(partialInv 'append [|| free 1 ||] [| [free 2, free 2] |])
+-- $(partialInv 'append [| free 1 |] [| replicate 2 (free 2) |])
+-- $(partialInv 'append [| free 1 |] [| [free 2, free 1] |])
+--appendInv0 :: forall a. Invertible a => [a] -> [([a], a)]
+appendInv0 arg = P.map fromIdentity $ bfs $ evalWith groundNormalFormFL $ do
+  let f free1 free2 = do
+        matchFL arg ((++#) P.>>= \ (Func f1) -> f1 free1 P.>>= \ (Func f2) -> f2 (P.return (ConsFL free2 (P.return (ConsFL free2 (P.return NilFL))))))
+        P.return (Tuple2FL free1 free2)
+  f (free (-1)) (free (-2))
+
+  --TODO: explain why monomorph types, let generalisation does not take place, because the type of free1/2 leaks to the outside (as every free variable is part of the return value of an inverse)
+
+-- $(partialInv 'append [|| free 1 ||] [| [id, free 2] |])
+appendInv1 x arg = P.map fromIdentity $ bfs $ evalWith groundNormalFormFL $ do
+  let free1 = free (-1)
+      free2 = free (-2)
+  matchFL arg ((++#) P.>>= \ (Func f1) -> f1 free1 P.>>= \ (Func f2) -> f2 (P.return $ ConsFL x (P.return $ ConsFL free2 (P.return NilFL))))
+  P.return (Tuple2FL free1 free2)
 
 -- | Lifted map function for lists
 mapFL :: FL ((a :--> b) :--> ListFL FL a :--> ListFL FL b)
@@ -255,12 +301,158 @@ mapFL = returnFLF $ \f -> returnFLF $ \xs ->
     NilFL -> P.return NilFL
     ConsFL a as -> P.return (ConsFL (f `appFL` a) (mapFL `appFL` f `appFL` as))
 
--- | Lifted (++) function for lists
-(++#) :: FL (ListFL FL a :--> ListFL FL a :--> ListFL FL a)
-(++#) = returnFLF $ \xs -> returnFLF $ \ys ->
+-- $(partialInv 'map [| replicate 2 True |] [| free 1 |])
+--TODO: inferenzsystem für erlaubte ausdrücke in input classes.
+--TODO: TTH damit man falsche applications von free oder konstruktoren finden kann. pattern wären nicht ausreichend, da wir so keine freien variablen nicht-linear spezifizieren könnten, da syntaktisch verboten.
+--TODO: mapping zu negativen zahlen
+
+--mapInv0 :: Invertible a => [a] -> [Solo [b]]
+mapInv0 arg = P.map fromIdentity $ bfs $ evalWith groundNormalFormFL $ do
+  let free1 = free (-1)
+  matchFL arg (mapFL P.>>= \ (Func f1) -> f1 (toFL P.undefined) P.>>= \ (Func f2) -> f2 free1)
+  P.return (SoloFL free1)
+
+-- | Lifted concatMap function for lists
+concatMapFL :: FL ((a :--> ListFL FL b) :--> ListFL FL a :--> ListFL FL b)
+concatMapFL = returnFLF $ \f -> returnFLF $ \xs ->
   xs P.>>= \case
-    NilFL -> ys
-    ConsFL a as -> P.return (ConsFL a ((++#) `appFL` as `appFL` ys))
+    NilFL -> P.return NilFL
+    ConsFL a as -> (++#) `appFL` (f `appFL` a) `appFL` (concatMapFL `appFL` f `appFL` as)
+
+-- | Lifted takeWhile function for lists
+takeWhileFL :: FL ((a :--> BoolFL FL) :--> ListFL FL a :--> ListFL FL a)
+takeWhileFL = returnFLF $ \p -> returnFLF $ \xs ->
+  xs P.>>= \case
+    NilFL -> P.return NilFL
+    ConsFL a as -> (p `appFL` a) P.>>= \case
+      FalseFL -> P.return NilFL
+      TrueFL -> P.return (ConsFL a (takeWhileFL `appFL` p `appFL` as))
+
+-- | Lifted drop function for lists
+dropFL :: FL (IntFL FL :--> ListFL FL a :--> ListFL FL a)
+dropFL = returnFLF $ \n -> returnFLF $ \xs ->
+  (<=#) `appFL` n `appFL` P.return (IntFL 0) P.>>= \case
+    FalseFL -> xs P.>>= \case
+      NilFL -> P.return NilFL
+      ConsFL _ as -> dropFL `appFL` ((-#) `appFL` n `appFL` P.return (IntFL 1)) `appFL` as
+    TrueFL -> xs
+
+--TODO: Move
+data NonEmptyFL a = a :|# [a]
+--TODO: Eq, Ord, Functor, Applicative, Monad
+
+--TODO: Move
+class SemigroupFL a where
+  (<>#) :: FL (a :--> a :--> a)
+
+  sconcat :: FL (NonEmptyFL a :--> a)
+  {-sconcat (a :| as) = go a as where
+    go b (c:cs) = b <> go c cs
+    go b []     = b-}
+
+  stimes :: IntegralFL b => FL (b :--> a :--> a)
+  --stimes = stimesDefault
+
+{-instance SemigroupFL (ListFL FL a) where
+  (<>#) = (++#)
+  --stimesFL = stimesListFL-}
+
+--TODO: Move
+class SemigroupFL a => MonoidFL a where
+  mempty  :: FL a
+
+  mappend :: FL (a :--> a :--> a)
+  mappend = (<>#)
+
+  mconcat :: FL (ListFL FL a :--> a)
+  --mconcat = foldr mappend mempty
+
+--instance MonoidFL (ListFL FL a) where
+
+--TODO: Move to BuiltIn.Foldable
+class FoldableFL t where
+    foldFL :: MonoidFL m => FL (t m :--> m)
+    --foldFL = foldMapFL `appFL` idFL
+
+    foldMapFL :: MonoidFL m => FL ((a :--> m) :--> t a :--> m)
+    --foldMapFL = returnFLF $ \f -> foldrFL `appFL` ((.#) `appFL` mappendFL `appFL` f) `appFL` memptyFL
+
+    foldMap'FL :: MonoidFL m => FL ((a :--> m) :--> t a :--> m)
+    --foldMap'FL = returnFLF $ \f -> foldl'FL `appFL` (returnFLF $ \acc -> returnFLF $ \a -> (<>#) `appFL` acc `appFL` a) `appFL` memptyFL
+
+    foldrFL :: FL ((a -> b -> b) -> b -> t a -> b)
+    --foldrFL f z t = appEndo (foldMap (Endo #. f) t) z
+
+    foldr'FL :: FL ((a :--> b :--> b) :--> b :--> t a :--> b)
+    --foldr' f z0 xs = foldl f' id xs z0
+    --  where f' k x z = k $! f x z
+
+    foldlFL :: FL ((b :--> a :--> b) :--> b :--> t a :--> b)
+    --foldl f z t = appEndo (getDual (foldMap (Dual . Endo . flip f) t)) z
+
+    foldl'FL :: FL ((b :--> a :--> b) :--> b :--> t a :--> b)
+    --foldl'FL f z0 xs = foldr f' id xs z0
+    --  where f' x k z = k $! f z x
+
+    foldr1FL :: FL ((a :--> a :--> a) :--> t a :--> a)
+    --foldr1FL f xs = fromMaybe (errorWithoutStackTrace "foldr1: empty structure")
+    --                (foldr mf Nothing xs)
+    --  where
+    --    mf x m = Just (case m of
+    --                     Nothing -> x
+    --                     Just y  -> f x y)
+
+    foldl1FL :: FL ((a :--> a :--> a) :--> t a :--> a)
+    {-foldl1 f xs = fromMaybe (errorWithoutStackTrace "foldl1: empty structure")
+                    (foldl mf Nothing xs)
+      where
+        mf m y = Just (case m of
+                         Nothing -> y
+                         Just x  -> f x y)-}
+
+    toListFL :: FL (t a :--> ListFL FL a)
+    --toList t = build (\ c n -> foldr c n t)
+
+    nullFL :: FL (t a :--> BoolFL FL)
+    --null = foldr (\_ _ -> False) True
+
+    lengthFL :: FL (t a :--> IntFL FL)
+    --length = foldl' (\c _ -> c+1) 0
+
+    elemFL :: EqFL a => FL (a :--> t a :--> BoolFL FL)
+    --elem = any . (==)
+
+
+    maximumFL :: OrdFL a => FL (t a :--> a)
+    {-maximum = fromMaybe (errorWithoutStackTrace "maximum: empty structure") .
+       getMax . foldMap' (Max #. (Just :: a -> Maybe a))
+    {-# INLINEABLE maximum #-}-}
+
+    minimumFL :: OrdFL a => FL (t a :--> a)
+    {-minimumFL = fromMaybe (errorWithoutStackTrace "minimum: empty structure") .
+       getMin . foldMap' (Min #. (Just :: a -> Maybe a))
+    {-# INLINEABLE minimum #-}-}
+
+    sumFL :: NumFL a => FL (t a :--> a)
+    --sum = getSum #. foldMap' Sum
+
+    productFL :: NumFL a => FL (t a :--> a)
+    --product = getProduct #. foldMap' Product
+
+instance FoldableFL (ListFL FL) where
+  {-elem    = List.elem
+  foldl   = List.foldl
+  foldl'  = List.foldl'
+  foldl1  = List.foldl1
+  foldr   = List.foldr
+  foldr1  = List.foldr1
+  length  = List.length
+  maximum = List.maximum
+  minimum = List.minimum
+  null    = List.null
+  product = List.product
+  sum     = List.sum
+  toList  = id-}
 
 data BoolFL (m :: Type -> Type) = FalseFL | TrueFL
 
@@ -426,7 +618,7 @@ class ShowFL a where
   {-# MINIMAL showsPrecFL | showFL #-}
   showsPrecFL :: FL (IntFL FL :--> a :--> ShowSFL FL)
   showsPrecFL = returnFLF $ \_ -> returnFLF $ \x -> returnFLF $ \s ->
-    apply2FL appendFL (showFL `appFL` x) s
+    apply2FL (++#) (showFL `appFL` x) s
 
   showFL :: FL (a :--> StringFL FL)
   showFL = returnFLF $ \x -> apply2FL showsFL x (P.return NilFL)
@@ -437,7 +629,7 @@ class ShowFL a where
 showsList__ :: FL ((a :--> ShowSFL FL) :--> ListFL FL a :--> ShowSFL FL)
 showsList__ = returnFLF $ \showx -> returnFLF $ \list -> returnFLF $ \s ->
   list P.>>= \case
-    NilFL       -> apply2FL appendFL (toFL "[]") s
+    NilFL       -> apply2FL (++#) (toFL "[]") s
     ConsFL x xs ->
       P.return (ConsFL (toFL '[') (apply2FL showx x (apply3FL showl showx xs s)))
   where
@@ -459,7 +651,7 @@ showString :: P.String -> P.ShowS
 showString = (P.++)
 
 showStringFL :: FL (StringFL FL :--> ShowSFL FL)
-showStringFL = appendFL
+showStringFL = (++#)
 
 showCommaSpace :: P.ShowS
 showCommaSpace = showString ", "
@@ -886,7 +1078,7 @@ class ApplicativeFL f => AlternativeFL f where
 
 instance AlternativeFL (ListFL FL) where
   emptyFL = P.return NilFL
-  (<|>#) = appendFL
+  (<|>#) = (++#)
 
 
 type instance Lifted FL P.Monad = MonadFL
@@ -904,7 +1096,7 @@ class ApplicativeFL m => MonadFL m where
 instance MonadFL (ListFL FL) where
   (>>=#) = returnFLF $ \a -> returnFLF $ \f -> a P.>>= \case
     NilFL       -> P.return NilFL
-    ConsFL x xs -> apply2FL appendFL (f `appFL` x) (apply2FL (>>=#) xs f)
+    ConsFL x xs -> apply2FL (++#) (f `appFL` x) (apply2FL (>>=#) xs f)
 
 type instance Lifted FL P.MonadFail = MonadFailFL
 type instance Lifted FL (P.MonadFail f) = MonadFailFL (Lifted FL f)

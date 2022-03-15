@@ -1,10 +1,9 @@
 {-# LANGUAGE FlexibleInstances    #-}
 {-# LANGUAGE TemplateHaskell      #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 
 module Plugin.Primitives
   ( Invertible, Lifted
-  , inv, partialInv, weakInv
+  , inv, partialInv, genericInv, weakInv, mkInClassInverse, inClassInverse, var
   , funPat
   ) where
 
