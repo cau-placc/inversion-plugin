@@ -30,12 +30,16 @@ type ID = Integer
 --------------------------------------------------------------------------------
 
 #ifdef TYPED
-data Untyped = forall a. Typeable a => Untyped a
+data Typed = forall a. Typeable a => Typed a
 #else
 data Untyped = forall a. Untyped a
 #endif
 
+#ifdef TYPED
+type Heap = Map ID Typed
+#else
 type Heap = Map ID Untyped
+#endif
 
 emptyHeap :: Heap
 
