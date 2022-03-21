@@ -113,6 +113,11 @@ instance (Convertible a, Matchable a, Matchable [a], Convertible [a]) => Matchab
   match (x : xs) (ConsFL y ys) = matchFL x y P.>> matchFL xs ys
   match _ _ = P.empty
 
+instance (Unifiable a, Unifiable [a]) => Unifiable [a] where
+  lazyUnify NilFL NilFL = P.return ()
+  lazyUnify (ConsFL x xs) (ConsFL y ys) = lazyUnifyFL x y P.>> lazyUnifyFL xs ys
+  lazyUnify _ _ = P.empty
+
 instance (NormalForm a, NormalForm [a]) => NormalForm [a] where
   normalFormWith nf = \case
       NilFL -> P.return (P.pure NilFL)
@@ -474,6 +479,11 @@ instance Matchable Bool where
   match False FalseFL = P.return ()
   match True  TrueFL  = P.return ()
   match _     _       = P.empty
+
+instance Unifiable Bool where
+  lazyUnify FalseFL FalseFL = P.return ()
+  lazyUnify TrueFL  TrueFL  = P.return ()
+  lazyUnify _       _       = P.empty
 
 instance NormalForm Bool where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
