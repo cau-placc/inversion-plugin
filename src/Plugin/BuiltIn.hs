@@ -231,6 +231,52 @@ notFL = liftFL1Convert P.not
 idFL :: FL (a :--> a)
 idFL = returnFLF P.id
 
+-- $(inOutClassInv 'id (In [[| var 1 |]]) (Out [| var 2 |]))
+idInOutInv :: (Convertible ab1, NormalForm ab1, Unifiable ab1,
+                       HasPrimitiveInfo (Lifted FL ab1)) => [(ab1, ab1)]
+idInOutInv = P.map fromIdentity $ bfs $ evalWith groundNormalFormFL $ do
+  let f free1 free2 = do
+        lazyUnifyFL free1 (idFL P.>>= \ (Func f1) -> f1 free2)
+        P.return (Tuple2FL free1 free2)
+  f (free (-1)) (free (-2))
+
+idInOutInvNG :: (Convertible ab1, NormalForm ab1, Unifiable ab1,
+                       HasPrimitiveInfo (Lifted FL ab1)) => [(ab1, ab1)]
+idInOutInvNG = P.map fromEither $ bfs $ evalWith normalFormFL $ do
+  let f free1 free2 = do
+        lazyUnifyFL free1 (idFL P.>>= \ (Func f1) -> f1 free2)
+        P.return (Tuple2FL free1 free2)
+  f (free (-1)) (free (-2))
+
+constTrueFL = returnFLF $ \x -> x P.>>= \case
+  FalseFL -> P.return TrueFL
+  TrueFL  -> P.return TrueFL
+
+-- $(inOutClassInv 'constTrue (In [[| var 2 |]]) (Out [| var 1 |]))
+constTrueInOutInv :: [(Bool, Bool)]
+constTrueInOutInv = P.map fromIdentity $ bfs $ evalWith groundNormalFormFL $ do
+  let f free1 free2 = do
+        lazyUnifyFL free1 (constTrueFL P.>>= \ (Func f1) -> f1 free2)
+        P.return (Tuple2FL free1 free2)
+  f (free (-1)) (free (-2))
+
+-- $(inOutClassInv 'constTrue (In [[| var 1 |]]) (Out [| var 1 |]))
+constTrueInOutInv2 :: [Solo Bool]
+constTrueInOutInv2 = P.map fromIdentity $ bfs $ evalWith groundNormalFormFL $ do
+  let f free1 = do
+        lazyUnifyFL free1 (constTrueFL P.>>= \ (Func f1) -> f1 free1)
+        P.return (SoloFL free1)
+  f (free (-1))
+
+-- $(inOutClassInv 'id (In [[| True |]]) (Out [| var 1 |]))
+idInOutInv2 :: (Convertible ab1, NormalForm ab1, Unifiable ab1,
+                       HasPrimitiveInfo (Lifted FL ab1)) => [Solo ab1]
+idInOutInv2 = P.map fromIdentity $ bfs $ evalWith groundNormalFormFL $ do
+  let f free1 = do
+        lazyUnifyFL free1 (idFL P.>>= \ (Func f1) -> f1 free1)
+        P.return (SoloFL free1)
+  f (free (-1))
+
 (.#) :: FL ((b :--> c) :--> (a :--> b) :--> a :--> c)
 (.#) = returnFLF $ \f -> returnFLF $ \g -> returnFLF $ \a ->
   f `appFL` (g `appFL` a)
