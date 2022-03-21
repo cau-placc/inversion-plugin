@@ -57,6 +57,21 @@ type ND s = Codensity (ReaderT s Search)
 evalND :: ND s a -> s -> Search a
 evalND nd = runReaderT (runCodensity nd return)
 
+{-type ND1 s a = StateT s SearchTree a
+
+evalND1 :: ND1 s a -> s -> SearchTree a
+evalND1 = evalStateT
+
+type ND2 s a = Codensity (ReaderT s SearchTree) a
+
+evalND2 :: ND2 s a -> s -> SearchTree a
+evalND2 nd = runReaderT (runCodensity nd return)
+
+type ND3 s a = Codensity (ReaderT s (Codensity SearchTree)) a
+
+evalND3 :: ND3 s a -> s -> SearchTree a
+evalND3 nd s = runCodensity (runReaderT (runCodensity nd return) s) return-}
+
 --------------------------------------------------------------------------------
 
 type ID = Integer
@@ -105,6 +120,7 @@ findBinding i = fmap (\ (Untyped x) -> unsafeCoerce x) . Map.lookup i
 
 class Narrowable a where
   narrow :: ID -> [(a, Integer)]
+  --TODO: narrowSameConstr :: ID -> a -> (a, Integer)
 
 --------------------------------------------------------------------------------
 
@@ -166,6 +182,10 @@ data ConstraintStore = ConstraintStore {
     constrainedVars :: Set ID
     --TODO: Consistency checks are very time-consuming: Each time we have to call the external SMT solver and go through its entire cycle. In order to be able to minimize the frequency of consistency checks, we record the set of constrained variables. This way we can avoid a new consistency check when a variable is constrained that has not been recorded before.
   }
+
+--TODO: Combinatorial explosion -> constraintstore erforderlich. sonst würde bei x == 0 instanziiert werden müssen und ganz viele bäume erzeugt werden.
+
+-- TODO: type miniterium hacken, weltherrschft an mich reissen
 
 initConstraintStore :: ConstraintStore
 initConstraintStore = ConstraintStore {
@@ -229,6 +249,39 @@ instance Applicative FL where
   pure x = FL (pure (Val x))
   (<*>) = ap
 
+--TODO: ketten durchbrechen und variable zurückliefern (instanziierung hängt von groundNF oder NF ab)
+{-resolve :: FL a -> ND FLState (FLVal a)
+resolve fl = unFL fl >>= \case
+  Val x -> return (Val x)
+  Var i -> get >>= \ FLState { .. } -> case findBinding i heap of
+    Nothing -> return (Var i)
+    Just x  -> resolve x-}
+
+resolve :: FL a -> ND FLState (FLVal a)
+resolve = resolve' []
+
+resolve' :: [ID] -> FL a -> ND FLState (FLVal a)
+resolve' is fl = unFL fl >>= \case
+  Val x -> return (Val x)
+  Var i | i `elem` is -> return (Var i)
+        | otherwise   -> get >>= \ FLState { .. } -> case findBinding i heap of
+    Nothing -> return (Var i)
+    Just x  -> resolve' (i:is) x
+
+instantiate :: forall a. HasPrimitiveInfo a => ID -> ND FLState a
+instantiate i = get >>= \ FLState { .. } ->
+  case primitiveInfo @a of
+    NoPrimitive -> msum (map update (narrow nextID))
+      where update (x, o) = do
+              put (FLState { nextID = nextID + o, heap = insertBinding i (return @FL x) heap, .. })
+              return x
+    Primitive   -> msum (map update (generate i constraintStore))
+      where update x = do
+              let c = eqConstraint (Var i) (Val x)
+              put (FLState { heap =  insertBinding i (return @FL x) heap, constraintStore = insertConstraint c [i] constraintStore, .. })
+              return x
+
+{-
 resolve :: FL a -> ND FLState (FLVal a)
 resolve fl = unFL fl >>= \case
   Val x -> return (Val x)
@@ -248,6 +301,7 @@ instantiate i = get >>= \ FLState { .. } ->
               let c = eqConstraint (Var i) (Val x)
               put (FLState { heap =  insertBinding i x heap, constraintStore = insertConstraint c [i] constraintStore, .. })
               return x
+-}
 
 instance Monad FL where
   fl >>= f = FL $
@@ -285,6 +339,8 @@ normalFormFL fl = resolve fl >>= \case
 
 evalWith :: NormalForm a => (forall b. NormalForm b => FL (Lifted FL b) -> ND FLState (m (Lifted m b))) -> FL (Lifted FL a) -> Search (m (Lifted m a))
 evalWith nf fl = evalND (nf fl) initFLState
+
+--TODO: mit dre run equality stimmt nicht ganz, da das nur für die grundnormalform gilt. für die normalform ist trotzdem noch evalFL x /= evalFL (x >>= return)
 
 --------------------------------------------------------------------------------
 
@@ -325,21 +381,26 @@ matchFL x fl = FL $ resolve fl >>= \case
   Var i -> get >>= \ FLState { .. } ->
     case primitiveInfo @(Lifted FL a) of
       NoPrimitive -> do
-        put (FLState { heap = insertBinding i (to x) heap
+        put (FLState { heap = insertBinding i (toFL x) heap
                      , .. })
         return (Val ())
       Primitive   ->
-        let c = eqConstraint (Var i) (Val (to x))
-            constraintStore' = insertConstraint c [i] constraintStore
-        in if isUnconstrained i constraintStore || isConsistent constraintStore'
+        if isUnconstrained i constraintStore
           then do
-            put (FLState { heap = insertBinding i (to x) heap
-                         , constraintStore = constraintStore'
-                         , .. })
+            put (FLState { heap = insertBinding i (toFL x) heap
+                        , .. })
             return (Val ())
-          else empty
+          else
+            let c = eqConstraint (Var i) (Val (to x))
+                constraintStore' = insertConstraint c [i] constraintStore
+            in if isConsistent constraintStore'
+                 then do
+                   put (FLState { heap = insertBinding i (toFL x) heap
+                               , constraintStore = constraintStore'
+                               , .. })
+                   return (Val ())
+                 else empty
   Val y  -> unFL $ match x y
-  --TODO: Prettify?
 
 -- linMatchFL :: forall a. (Convertible a, Matchable a) => a -> FL (Lifted a) -> FL ()
 -- linMatchFL x (FL nd) = FL $ nd >>= \case
@@ -350,7 +411,102 @@ matchFL x fl = FL $ resolve fl >>= \case
 
 --------------------------------------------------------------------------------
 
-class (Matchable a, Convertible a, NormalForm a, HasPrimitiveInfo (Lifted FL a)) => Invertible a
+class Unifiable a where
+  lazyUnify :: Lifted FL a -> Lifted FL a -> FL ()
+
+--TODO: eigentlich nur narrowable notwendig
+narrowSameConstr :: (HasPrimitiveInfo (Lifted FL a), Unifiable a) => ID -> Lifted FL a -> FL ()
+narrowSameConstr i x = FL $
+  instantiate i >>= unFL . flip lazyUnify x
+
+lazyUnifyVar :: forall a. (Unifiable a, HasPrimitiveInfo (Lifted FL a)) => ID -> Lifted FL a -> FL ()
+lazyUnifyVar i x = FL $ get >>= \ FLState { .. } ->
+  case primitiveInfo @(Lifted FL a) of
+    NoPrimitive -> do
+      --TODO: just narrow a single constructor
+      unFL $ narrowSameConstr i x
+      {-let (y, o) = undefined
+      put (FLState { nextID = nextID + o, heap = insertBinding i (return @FL y) heap, .. })-}
+    Primitive -> do
+      let c = eqConstraint (Var i) (Val x)
+      put (FLState { heap =  insertBinding i (return @FL x) heap, constraintStore = insertConstraint c [i] constraintStore, .. })
+      return (Val ())
+
+{-instance Unifiable a => Unifiable [a] where
+  lazyUnifyVar j NilFL = FL $ get >>= \ FLState { .. } ->
+    put (FLState { heap = insertBinding i fl1 heap
+                , .. })
+    return (Val ())
+  lazyUnifyVar j (ConsFL x xs) = binde j an ConsFL (free h) (free i), 2 und mach lazyUnifyFL (free h) x und ....-}
+
+-- output class lohnt sich für: $(inOutClassInv 'sort (Out [| [LT, var 1, GT] |] [| var 1 : var 2 |]))
+-- $(inOutClassInv 'sort (Out [| [LT, var 1, GT] |] [| var 2 | ]))
+
+-- $(inOutClassInv 'f (Out [| Just (var 1) |]) [| var 2 |])
+-- f (Just x) = not x
+-- f Nothing = False
+
+--TODO: flip, rename fl1 to flx etc.
+lazyUnifyFL :: forall a. (Unifiable a) => FL (Lifted FL a) -> FL (Lifted FL a) -> FL ()
+lazyUnifyFL fl1 fl2 = FL $ resolve fl2 >>= \case
+  Var i -> get >>= \ FLState { .. } ->
+    case primitiveInfo @(Lifted FL a) of
+      NoPrimitive -> do
+        put (FLState { heap = insertBinding i fl1 heap
+                    , .. })
+        return (Val ())
+      Primitive   ->
+        if isUnconstrained i constraintStore
+          then do
+            put (FLState { heap = insertBinding i fl1 heap
+                         , .. })
+            return (Val ())
+          else --TODO: i ist constrained, also müssen wir uns den anderen wert anschauen, um zu checken, ob er einem bereits bestehenden constraint widerspricht
+            resolve fl1 >>= \case
+              Var j ->
+                let c = eqConstraint @(Lifted FL a) (Var i) (Var j)
+                    constraintStore' = insertConstraint c [i, j] constraintStore
+                in if isConsistent constraintStore'
+                     then do
+                       put (FLState { heap = insertBinding i (free @(Lifted FL a) j) heap
+                                    , constraintStore = constraintStore'
+                                    , .. })
+                       return (Val ())
+                     else empty
+              Val x ->
+                let c = eqConstraint (Var i) (Val x)
+                    constraintStore' = insertConstraint c [i] constraintStore
+                in if isConsistent constraintStore'
+                     then do
+                       put (FLState { heap = insertBinding i (return @FL x) heap
+                                    , constraintStore = constraintStore'
+                                    , .. })
+                       return (Val ())
+                     else empty
+  Val y  -> resolve fl1 >>= \case
+    Var j -> unFL $ lazyUnifyVar j y
+    Val x -> unFL $ lazyUnify x y
+
+-- "unify (error "bla") (var 1)" zeigt, dass es notwendig ist, dass man wissen muss ob 1 unconstrained ist.
+-- var 1 == var 2
+-- var 1 == var _
+
+-- $(inOutClassInv 'id (Out [| var 1 |]) [| 3 |])
+-- $(inOutClassInv 'id (Out [| 3 |]) [| var 1 |])
+
+-- unifyFL (error "bla") (var 1)
+
+-- f x = (x, if x == 42 then False else True)
+-- unifyFL (43, False) $ fFL (var 1)
+-- unifyFL (43, False) $ (var 1, )
+
+-- g x y = (if x == y then False else True, x)
+
+-- (1, error "bla") (var 1, var 1)
+-- (1, var 1) (var 1, var 1)
+--------------------------------------------------------------------------------
+
+class ({-Unifiable a,-} Matchable a, Convertible a, NormalForm a, HasPrimitiveInfo (Lifted FL a)) => Invertible a
 
 --------------------------------------------------------------------------------
 
@@ -382,6 +538,7 @@ instance (Convertible a, NormalForm a, Convertible b) => Convertible (a -> b) wh
       (# Refl, Refl #) -> f x
   fromWith _ (Func        _) _ = error "Cannot convert function type"
 
+--TODO: appM :: Monad m => m ((-->) m a b) -> m a -> m b
 appFL :: FL ((-->) FL a b) -> FL a -> FL b
 mf `appFL` x = mf >>= \case
   Func f        -> f x

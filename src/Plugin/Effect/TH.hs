@@ -85,9 +85,54 @@ var _ = error "free is undefined outside of inverse contexts"
 -- inv name = inClassInv [| var 1 |] [| var 2 |]
 -- partialInv name x.. = inClassInv name [| x1 |] [| x2 |]
 
-inClassInv f = inClassInverse f []
+inClassInv2 :: Name -> [ExpQ] -> ExpQ
+inClassInv2 = mkInClassInverse
+--inClassInverse f []
 
---inOutClassn
+
+
+inOutClassInv :: Name -> [ExpQ] -> ExpQ -> ExpQ
+inOutClassInv = mkInOutClassInverse
+
+--inClassInv2 :: Name -> [ExpQ] -> ExpQ
+inClassInv :: Name -> [ExpQ] -> ExpQ
+inClassInv f ins = [| \x -> $(inOutClassInv f ins [| x |]) |]
+
+mkInOutClassInverse :: Name -> [ExpQ] -> ExpQ -> ExpQ
+mkInOutClassInverse name expsQ outExpQ = do
+  info <- reify name
+  (_, _, ty) <- decomposeForallT <$> case info of
+    VarI _ ty' _     -> return ty'
+    ClassOpI _ ty' _ -> return ty'
+    _                -> fail $ show name ++ " is no function or class method."
+  let originalArity = arrowArity ty
+  if originalArity == length expsQ
+    then do
+      exps <- sequence expsQ
+      outExp <- outExpQ
+      let allExps = exps ++ [outExp]
+      mapping <- makeFreeMap (createIDMapping allExps)
+      let liftedName = liftTHName name
+      (outExp':argExps) <- mapM (convertExp (map (second fst) mapping)) (outExp:exps)
+      funPatExp <- genLiftedApply (VarE liftedName) argExps
+      let matchExp = applyExp (VarE 'lazyUnifyFL) [outExp', funPatExp]
+          freeNames = map (fst . snd) mapping
+          letExp = DoE [NoBindS matchExp, NoBindS returnExp ]
+          returnExp = mkLiftedTupleE (map VarE freeNames)
+
+
+
+
+
+          searchFunNm = 'bfs
+
+          bodyExp = applyExp (VarE 'map) [VarE (if False {-nonGround-} then 'fromEither else 'fromIdentity), AppE (VarE searchFunNm) (applyExp (VarE 'evalWith)
+            [ VarE (if False {-nonGround-} then 'normalFormFL else 'groundNormalFormFL)
+            , letExp])]
+      bNm <- newName "b"
+      let letDecs = [FunD bNm [Clause (map VarP freeNames) (NormalB bodyExp) []]]
+      return $ LetE letDecs (applyExp (VarE bNm) (map (snd . snd) mapping))
+    else fail $ "Not enough arguments. Expected " ++ show originalArity ++ ", but received" ++ show (length expsQ) --TODO wrong number of arguments-}
 
 instance InClass p => InClass (ExpQ -> p) where
   inClassInverse name args = \arg -> inClassInverse name (arg : args)
@@ -118,13 +163,13 @@ mkInClassInverse name expsQ = do
           freeNames = map (fst . snd) mapping
           letExp = DoE [NoBindS matchExp, NoBindS returnExp ]
           returnExp = mkLiftedTupleE (map VarE freeNames)
-#ifdef DEPTH_FIRST
-          searchFunNm = 'dfs
-#elif defined(PARALLEL)
-          searchFunNm = 'ps
-#else
+
+
+
+
+
           searchFunNm = 'bfs
-#endif
+
           bodyExp = applyExp (VarE 'map) [VarE (if False {-nonGround-} then 'fromEither else 'fromIdentity), AppE (VarE searchFunNm) (applyExp (VarE 'evalWith)
             [ VarE (if False {-nonGround-} then 'normalFormFL else 'groundNormalFormFL)
             , letExp])]
@@ -151,13 +196,13 @@ mkInClassInverse name expsQ = do
       freeExps = map (VarE . fst . snd) mapping
       letExp = DoE [LetS (map (snd . snd) mapping), NoBindS matchExp, NoBindS returnExp ]
       returnExp = mkLiftedTupleE freeExps
-#ifdef DEPTH_FIRST
-      searchFunNm = 'dfs
-#elif defined(PARALLEL)
-      searchFunNm = 'ps
-#else
+
+
+
+
+
       searchFunNm = 'bfs
-#endif
+
       bodyExp = applyExp (VarE 'map) [VarE (if False {-nonGround-} then 'fromEither else 'fromIdentity), AppE (VarE searchFunNm) (applyExp (VarE 'evalWith)
         [ VarE (if False {-nonGround-} then 'normalFormFL else 'groundNormalFormFL)
         , letExp])]
@@ -234,7 +279,7 @@ makeFreeMap = mapM (\(i1, i2) -> do
 
 createIDMapping :: [Exp] -> [(Integer, ID)]
 createIDMapping exps = zip (nub $ map (\case
-  AppE exp' exp2 -> case exp' of
+  AppE exp' exp2 -> case exp' of --TODO: integrate PM
     VarE na | na == 'var,
               LitE (IntegerL n) <- exp2 -> n
     _ -> error "cannot happen"
@@ -306,13 +351,13 @@ genInverse originalString originalTy fixedArgs nonGround liftedName = do
         let invArgPats = map VarP $ fixedArgNames ++ [resName]
             matchExp = applyExp (VarE 'matchFL) [VarE resName, funPatExp]
             returnExp = mkLiftedTupleE (map snd freeExps)
-#ifdef DEPTH_FIRST
-            searchFunNm = 'dfs
-#elif defined(PARALLEL)
-            searchFunNm = 'ps
-#else
+
+
+
+
+
             searchFunNm = 'bfs
-#endif
+
             bodyExp = applyExp (VarE 'map) [VarE (if nonGround then 'fromEither else 'fromIdentity), AppE (VarE searchFunNm) (applyExp (VarE 'evalWith)
               [ VarE (if nonGround then 'normalFormFL else 'groundNormalFormFL)
               , applyExp (VarE '(>>)) [matchExp, returnExp]])]
@@ -320,6 +365,9 @@ genInverse originalString originalTy fixedArgs nonGround liftedName = do
         return $ FunD invName [Clause invArgPats body []]
 
   sequence [genPartialInverseSig, genPartialInverseFun]
+
+--mkLiftedList :: [Exp] -> Exp
+--mkLiftedList = foldr (AppE (ConE 'ConsFL)
 
 --TODO: lift to q and throw error when length of list is > maxTupleArity
 mkLiftedTupleE :: [Exp] -> Exp

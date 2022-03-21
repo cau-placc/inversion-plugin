@@ -5,12 +5,14 @@ module Main where
 
 import Plugin.InversionPlugin
 
-test :: _ => _
-test = $(inClassInv '(++) [| var 1 |] [| (:) (var 2) ((:) (var 2) []) |])
+--test :: _ => _
+--test = $(inClassInv '(++) [| var 1 |] [| (:) (var 2) ((:) (var 2) []) |])
 
-test' :: _ => _
-test' = $(inClassInv '(++) [| (:) True [] |] [| (:) (var 2) ((:) (var 2) []) |])
+--test' :: _ => _
+--test' = $(inClassInv '(++) [| (:) True [] |] [| (:) (var 2) ((:) (var 2) []) |])
 
+
+--TODO: welche eingaben liefern einen bestimmten wert (testfälle interessant)
 test2 :: _ => _
 test2 = let x = someShit 1 in (x,x)
 
@@ -18,10 +20,22 @@ someShit :: Ord n => Integer -> [n]
 someShit _ = []
 
 appendInv42 :: _ => _
-appendInv42 x = $(inClassInv '(++) [| var 1 |] [| var 2 |])
+appendInv42 = $(inClassInv '(++) [[| var 1 |], [| [var 2] |]])
+--TODO: anonVar introducen
+
+
+appendInv42' :: _ => _
+appendInv42' x = $(inOutClassInv '(++) [[| var 1 |], [| [var 2] |]] [| x |])
+
+
+appendInv422 :: _ => _
+appendInv422 = $(inOutClassInv '(++) [[| var 1 |], [| [False] |]] [| var 2 |])
+{-
+\x -> $(inOutClassInv 'sort [[| x |]] [| 2:var 1 |])
+-}
 
 --test3 :: [Int]
-test3 = map snd ($(inClassInv '(++) [| var 1 |] [| (:) (var 2) ((:) (var 2) []) |]) [True])
+--test3 = map snd ($(inClassInv '(++) [| var 1 |] [| (:) (var 2) ((:) (var 2) []) |]) [True])
 
 
 -- (...) :: _ =>
