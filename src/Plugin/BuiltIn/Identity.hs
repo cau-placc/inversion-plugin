@@ -29,10 +29,16 @@ instance Convertible a => Convertible (Identity a) where
 instance (Convertible a, Matchable a) => Matchable (Identity a) where
   match (Identity x) (IdentityFL y) = matchFL x y
 
+instance Unifiable a => Unifiable (Identity a) where
+  lazyUnify (IdentityFL x) (IdentityFL y) = lazyUnifyFL x y
+
 instance NormalForm a => NormalForm (Identity a) where
   normalFormWith nf = \case
     IdentityFL x ->
       nf x >>= \y ->
         return (pure (IdentityFL y))
+
+instance ShowFree a => ShowFree (Identity a) where
+  showFree' (Identity x) = "(Identity " ++ showFree x ++ ")"
 
 instance Invertible a => Invertible (Identity a)

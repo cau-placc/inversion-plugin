@@ -46,6 +46,8 @@ import Plugin.Effect.SolverLibrary.What4 ()
 #endif
 import Plugin.Lifted
 
+import System.IO.Unsafe (unsafePerformIO)
+
 import Test.ChasingBottoms.IsBottom (isBottom)
 
 import Unsafe.Coerce (unsafeCoerce)
@@ -342,6 +344,15 @@ evalWith nf fl = evalND (nf fl) initFLState
 
 --TODO: mit dre run equality stimmt nicht ganz, da das nur für die grundnormalform gilt. für die normalform ist trotzdem noch evalFL x /= evalFL (x >>= return)
 
+--TODO: ShowFree abtrennen
+
+class ShowFree a where
+  showFree' :: a -> String
+
+--TODO: umbenennung bei input classes ist doof, weil die indizes verloren gehen könnten (id [var 1] [var 1] wird mit representanten zu var-1 oder so.)
+showFree :: ShowFree a => a -> String
+showFree x = unsafePerformIO $ seq x (return (showFree' x)) `catch` (\ (FreeVariableException i) -> return $ "(var " ++ show i ++ ")")
+
 --------------------------------------------------------------------------------
 
 class Convertible a where
@@ -506,11 +517,12 @@ lazyUnifyFL fl1 fl2 = FL $ resolve fl2 >>= \case
 -- (1, var 1) (var 1, var 1)
 --------------------------------------------------------------------------------
 
-class ({-Unifiable a,-} Matchable a, Convertible a, NormalForm a, HasPrimitiveInfo (Lifted FL a)) => Invertible a
+--TODO: no longer needed, just for sanity checking if all necessary instances are defined for built-in types
+class (Convertible a, Matchable a, Unifiable a, NormalForm a, HasPrimitiveInfo (Lifted FL a), ShowFree a) => Invertible a
 
 --------------------------------------------------------------------------------
 
---TODO: move?
+--TODO: move?!
 infixr 0 :-->
 type (:-->) = (-->) FL
 

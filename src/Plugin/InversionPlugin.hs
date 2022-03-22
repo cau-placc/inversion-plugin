@@ -270,7 +270,7 @@ liftMonadPlugin mdopts env = do
           let thisMdl = tcg_mod env
           let isLocalElt (GRE n _ _ _) = nameIsLocalOrFrom thisMdl n
 
-          decs <-  mapM (\nm -> do
+          {-decs <-  mapM (\nm -> do
                 let unliftedStr = occNameString (removeNameSuffix (occName nm))
                 case filter isLocalElt $ lookupGlobalRdrEnv rdrEnv (mkVarOcc unliftedStr) of
                   (GRE unliftedNM _ _ _ : _) -> do
@@ -278,7 +278,9 @@ liftMonadPlugin mdopts env = do
                     nE <- externaliseName (tcg_mod env) nm
                     liftQ (genInverses (toTHName m nE) (toTHType m (varType v)) unliftedStr)
                   _ -> panicAny "cannot find unlifted version of lifted decl" nm
-              ) (filter (not . isDictFun) umSorted)
+              ) (filter (not . isDictFun) umSorted)-}
+          let decs = []
+          --TODO: cleanup now, because inverses are no longer pre-generated
 
           psFun <- case convertToHsDecls Generated noSrcSpan (concat decs) of
             Right x -> return x

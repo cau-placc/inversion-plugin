@@ -3,17 +3,13 @@
 
 module Plugin.Primitives
   ( Invertible, Lifted
-  , inv, partialInv, genericInv, weakInv, inClassInv, inClassInv2, inOutClassInv, var
+  , inv, partialInv, weakInv, inClassInv, inOutClassInv, var, genInOutClassInverse, showFree
   , funPat
   ) where
 
-import Control.Monad
-
 import Data.List
-import Data.Maybe
 
 import Language.Haskell.TH
-import Language.Haskell.TH.Syntax
 
 import Plugin.Effect.Monad
 import Plugin.Effect.TH
@@ -24,29 +20,11 @@ import Plugin.Lifted
 inv :: Name -> ExpQ
 inv = flip partialInv []
 
-partialInv :: Name -> [Int] -> ExpQ
-partialInv name fixedArgs = genericInv name fixedArgs False
-
-genericInv :: Name -> [Int] -> Bool -> ExpQ
-genericInv name fixedArgs nonGround = do
-  info <- reify name
-  (_, _, ty) <- decomposeForallT <$> case info of
-    VarI _ ty' _     -> return ty'
-    ClassOpI _ ty' _ -> return ty'
-    _                -> fail $ show name ++ " is no function or class method."
-  let validFixedArgs = [0 .. arrowArity ty - 1]
-      hint = "has to be a subsequence of " ++ show validFixedArgs
-  when (any (`notElem` validFixedArgs) fixedArgs) $ fail $
-    "Invalid argument index sequence for partial inverse provided (" ++ hint ++ ")."
-  vs <- replicateM (length fixedArgs + 1) (newName "p")
-  let invE = VarE $ mkNameG_v (fromMaybe "" $ namePackage name) (fromMaybe "" $ nameModule name) $ nameBase $ mkInverseName (nameBase name) (sort $ nub fixedArgs) nonGround
-  return $ LamE (map VarP vs) (applyExp invE (map VarE vs))
-
 weakInv :: Name -> ExpQ
 weakInv name = [| foldr const (error "no weak inverse") . $(inv name) |]
 
 funPatPartialInv :: Name -> [Int] -> ExpQ
-funPatPartialInv name fixedArgs = genericInv name fixedArgs True
+funPatPartialInv = partialInv --TODO: non-ground
 
 funPat :: FunPat p => Name -> p
 funPat f = funPat' f []
@@ -72,6 +50,41 @@ patToExp (ConP name ps) = applyExp (ConE name) $ map patToExp ps
 patToExp (ParensP p)    = ParensE $ patToExp p
 patToExp (ListP ps)     = ListE $ map patToExp ps
 patToExp _              = error "Should not happen: non-constructor pattern in patToExp"
+
+-- last (funPat '(++) [p| x |] [p| [x] |]) = x
+-- test ( x <- $(inClassInv '(++) [var x, var x]) = x <- nee is nicht!
+-- test ((\list -> [res| res@(_, [x]) <- appendInv list ]) -> (_, [x]):_ ) = x
+-- test ((\list -> [res| res@(_, [x]) <- fmap (\(x, free2) -> (_, [x])) (appendInInv [var 1] list)]) -> (_, [x]):_ ) = x
+
+-- test $(funPat 'append [p| _ |] [p| _ |]) = x
+-- test ((\list -> [res| res@(_, [x]) <- appendInClassInv [[| _ |], [| [x] |]] list) -> (_, [x]):_ ) = x
+
+-- last (funPat '(++) [p| [_, x] |] [p| [P, x] |]) = x
+-- (_, var 1) (x, var 2) (P, var 3) (x, var 4)
+-- (_, P) $(inClassInv '(++) [[| var 1, var 2 |], [| [var 3, var 4] |])
+
+--TODO: State für VarP-Dinger
+--TODO: reanme to varConPatToExp, dabei VarP zu var ...-Exps mit passender id
+patToExp2 :: Pat -> Exp
+patToExp2 (LitP l)       = LitE l
+patToExp2 (TupP ps)      = TupE $ map (Just . patToExp) ps
+patToExp2 (ConP name ps) = applyExp (ConE name) $ map patToExp ps
+patToExp2 (ParensP p)    = ParensE $ patToExp p
+patToExp2 (ListP ps)     = ListE $ map patToExp ps
+patToExp2 _              = error "Should not happen: non-constructor pattern in patToExp"
+
+
+--TODO: should be the same as supported by convertExp
+isVarConPat :: Pat -> Bool
+isVarConPat (VarP _)    = True
+isVarConPat WildP       = True
+isVarConPat (LitP _)    = True
+isVarConPat (TupP ps)   = all isConPat ps
+isVarConPat (ConP _ ps) = all isConPat ps
+isVarConPat (ParensP p) = isConPat p
+isVarConPat (ListP ps)  = all isConPat ps
+isVarConPat _           = False
+--TODO: infixp supporten
 
 isConPat :: Pat -> Bool
 isConPat (LitP _)    = True

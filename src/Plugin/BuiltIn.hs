@@ -48,15 +48,13 @@ import           Unsafe.Coerce ( unsafeCoerce )
 import           Prelude ( Bool (..), Double, Float, Integer, Ordering (..), ($) )
 import           Plugin.BuiltIn.Primitive
 import           Plugin.Effect.Monad as M
+import           Plugin.Effect.TH
 import           Plugin.Effect.Util  as M
-import           Plugin.Effect.TH hiding (free)
 import           Plugin.Lifted
 import           Plugin.Trans.TysWiredIn
 import           Data.Tuple.Solo
 
 -- * Lifted tuple types and internal instances
-
-P.concat P.<$> P.mapM genLiftedTupleDataDeclAndInstances [2 .. maxTupleArity]
 
 data SoloFL m a = SoloFL (m a)
 
@@ -76,13 +74,55 @@ instance Convertible a => Convertible (Solo a) where
 instance (Convertible a, Matchable a) => Matchable (Solo a) where
   match (Solo x) (SoloFL y) = matchFL x y
 
+instance Unifiable a => Unifiable (Solo a) where
+  lazyUnify (SoloFL x) (SoloFL y) = lazyUnifyFL x y
+
 instance NormalForm a => NormalForm (Solo a) where
   normalFormWith nf = \case
     SoloFL x ->
       nf x P.>>= \y ->
         P.return (P.pure (SoloFL y))
 
+instance ShowFree a => ShowFree (Solo a) where
+  showFree' (Solo x) = "(Solo " P.++ showFree x P.++ ")"
+
 instance Invertible a => Invertible (Solo a)
+
+data Tuple2FL m a b = Tuple2FL (m a) (m b)
+
+type instance Lifted m (,) = Tuple2FL m
+type instance Lifted m ((,) a) = Tuple2FL m (Lifted m a)
+type instance Lifted m (a, b) = Tuple2FL m (Lifted m a) (Lifted m b)
+
+instance (HasPrimitiveInfo a, HasPrimitiveInfo b) => HasPrimitiveInfo (Tuple2FL FL a b) where
+  primitiveInfo = NoPrimitive
+
+instance (HasPrimitiveInfo a, HasPrimitiveInfo b) => Narrowable (Tuple2FL FL a b) where
+  narrow j = [(Tuple2FL (free j) (free (j P.+ 1)), 2)]
+
+instance (Convertible a, Convertible b) => Convertible (a, b) where
+  to (x1, x2) = Tuple2FL (toFL x1) (toFL x2)
+  fromWith ff (Tuple2FL x1 x2) = (ff x1, ff x2)
+
+instance (Convertible a, Convertible b, Matchable a, Matchable b) => Matchable (a, b) where
+  match (x1, x2) (Tuple2FL y1 y2) = matchFL x1 y1 P.>> matchFL x2 y2
+
+instance (Unifiable a, Unifiable b) => Unifiable (a, b) where
+  lazyUnify (Tuple2FL x1 x2) (Tuple2FL y1 y2) = lazyUnifyFL x1 y1 P.>> lazyUnifyFL x2 y2
+
+instance (NormalForm a, NormalForm b) => NormalForm (a, b) where
+  normalFormWith nf = \case
+    Tuple2FL x1 x2 ->
+      nf x1 P.>>= \y1 ->
+        nf x2 P.>>= \y2 ->
+        P.return (P.pure (Tuple2FL y1 y2))
+
+instance (ShowFree a, ShowFree b) => ShowFree (a, b) where
+  showFree' (x1, x2) = "(" P.++ showFree x1 P.++ ", " P.++ showFree x2 P.++ ")"
+
+instance (Invertible a, Invertible b) => Invertible (a, b)
+
+P.concat P.<$> P.mapM genLiftedTupleDataDeclAndInstances [3 .. maxTupleArity]
 
 -- * Lifted list type and internal instances
 
@@ -123,6 +163,10 @@ instance (NormalForm a, NormalForm [a]) => NormalForm [a] where
           nf xs P.>>= \ys ->
             P.return (P.pure (ConsFL y ys))
 
+instance (ShowFree a, ShowFree [a]) => ShowFree [a] where
+  showFree' [] = "[]"
+  showFree' (x:xs) = "((:) " P.++ showFree x P.++ " " P.++ showFree xs P.++ ")"
+
 instance Invertible a => Invertible [a]
 
 data RatioFL m a = m a :%# m a
@@ -143,12 +187,18 @@ instance Convertible a => Convertible (P.Ratio a) where
 instance (Convertible a, Matchable a) => Matchable (P.Ratio a) where
   match (a P.:% b) (x :%# y) = matchFL a x P.>> matchFL b y
 
+instance Unifiable a => Unifiable (P.Ratio a) where
+  lazyUnify (a :%# b) (x :%# y) = lazyUnifyFL a x P.>> lazyUnifyFL b y
+
 instance NormalForm a => NormalForm (P.Ratio a) where
    normalFormWith nf = \case
        a :%# b ->
          nf a P.>>= \x ->
            nf b P.>>= \y ->
              P.return (P.pure (x :%# y))
+
+instance ShowFree a => ShowFree (P.Ratio a) where
+  showFree' (x1 P.:% x2) = "(" P.++ showFree x1 P.++ " :% " P.++ showFree x2 P.++ ")"
 
 instance Invertible a => Invertible (P.Ratio a)
 
@@ -450,6 +500,10 @@ instance Unifiable Bool where
 instance NormalForm Bool where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
 
+instance ShowFree Bool where
+  showFree' False = "False"
+  showFree' True  = "True"
+
 instance Invertible Bool
 
 data UnitFL (m :: Type -> Type) = UnitFL
@@ -469,8 +523,14 @@ instance Convertible () where
 instance Matchable () where
   match () UnitFL = P.return ()
 
+instance Unifiable () where
+  lazyUnify UnitFL UnitFL = P.return ()
+
 instance NormalForm () where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
+
+instance ShowFree () where
+  showFree' () = "()"
 
 instance Invertible ()
 
@@ -500,8 +560,19 @@ instance Matchable Ordering where
   match GT GTFL = P.return ()
   match _  _    = P.empty
 
+instance Unifiable Ordering where
+  lazyUnify LTFL LTFL = P.return ()
+  lazyUnify EQFL EQFL = P.return ()
+  lazyUnify GTFL GTFL = P.return ()
+  lazyUnify _    _    = P.empty
+
 instance NormalForm Ordering where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
+
+instance ShowFree Ordering where
+  showFree' LT = "LT"
+  showFree' EQ = "EQ"
+  showFree' GT = "GT"
 
 instance Invertible Ordering
 
@@ -515,8 +586,14 @@ instance Convertible Integer where
 instance Matchable Integer where
   match x y = P.guard (x P.== P.coerce y)
 
+instance Unifiable Integer where
+  lazyUnify (IntegerFL x) (IntegerFL y) = P.guard (x P.== y)
+
 instance NormalForm Integer where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
+
+instance ShowFree Integer where
+  showFree' = P.show
 
 instance Invertible Integer
 
@@ -530,8 +607,14 @@ instance Convertible Int where
 instance Matchable Int where
   match i1 (IntFL i2) = P.guard (i1 P.== i2)
 
+instance Unifiable Int where
+  lazyUnify (IntFL x) (IntFL y) = P.guard (x P.== y)
+
 instance NormalForm Int where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
+
+instance ShowFree Int where
+  showFree' = P.show
 
 instance Invertible Int
 
@@ -545,8 +628,14 @@ instance Convertible Float where
 instance Matchable Float where
   match x y = P.guard (x P.== P.coerce y)
 
+instance Unifiable Float where
+  lazyUnify (FloatFL x) (FloatFL y) = P.guard (x P.== y)
+
 instance NormalForm Float where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
+
+instance ShowFree Float where
+  showFree' = P.show
 
 instance Invertible Float
 
@@ -560,8 +649,14 @@ instance Convertible Double where
 instance Matchable Double where
   match x y = P.guard (x P.== P.coerce y)
 
+instance Unifiable Double where
+  lazyUnify (DoubleFL x) (DoubleFL y) = P.guard (x P.== y)
+
 instance NormalForm Double where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
+
+instance ShowFree Double where
+  showFree' = P.show
 
 instance Invertible Double
 
@@ -575,8 +670,14 @@ instance Convertible P.Char where
 instance Matchable P.Char where
   match x y = P.guard (x P.== P.coerce y)
 
+instance Unifiable P.Char where
+  lazyUnify (CharFL x) (CharFL y) = P.guard (x P.== y)
+
 instance NormalForm P.Char where
   normalFormWith _ !x = P.return (P.pure (P.coerce x))
+
+instance ShowFree P.Char where
+  showFree' = P.show
 
 instance Invertible P.Char
 
