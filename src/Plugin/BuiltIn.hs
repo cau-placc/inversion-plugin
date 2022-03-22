@@ -54,9 +54,6 @@ import           Plugin.Lifted
 import           Plugin.Trans.TysWiredIn
 import           Data.Tuple.Solo
 
-import Plugin.Effect.Tree
-import Documentation.SBV.Examples.ProofTools.Strengthen (S(x))
-
 -- * Lifted tuple types and internal instances
 
 P.concat P.<$> P.mapM genLiftedTupleDataDeclAndInstances [2 .. maxTupleArity]
@@ -231,52 +228,6 @@ notFL = liftFL1Convert P.not
 idFL :: FL (a :--> a)
 idFL = returnFLF P.id
 
--- $(inOutClassInv 'id (In [[| var 1 |]]) (Out [| var 2 |]))
-idInOutInv :: (Convertible ab1, NormalForm ab1, Unifiable ab1,
-                       HasPrimitiveInfo (Lifted FL ab1)) => [(ab1, ab1)]
-idInOutInv = P.map fromIdentity $ bfs $ evalWith groundNormalFormFL $ do
-  let f free1 free2 = do
-        lazyUnifyFL free1 (idFL P.>>= \ (Func f1) -> f1 free2)
-        P.return (Tuple2FL free1 free2)
-  f (free (-1)) (free (-2))
-
-idInOutInvNG :: (Convertible ab1, NormalForm ab1, Unifiable ab1,
-                       HasPrimitiveInfo (Lifted FL ab1)) => [(ab1, ab1)]
-idInOutInvNG = P.map fromEither $ bfs $ evalWith normalFormFL $ do
-  let f free1 free2 = do
-        lazyUnifyFL free1 (idFL P.>>= \ (Func f1) -> f1 free2)
-        P.return (Tuple2FL free1 free2)
-  f (free (-1)) (free (-2))
-
-constTrueFL = returnFLF $ \x -> x P.>>= \case
-  FalseFL -> P.return TrueFL
-  TrueFL  -> P.return TrueFL
-
--- $(inOutClassInv 'constTrue (In [[| var 2 |]]) (Out [| var 1 |]))
-constTrueInOutInv :: [(Bool, Bool)]
-constTrueInOutInv = P.map fromIdentity $ bfs $ evalWith groundNormalFormFL $ do
-  let f free1 free2 = do
-        lazyUnifyFL free1 (constTrueFL P.>>= \ (Func f1) -> f1 free2)
-        P.return (Tuple2FL free1 free2)
-  f (free (-1)) (free (-2))
-
--- $(inOutClassInv 'constTrue (In [[| var 1 |]]) (Out [| var 1 |]))
-constTrueInOutInv2 :: [Solo Bool]
-constTrueInOutInv2 = P.map fromIdentity $ bfs $ evalWith groundNormalFormFL $ do
-  let f free1 = do
-        lazyUnifyFL free1 (constTrueFL P.>>= \ (Func f1) -> f1 free1)
-        P.return (SoloFL free1)
-  f (free (-1))
-
--- $(inOutClassInv 'id (In [[| True |]]) (Out [| var 1 |]))
-idInOutInv2 :: (Convertible ab1, NormalForm ab1, Unifiable ab1,
-                       HasPrimitiveInfo (Lifted FL ab1)) => [Solo ab1]
-idInOutInv2 = P.map fromIdentity $ bfs $ evalWith groundNormalFormFL $ do
-  let f free1 = do
-        lazyUnifyFL free1 (idFL P.>>= \ (Func f1) -> f1 free1)
-        P.return (SoloFL free1)
-  f (free (-1))
-
 (.#) :: FL ((b :--> c) :--> (a :--> b) :--> a :--> c)
 (.#) = returnFLF $ \f -> returnFLF $ \g -> returnFLF $ \a ->
   f `appFL` (g `appFL` a)
@@ -321,47 +272,12 @@ otherwiseFL = P.return TrueFL
     NilFL -> ys
     ConsFL a as -> P.return (ConsFL a ((++#) `appFL` as `appFL` ys))
 
-appendInv :: forall a. Invertible a => [a] -> [([a], [a])]
-appendInv arg = P.map fromIdentity $ bfs $ evalWith groundNormalFormFL $ do
-  matchFL arg ((++#) P.>>= \ (Func f1) -> f1 (free (-1)) P.>>= \ (Func f2) -> f2 (free (-2)))
-  P.return (Tuple2FL (free (-1)) (free (-2)))
-
--- $(partialInv 'append [|| free 1 ||] [| [free 2, free 2] |])
--- $(partialInv 'append [| free 1 |] [| replicate 2 (free 2) |])
--- $(partialInv 'append [| free 1 |] [| [free 2, free 1] |])
---appendInv0 :: forall a. Invertible a => [a] -> [([a], a)]
-appendInv0 arg = P.map fromIdentity $ bfs $ evalWith groundNormalFormFL $ do
-  let f free1 free2 = do
-        matchFL arg ((++#) P.>>= \ (Func f1) -> f1 free1 P.>>= \ (Func f2) -> f2 (P.return (ConsFL free2 (P.return (ConsFL free2 (P.return NilFL))))))
-        P.return (Tuple2FL free1 free2)
-  f (free (-1)) (free (-2))
-
-  --TODO: explain why monomorph types, let generalisation does not take place, because the type of free1/2 leaks to the outside (as every free variable is part of the return value of an inverse)
-
--- $(partialInv 'append [|| free 1 ||] [| [id, free 2] |])
-appendInv1 x arg = P.map fromIdentity $ bfs $ evalWith groundNormalFormFL $ do
-  let free1 = free (-1)
-      free2 = free (-2)
-  matchFL arg ((++#) P.>>= \ (Func f1) -> f1 free1 P.>>= \ (Func f2) -> f2 (P.return $ ConsFL x (P.return $ ConsFL free2 (P.return NilFL))))
-  P.return (Tuple2FL free1 free2)
-
 -- | Lifted map function for lists
 mapFL :: FL ((a :--> b) :--> ListFL FL a :--> ListFL FL b)
 mapFL = returnFLF $ \f -> returnFLF $ \xs ->
   xs P.>>= \case
     NilFL -> P.return NilFL
     ConsFL a as -> P.return (ConsFL (f `appFL` a) (mapFL `appFL` f `appFL` as))
-
--- $(partialInv 'map [| replicate 2 True |] [| free 1 |])
---TODO: inferenzsystem für erlaubte ausdrücke in input classes.
---TODO: TTH damit man falsche applications von free oder konstruktoren finden kann. pattern wären nicht ausreichend, da wir so keine freien variablen nicht-linear spezifizieren könnten, da syntaktisch verboten.
---TODO: mapping zu negativen zahlen
-
---mapInv0 :: Invertible a => [a] -> [Solo [b]]
-mapInv0 arg = P.map fromIdentity $ bfs $ evalWith groundNormalFormFL $ do
-  let free1 = free (-1)
-  matchFL arg (mapFL P.>>= \ (Func f1) -> f1 (toFL P.undefined) P.>>= \ (Func f2) -> f2 free1)
-  P.return (SoloFL free1)
 
 -- | Lifted concatMap function for lists
 concatMapFL :: FL ((a :--> ListFL FL b) :--> ListFL FL a :--> ListFL FL b)
