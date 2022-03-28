@@ -44,6 +44,7 @@ import Plugin.Effect.SolverLibrary.SBV   ()
 #else
 import Plugin.Effect.SolverLibrary.What4 ()
 #endif
+import Plugin.Effect.Tree
 import Plugin.Lifted
 
 import System.IO.Unsafe (unsafePerformIO)
@@ -56,8 +57,16 @@ import Unsafe.Coerce (unsafeCoerce)
 
 type ND s = Codensity (ReaderT s Search)
 
-evalND :: ND s a -> s -> Search a
-evalND nd = runReaderT (runCodensity nd return)
+evalND :: ND s a -> s -> [a]
+evalND nd = search . runReaderT (runCodensity nd return)
+  where
+#ifdef DEPTH_FIRST
+    search = dfs
+#elif defined(PARALLEL)
+    search = ps
+#else
+    search = bfs
+#endif
 
 {-type ND1 s a = StateT s SearchTree a
 
@@ -339,8 +348,8 @@ normalFormFL fl = resolve fl >>= \case
   Val x -> normalFormWith normalFormFL x
   Var i -> return (Left i)
 
-evalWith :: NormalForm a => (forall b. NormalForm b => FL (Lifted FL b) -> ND FLState (m (Lifted m b))) -> FL (Lifted FL a) -> Search (m (Lifted m a))
-evalWith nf fl = evalND (nf fl) initFLState
+evalFLWith :: NormalForm a => (forall b. NormalForm b => FL (Lifted FL b) -> ND FLState (m (Lifted m b))) -> FL (Lifted FL a) -> [m (Lifted m a)]
+evalFLWith nf fl = evalND (nf fl) initFLState
 
 --TODO: mit dre run equality stimmt nicht ganz, da das nur für die grundnormalform gilt. für die normalform ist trotzdem noch evalFL x /= evalFL (x >>= return)
 

@@ -27,7 +27,6 @@ import Language.Haskell.TH.Syntax (Name(..), NameFlavour(..), pkgString, mkNameG
 
 import Plugin.Lifted
 import Plugin.Effect.Monad
-import Plugin.Effect.Tree
 import Plugin.Trans.TysWiredIn
 import Plugin.Trans.Import (lookupSupportedBuiltInModule)
 
@@ -144,16 +143,9 @@ genInOutClassInverse name nonGround inClassExpQs outClassExpQ = do
       freeNames = map (fst . snd) mapping
       letExp = DoE [NoBindS matchExp, NoBindS returnExp ]
       returnExp = mkLiftedTupleE (map VarE freeNames)
-#ifdef DEPTH_FIRST
-      searchFunNm = 'dfs
-#elif defined(PARALLEL)
-      searchFunNm = 'ps
-#else
-      searchFunNm = 'bfs
-#endif
-      bodyExp = applyExp (VarE 'map) [VarE (if nonGround then 'fromEither else 'fromIdentity), AppE (VarE searchFunNm) (applyExp (VarE 'evalWith)
+      bodyExp = applyExp (VarE 'map) [VarE (if nonGround then 'fromEither else 'fromIdentity), applyExp (VarE 'evalFLWith)
         [ VarE (if nonGround then 'normalFormFL else 'groundNormalFormFL)
-        , letExp])]
+        , letExp]]
   bNm <- newName "b"
   let letDecs = [FunD bNm [Clause (map VarP freeNames) (NormalB bodyExp) []]]
   return $ LetE letDecs (applyExp (VarE bNm) (map (snd . snd) mapping))
