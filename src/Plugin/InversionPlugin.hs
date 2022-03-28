@@ -335,9 +335,9 @@ liftMonadPlugin mdopts env = do
                                   }
 
               let keepNames = filter (not . isDictFun) $ umSorted ++ names
-
+              nms <- mapM (externaliseName (tcg_mod env)) keepNames
               liftIO $ modifyIORef (tcg_keep finalEnv)
-                          (`extendNameSetList` keepNames)
+                          (`extendNameSetList` nms)
 
               return finalEnv
   where
