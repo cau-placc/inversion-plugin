@@ -268,16 +268,14 @@ resolve fl = unFL fl >>= \case
     Nothing -> return (Var i)
     Just x  -> resolve x-}
 
-resolve :: FL a -> ND FLState (FLVal a)
-resolve = resolve' []
-
-resolve' :: [ID] -> FL a -> ND FLState (FLVal a)
-resolve' is fl = unFL fl >>= \case
-  Val x -> return (Val x)
-  Var i | i `elem` is -> return (Var i)
-        | otherwise   -> get >>= \ FLState { .. } -> case findBinding i heap of
-    Nothing -> return (Var i)
-    Just x  -> resolve' (i:is) x
+resolveFL :: FL a -> ND FLState (FLVal a)
+resolveFL = resolveFL' []
+  where resolveFL' is fl = unFL fl >>= \case
+          Val x -> return (Val x)
+          Var i | i `elem` is -> return (Var i)
+                | otherwise   -> get >>= \ FLState { .. } -> case findBinding i heap of
+            Nothing -> return (Var i)
+            Just x  -> resolveFL' (i:is) x
 
 instantiate :: forall a. HasPrimitiveInfo a => ID -> ND FLState a
 instantiate i = get >>= \ FLState { .. } ->
@@ -293,8 +291,8 @@ instantiate i = get >>= \ FLState { .. } ->
               return x
 
 {-
-resolve :: FL a -> ND FLState (FLVal a)
-resolve fl = unFL fl >>= \case
+resolveFL :: FL a -> ND FLState (FLVal a)
+resolveFL fl = unFL fl >>= \case
   Val x -> return (Val x)
   Var i -> get >>= \ FLState { .. } -> case findBinding i heap of
     Nothing -> return (Var i)
@@ -315,10 +313,9 @@ instantiate i = get >>= \ FLState { .. } ->
 -}
 
 instance Monad FL where
-  fl >>= f = FL $
-    resolve fl >>= \case
-      Var i -> instantiate i >>= unFL . f
-      Val x -> unFL (f x)
+  fl >>= f = FL $ resolveFL fl >>= \case
+    Var i -> instantiate i >>= unFL . f
+    Val x -> unFL (f x)
 
 instance Alternative FL where
   empty = FL empty
@@ -339,12 +336,12 @@ class NormalForm a where
 
 --TODO: groundNormalFormND or groundNormalForm?
 groundNormalFormFL :: NormalForm a => FL (Lifted FL a) -> ND FLState (Identity (Lifted Identity a))
-groundNormalFormFL fl = resolve fl >>= \case
+groundNormalFormFL fl = resolveFL fl >>= \case
   Val x -> normalFormWith groundNormalFormFL x
   Var i -> instantiate i >>= normalFormWith groundNormalFormFL
 
 normalFormFL :: NormalForm a => FL (Lifted FL a) -> ND FLState (Either ID (Lifted (Either ID) a))
-normalFormFL fl = resolve fl >>= \case
+normalFormFL fl = resolveFL fl >>= \case
   Val x -> normalFormWith normalFormFL x
   Var i -> return (Left i)
 
@@ -395,9 +392,8 @@ fromEither = fromM (either (throw . FreeVariableException) id)
 class Matchable a where
   match :: a -> Lifted FL a -> FL ()
 
---TODO: rename matchFL to something without FL?
 matchFL :: forall a. (Convertible a, Matchable a) => a -> FL (Lifted FL a) -> FL ()
-matchFL x fl = FL $ resolve fl >>= \case
+matchFL x fl = FL $ resolveFL fl >>= \case
   Var i -> get >>= \ FLState { .. } ->
     case primitiveInfo @(Lifted FL a) of
       NoPrimitive -> do
@@ -467,8 +463,8 @@ lazyUnifyVar i x = FL $ get >>= \ FLState { .. } ->
 -- f Nothing = False
 
 --TODO: flip, rename fl1 to flx etc.
-lazyUnifyFL :: forall a. (Unifiable a) => FL (Lifted FL a) -> FL (Lifted FL a) -> FL ()
-lazyUnifyFL fl1 fl2 = FL $ resolve fl2 >>= \case
+lazyUnifyFL :: forall a. Unifiable a => FL (Lifted FL a) -> FL (Lifted FL a) -> FL ()
+lazyUnifyFL fl1 fl2 = FL $ resolveFL fl2 >>= \case
   Var i -> get >>= \ FLState { .. } ->
     case primitiveInfo @(Lifted FL a) of
       NoPrimitive -> do
@@ -482,7 +478,7 @@ lazyUnifyFL fl1 fl2 = FL $ resolve fl2 >>= \case
                          , .. })
             return (Val ())
           else --TODO: i ist constrained, also müssen wir uns den anderen wert anschauen, um zu checken, ob er einem bereits bestehenden constraint widerspricht
-            resolve fl1 >>= \case
+            resolveFL fl1 >>= \case
               Var j ->
                 let c = eqConstraint @(Lifted FL a) (Var i) (Var j)
                     constraintStore' = insertConstraint c [i, j] constraintStore
@@ -503,7 +499,7 @@ lazyUnifyFL fl1 fl2 = FL $ resolve fl2 >>= \case
                                     , .. })
                        return (Val ())
                      else empty
-  Val y  -> resolve fl1 >>= \case
+  Val y  -> resolveFL fl1 >>= \case
     Var j -> unFL $ lazyUnifyVar j y
     Val x -> unFL $ lazyUnify x y
 

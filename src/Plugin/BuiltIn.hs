@@ -1287,7 +1287,7 @@ primitive1 :: HasPrimitiveInfo (Lifted FL b) => (a -> b) -> P.Maybe (FLVal (Lift
 primitive1 f mConstraint = returnFLF $ \x ->
   case mConstraint of
     P.Just constraint -> FL $
-      resolve x P.>>= \case
+      resolveFL x P.>>= \case
         Val a -> unFL $ P.return (coerce (f (coerce a)))
         x'    -> do
           j <- freshIdentifierND
@@ -1304,7 +1304,7 @@ primitive2 :: HasPrimitiveInfo (Lifted FL c) => (a -> b -> c) -> P.Maybe (FLVal 
 primitive2 op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
   case mConstraint of
     P.Just constraint -> FL $
-      resolve x P.>>= \x' -> resolve y P.>>= \y' ->
+      resolveFL x P.>>= \x' -> resolveFL y P.>>= \y' ->
         case (# x', y' #) of
           (# Val a, Val b #) -> unFL $ P.return $ coerce (coerce a `op` coerce b)
           _                  -> do
@@ -1330,7 +1330,7 @@ primitiveOrd2 :: (a -> a -> Bool) -> P.Maybe (FLVal (Lifted FL a) -> FLVal (Lift
 primitiveOrd2 op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
   case mConstraint of
     P.Just constraint -> FL $
-      resolve x P.>>= \x' -> resolve y P.>>= \y' ->
+      resolveFL x P.>>= \x' -> resolveFL y P.>>= \y' ->
         case (# x', y' #) of
           (# Val a, Val b #) -> unFL $ toFL $ coerce a `op` coerce b
           _                  -> trueBranch P.<|> falseBranch
@@ -1353,7 +1353,7 @@ primitive2Pair :: (Convertible a, Convertible b, Convertible c, Convertible d, H
 primitive2Pair op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
   case mConstraint of
     P.Just constraint -> FL $
-      resolve x P.>>= \x' -> resolve y P.>>= \y' ->
+      resolveFL x P.>>= \x' -> resolveFL y P.>>= \y' ->
         case (# x', y' #) of
           (# Val a, Val b #) -> unFL $ toFL $ coerce a `op` coerce b
           _                  -> do
@@ -1373,3 +1373,6 @@ primitive2Pair op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
               varOf (Var i) = [i]
               varOf _       = []
     P.Nothing         -> apply2FL (liftFL2Convert op) x y
+
+testfFL :: FL (Lifted FL (a -> b -> c))
+testfFL = returnFLF $ \x -> returnFLF $ \y -> let z = z in P.return z
