@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -fplugin Plugin.InversionPlugin #-}
 module Tree where
-
+{-
 data Tree a = Empty
             | Node (Tree a) a (Tree a)
   deriving Show
@@ -222,9 +222,6 @@ match (x:xs) (y:ys) = (x == y && match xs ys) || match (x:xs) ys
 -- $(partialInv 'match [1]) "abcd" True
 -- \x -> $(clsInv 'match [ free 1, "abcd" ] (x))
 
-
-
-
 -- concrete example from "principles of inverse computation and the URA"
 
 --TODO: Num instanz für peano angeben
@@ -338,3 +335,22 @@ reverseL (S n) (x:xs) = reverseL n xs ++ [x]
 
 notNull2 [] = False
 notNull2 _ = True
+-}
+
+
+data P = Z | S P
+  deriving (Show, Eq)
+
+replicateP :: P -> a -> [a]
+replicateP Z _ = []
+replicateP (S n) x = x : replicateP n x
+
+unrle3P :: Eq a => [(a, P)] -> [a]
+unrle3P [] = []
+unrle3P ((x, S n) : []) = replicateP (S n) x
+unrle3P ((x, S n) : (y, m) : ts) | y /= x = replicateP (S n) x ++ unrle3P ((y, m) : ts)
+
+{-unrle3P :: Eq a => [(a, P)] -> [a]
+unrle3P [] = []
+unrle3P ((x, n@(S _)) : []) = replicateP n x
+unrle3P ((x, n@(S _)) : (y, m) : ts) | y /= x = replicateP n x ++ unrle3P ((y, m) : ts)-}
