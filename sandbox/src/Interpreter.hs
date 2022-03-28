@@ -1,10 +1,11 @@
-{-# OPTIONS_GHC -fplugin Plugin.InversionPlugin #-}
+-- {-# OPTIONS_GHC -fplugin Plugin.InversionPlugin #-}
 
 module Interpreter where
 
 --
 
 data Maybe2 a = Nothing2 | Just2 a
+  deriving Show
 
 instance Functor Maybe2 where
   fmap _ Nothing2  = Nothing2
@@ -16,6 +17,10 @@ instance Applicative Maybe2 where
   _        <*> Nothing2 = Nothing2
   Just2 f  <*> Just2 x  = Just2 (f x)
 
+instance Monad Maybe2 where
+  Nothing2 >>= _ = Nothing2
+  Just2 x  >>= f = f x
+
 lookup2 :: Eq a => a -> [(a, b)] -> Maybe2 b
 lookup2 _ [] = Nothing2
 lookup2 k ((k2,v):kvs) | k == k2 = Just2 v
@@ -23,15 +28,14 @@ lookup2 k ((k2,v):kvs) | k == k2 = Just2 v
 
 --
 
-type VarName = Int
-
-type Prog = [Cmd]
+type VarName = String
 
 data Cmd = Skip
          | Assign VarName AExpr
          | Seq Cmd Cmd
          | Ite BExpr Cmd Cmd
          | While BExpr Cmd
+         | Error
   deriving Show
 
 data AExpr = Lit Integer
@@ -67,3 +71,44 @@ evalB env (Eq e1 e2)  = (==) <$> evalA env e1 <*> evalA env e2
 evalB env (Not e)     = not <$> evalB env e
 evalB env (And e1 e2) = (&&) <$> evalB env e1 <*> evalB env e2
 evalB env (Or e1 e2)  = (||) <$> evalB env e1 <*> evalB env e2
+
+run :: Env -> Cmd -> Maybe2 Env
+run env Skip          = Just2 env
+run env (Assign v a)  = evalA env a >>= \i -> Just2 ((v, i) : env)
+run env (Seq c1 c2)   = run env c1 >>= \env' -> run env' c2
+run env (Ite e c1 c2) = evalB env e >>= \b -> run env (if b then c1 else c2)
+run env (While e c)   = evalB env e >>= \b -> run env (if b then Seq c (While e c) else Skip)
+run _   Error         = Nothing2
+
+--
+
+-- Faculty test program
+-- Expects input in variable X, puts output in variable Y
+
+-- IF X < 0 THEN
+--   ERROR
+-- ELSE
+--   Y = 1;
+--   WHILE NOT(X == 0) DO
+--     Y = Y * X;
+--     X = X - 1
+--   OD
+-- FI
+
+example :: Cmd
+example = Ite (Lt (Var "X") (Lit 0)) Error
+            (foldl1 Seq [ Assign "Y" (Lit 1)
+                        , While (Not (Eq (Var "X") (Lit 0))) (foldl1 Seq [ Assign "Y" (Mul (Var "Y") (Var "X"))
+                                                                         , Assign "X" (Sub (Var "X") (Lit 1))
+                                                                         ])
+                        ])
+
+test = run [("X", 10)] example >>= lookup2 "Y"
+
+-- Equivalent test program in Haskell
+
+reference :: Integer -> Maybe2 Integer
+reference x | x < 0     = Nothing2
+            | otherwise = Just2 (reference' x)
+  where reference' 0  = 1
+        reference' x' = x' * reference' (x' - 1)
