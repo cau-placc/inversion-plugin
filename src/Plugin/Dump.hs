@@ -25,7 +25,6 @@ data DumpPhase = DumpOriginal | DumpOriginalEv
                | DumpOriginalTypeEnv
                | DumpPatternMatched
                | DumpDerivingErrs
-               | DumpInverses
                | DumpGenInstances | DumpGenInstancesTyped
   deriving (Eq, Show)
 
@@ -57,7 +56,6 @@ parseDumpOpts opts = DOpts <$> foldM parseOne [] opts
     parseOne xs "dump-original-type-env"  = Just (DumpOriginalTypeEnv    : xs)
     parseOne xs "dump-pattern-matched"    = Just (DumpPatternMatched     : xs)
     parseOne xs "dump-deriving-errs"      = Just (DumpDerivingErrs       : xs)
-    parseOne xs "dump-inverses"           = Just (DumpInverses           : xs)
     parseOne xs "dump-gen-instances"      = Just (DumpGenInstances       : xs)
     parseOne xs "dump-gen-instances-typed"= Just (DumpGenInstancesTyped  : xs)
     parseOne xs "NoImplicitPrelude"       = Just xs

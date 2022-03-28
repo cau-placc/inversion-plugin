@@ -267,79 +267,31 @@ liftMonadPlugin mdopts env = do
 
           let rdrEnv = tcg_rdr_env env4
 
-          let thisMdl = tcg_mod env
-          let isLocalElt (GRE n _ _ _) = nameIsLocalOrFrom thisMdl n
-
-          {-decs <-  mapM (\nm -> do
-                let unliftedStr = occNameString (removeNameSuffix (occName nm))
-                case filter isLocalElt $ lookupGlobalRdrEnv rdrEnv (mkVarOcc unliftedStr) of
-                  (GRE unliftedNM _ _ _ : _) -> do
-                    v <- tcLookupId unliftedNM
-                    nE <- externaliseName (tcg_mod env) nm
-                    liftQ (genInverses (toTHName m nE) (toTHType m (varType v)) unliftedStr)
-                  _ -> panicAny "cannot find unlifted version of lifted decl" nm
-              ) (filter (not . isDictFun) umSorted)-}
-          let decs = []
-          --TODO: cleanup now, because inverses are no longer pre-generated
-
-          psFun <- case convertToHsDecls Generated noSrcSpan (concat decs) of
-            Right x -> return x
-            Left mg -> addErrsTc [mg] >> failIfErrsM >> return []
-
-          dumpWith DumpInverses dopts psFun
-
-          let isSig (L _ (GHC.Hs.SigD _ _)) = True
-              isSig _                       = False
-
-          let (sigs, funs) = partition isSig psFun
-
           let rdr' = mkGlobalRdrEnv (map (\n -> GRE n NoParent True []) umSorted) `plusGlobalRdrEnv` tcg_rdr_env env4
-
-          let valdemar = ValBinds noExtField
-                (listToBag (mapMaybe (\case
-                                        L l (GHC.Hs.ValD _ b) -> Just (L l b)
-                                        _                     -> Nothing) funs))
-                (mapMaybe (\case
-                             L l (GHC.Hs.SigD _ si) -> Just (L l si)
-                             _                      -> Nothing) sigs)
 
           let liftedBinds = tcg_binds env4    `unionBags`
                             tcg_bag           `unionBags`
                             listToBag recSelAdd
-          (env8, rn') <- setGblEnv (env4 { tcg_binds = liftedBinds, tcg_rdr_env = rdr'}) $
-            rnTopSrcDecls (emptyRdrGroup { hs_valds = valdemar })
 
-          let names = [n
-                      | HsGroup _ (XValBindsLR (NValBinds _ si)) _ _ _ _ _ _ _ _ _ _ <- [rn']
-                      , L _ (TypeSig _ ln _) <- si
-                      , L _ n <- ln]
+          tenv3 <- readTcRef (tcg_type_env_var env4)
 
+          let env10 = env4 { tcg_binds = liftedBinds, tcg_rdr_env = rdr', tcg_type_env = tenv3 }
+          (tenvfinal, evbindsfinal, bindsfinal, _, _, _) <- zonkTopDecls (tcg_ev_binds env10) (tcg_binds env10) [] [] []
 
-          tenv3 <- readTcRef (tcg_type_env_var env8)
-          setGblEnv (env8 { tcg_type_env = tenv3 }) $ do
-            ((env9, lcl9), constraints') <- captureConstraints $ tcTopSrcDecls rn'
-            evBinds' <- simplifyTop constraints'
+          -- create the final environment with restored plugin field
+          let finalEnv = env4 { tcg_binds      = bindsfinal
+                              , tcg_tc_plugins = tcg_tc_plugins env
+                              , tcg_ev_binds   = evbindsfinal
+                              , tcg_exports    = tcg_exports env
+                              , tcg_type_env   = tenvfinal
+                              }
 
-
-            let env10 = env9 { tcg_ev_binds = tcg_ev_binds env9 `unionBags` evBinds' `unionBags` tcg_ev_binds env}
-            setGblEnv env10 $ setLclEnv lcl9 $ do
-
-              (tenvfinal, evbindsfinal, bindsfinal, _, _, _) <- zonkTopDecls (tcg_ev_binds env10) (tcg_binds env10) [] [] []
-
-              -- create the final environment with restored plugin field
-              let finalEnv = env4 { tcg_binds      = bindsfinal
-                                  , tcg_tc_plugins = tcg_tc_plugins env
-                                  , tcg_ev_binds   = evbindsfinal
-                                  , tcg_exports    = tcg_exports env
-                                  , tcg_type_env   = tenvfinal
-                                  }
-
-              let keepNames = filter (not . isDictFun) $ umSorted ++ names
-              nms <- mapM (externaliseName (tcg_mod env)) keepNames
-              liftIO $ modifyIORef (tcg_keep finalEnv)
-                          (`extendNameSetList` nms)
-
-              return finalEnv
+          let keepNames = filter (not . isDictFun) umSorted
+          nms <- mapM (externaliseName (tcg_mod env)) keepNames
+          liftIO $ modifyIORef (tcg_keep finalEnv)
+                      (`extendNameSetList` nms)
+                      
+          return finalEnv
   where
     liftBindings :: TyConMap -> [(ClsInst, ClsInst)] -> [LHsBindLR GhcTc GhcTc]
                  -> TcM [LHsBindLR GhcTc GhcTc]
