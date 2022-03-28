@@ -1101,6 +1101,9 @@ instance FunctorFL (ListFL FL) where
     NilFL       -> P.return NilFL
     ConsFL x xs -> P.return (ConsFL (f `appFL` x) (apply2FL fmapFL f xs))
 
+(<$>#) :: FunctorFL f => FL ((a :--> b) :--> (f a :--> f b))
+(<$>#) = fmapFL
+
 type instance Lifted FL P.Applicative = ApplicativeFL
 type instance Lifted FL (P.Applicative f) = ApplicativeFL (Lifted FL f)
 -- | Lifted Applicative type class
