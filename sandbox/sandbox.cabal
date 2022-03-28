@@ -31,7 +31,7 @@ library
     Main
     Arith
     DataLift
-    Tree
+    TreeTraversal
     Interpreter
 
     ExampleSubmission
