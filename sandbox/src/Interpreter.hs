@@ -4,6 +4,8 @@ module Interpreter where
 
 --
 
+data Pair a b = Pair a b
+
 data Maybe2 a = Nothing2 | Just2 a
   deriving Show
 
@@ -21,10 +23,10 @@ instance Monad Maybe2 where
   Nothing2 >>= _ = Nothing2
   Just2 x  >>= f = f x
 
-lookup2 :: Eq a => a -> [(a, b)] -> Maybe2 b
+lookup2 :: Eq a => a -> [Pair a b] -> Maybe2 b
 lookup2 _ [] = Nothing2
-lookup2 k ((k2,v):kvs) | k == k2   = Just2 v
-                       | otherwise = lookup2 k kvs
+lookup2 k ((Pair k2 v):kvs) | k == k2   = Just2 v
+                            | otherwise = lookup2 k kvs
 
 --
 
@@ -54,7 +56,7 @@ data BExpr = Tru
            | Or BExpr BExpr
   deriving Show
 
-type Env = [(VarName, Integer)]
+type Env = [Pair VarName Integer]
 
 evalA :: Env -> AExpr -> Maybe2 Integer
 evalA _   (Lit i)     = Just2 i
@@ -74,7 +76,7 @@ evalB env (Or e1 e2)  = (||) <$> evalB env e1 <*> evalB env e2
 
 run :: Env -> Cmd -> Maybe2 Env
 run env Skip          = Just2 env
-run env (Assign v a)  = evalA env a >>= \i -> Just2 ((v, i) : env)
+run env (Assign v a)  = evalA env a >>= \i -> Just2 (Pair v i : env)
 run env (Seq c1 c2)   = run env c1 >>= \env' -> run env' c2
 run env (Ite e c1 c2) = evalB env e >>= \b -> run env (if b then c1 else c2)
 run env (While e c)   = evalB env e >>= \b -> run env (if b then Seq c (While e c) else Skip)
@@ -103,7 +105,7 @@ example = Ite (Lt (Var "X") (Lit 0)) Error
                                                                          ])
                         ])
 
-test = run [("X", 10)] example >>= lookup2 "Y"
+test = run [Pair "X" 10] example >>= lookup2 "Y"
 
 -- Equivalent test program in Haskell
 
