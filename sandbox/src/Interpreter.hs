@@ -1,4 +1,4 @@
--- {-# OPTIONS_GHC -fplugin Plugin.InversionPlugin #-}
+{-# OPTIONS_GHC -fplugin Plugin.InversionPlugin #-}
 
 module Interpreter where
 
@@ -23,7 +23,7 @@ instance Monad Maybe2 where
 
 lookup2 :: Eq a => a -> [(a, b)] -> Maybe2 b
 lookup2 _ [] = Nothing2
-lookup2 k ((k2,v):kvs) | k == k2 = Just2 v
+lookup2 k ((k2,v):kvs) | k == k2   = Just2 v
                        | otherwise = lookup2 k kvs
 
 --
