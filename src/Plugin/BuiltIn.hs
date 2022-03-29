@@ -57,7 +57,7 @@ import           Data.Tuple.Solo
 
 -- * Lifted tuple types and internal instances
 
-data SoloFL m a = SoloFL (m a)
+data SoloFL (m :: Type -> Type) a = SoloFL (m a)
 
 type instance Lifted m Solo = SoloFL m
 type instance Lifted m (Solo a) = SoloFL m (Lifted m a)
@@ -89,7 +89,7 @@ instance ShowFree a => ShowFree (Solo a) where
 
 instance Invertible a => Invertible (Solo a)
 
-data Tuple2FL m a b = Tuple2FL (m a) (m b)
+data Tuple2FL (m :: Type -> Type) a b = Tuple2FL (m a) (m b)
 
 type instance Lifted m (,) = Tuple2FL m
 type instance Lifted m ((,) a) = Tuple2FL m (Lifted m a)
@@ -127,7 +127,7 @@ P.concat P.<$> P.mapM genLiftedTupleDataDeclAndInstances [3 .. maxTupleArity]
 
 -- * Lifted list type and internal instances
 
-data ListFL m a = NilFL | ConsFL (m a) (m (ListFL m a))
+data ListFL (m :: Type -> Type) a = NilFL | ConsFL (m a) (m (ListFL m a))
 
 type StringFL m = ListFL m (CharFL m)
 
