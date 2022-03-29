@@ -286,20 +286,22 @@ arrowArity = length . fst . arrowUnapply
 
 --------------------------------------------------------------------------------
 
-genLiftedTupleDataDecl :: Int -> DecQ
+genLiftedTupleDataDecl :: Int -> Q (Dec, Dec)
 genLiftedTupleDataDecl ar = do
   let name = mkName $ "Tuple" ++ show ar ++ "FL"
   mVar <- newName "m"
   tyVarNames <- replicateM ar (newName "a")
   let con = NormalC name $ map (\tyVarName -> (Bang NoSourceUnpackedness NoSourceStrictness, AppT (VarT mVar) (VarT tyVarName))) tyVarNames
-  return $ DataD [] name (KindedTV mVar (AppT (AppT ArrowT StarT) StarT) : map PlainTV tyVarNames) Nothing [con] []
+  let da = DataD [] name (KindedTV mVar (AppT (AppT ArrowT StarT) StarT) : map PlainTV tyVarNames) Nothing [con] []
+  let ki = KiSigD name ((StarT `mkArrowT` StarT) `mkArrowT` foldr mkArrowT StarT (replicate ar StarT))
+  return (da, ki)
 
 genLiftedTupleDataDeclAndInstances :: Int -> DecsQ
 genLiftedTupleDataDeclAndInstances ar = do
   TyConI originalDataDecl <- reify $ tupleTypeName ar
-  liftedDataDecl <- genLiftedTupleDataDecl ar
+  (liftedDataDecl, kiSig) <- genLiftedTupleDataDecl ar
   instances <- genInstances originalDataDecl liftedDataDecl
-  return $ liftedDataDecl : instances
+  return $ liftedDataDecl : kiSig : instances
 
 --------------------------------------------------------------------------------
 
