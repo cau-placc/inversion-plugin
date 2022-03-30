@@ -21,11 +21,8 @@ import Finder
 import IfaceEnv
 import TcRnMonad
 import PrelNames
-import HscMain
-
 
 import Plugin.Trans.Type
-import Plugin.Trans.Util (panicAny)
 
 -- | Load the mapping between lifted and unlifted
 -- for all built-in type constructors.

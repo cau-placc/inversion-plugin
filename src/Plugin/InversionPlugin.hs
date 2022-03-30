@@ -34,7 +34,6 @@ import TcEvidence
 import GhcPlugins
 import Bag
 import TcSimplify
-import TcEnv
 import TcHsSyn
 import TcRnMonad
 import UniqMap
@@ -63,7 +62,6 @@ import Plugin.Trans.Class
 import Plugin.Trans.Constr
 import Plugin.Effect.Annotation
 import Plugin.Effect.TH
-import Plugin.Trans.Var
 import Plugin.Primitives
 import Plugin.Prelude ()
 
@@ -111,7 +109,6 @@ liftMonadPlugin mdopts env = do
   s <- getUniqueSupplyM
   mtycon <- getMonadTycon
   ftycon <- getFunTycon
-  m <- tcg_mod <$> getGblEnv
   flags <- getDynFlags
   instEnvs <- tcGetFamInstEnvs
   res <- liftIO ((mdo
@@ -264,8 +261,6 @@ liftMonadPlugin mdopts env = do
           -- finally do the monadic lifting for functions and dicts
           tcg_binds' <- liftBindings tyconsMap (zip newInsts origInsts) (bagToList prep)
           let tcg_bag = listToBag $ filter (`keepWithName` umSorted) tcg_binds'
-
-          let rdrEnv = tcg_rdr_env env4
 
           let rdr' = mkGlobalRdrEnv (map (\n -> GRE n NoParent True []) umSorted) `plusGlobalRdrEnv` tcg_rdr_env env4
 

@@ -1377,6 +1377,3 @@ primitive2Pair op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
               varOf (Var i) = [i]
               varOf _       = []
     P.Nothing         -> apply2FL (liftFL2Convert op) x y
-
-testfFL :: FL (Lifted FL (a -> b -> c))
-testfFL = returnFLF $ \x -> returnFLF $ \y -> let z = z in P.return z

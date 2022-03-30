@@ -65,26 +65,26 @@ patToExp _              = error "Should not happen: non-constructor pattern in p
 
 --TODO: State für VarP-Dinger
 --TODO: reanme to varConPatToExp, dabei VarP zu var ...-Exps mit passender id
-patToExp2 :: Pat -> Exp
-patToExp2 (LitP l)       = LitE l
-patToExp2 (TupP ps)      = TupE $ map (Just . patToExp) ps
-patToExp2 (ConP name ps) = applyExp (ConE name) $ map patToExp ps
-patToExp2 (ParensP p)    = ParensE $ patToExp p
-patToExp2 (ListP ps)     = ListE $ map patToExp ps
-patToExp2 _              = error "Should not happen: non-constructor pattern in patToExp"
+-- patToExp2 :: Pat -> Exp
+-- patToExp2 (LitP l)       = LitE l
+-- patToExp2 (TupP ps)      = TupE $ map (Just . patToExp) ps
+-- patToExp2 (ConP name ps) = applyExp (ConE name) $ map patToExp ps
+-- patToExp2 (ParensP p)    = ParensE $ patToExp p
+-- patToExp2 (ListP ps)     = ListE $ map patToExp ps
+-- patToExp2 _              = error "Should not happen: non-constructor pattern in patToExp"
 
 
---TODO: should be the same as supported by convertExp
-isVarConPat :: Pat -> Bool
-isVarConPat (VarP _)    = True
-isVarConPat WildP       = True
-isVarConPat (LitP _)    = True
-isVarConPat (TupP ps)   = all isConPat ps
-isVarConPat (ConP _ ps) = all isConPat ps
-isVarConPat (ParensP p) = isConPat p
-isVarConPat (ListP ps)  = all isConPat ps
-isVarConPat _           = False
---TODO: infixp supporten
+-- --TODO: should be the same as supported by convertExp
+-- isVarConPat :: Pat -> Bool
+-- isVarConPat (VarP _)    = True
+-- isVarConPat WildP       = True
+-- isVarConPat (LitP _)    = True
+-- isVarConPat (TupP ps)   = all isConPat ps
+-- isVarConPat (ConP _ ps) = all isConPat ps
+-- isVarConPat (ParensP p) = isConPat p
+-- isVarConPat (ListP ps)  = all isConPat ps
+-- isVarConPat _           = False
+-- --TODO: infixp supporten
 
 isConPat :: Pat -> Bool
 isConPat (LitP _)    = True

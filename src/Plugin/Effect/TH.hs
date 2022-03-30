@@ -9,8 +9,7 @@ import Control.Applicative
 import Control.Monad
 
 import Data.Bifunctor
-import Data.List (intercalate, partition, sortOn, subsequences, nub)
-import qualified Data.Map as Map
+import Data.List (partition, sortOn, nub)
 import Data.Maybe
 import Data.Tuple.Solo
 
