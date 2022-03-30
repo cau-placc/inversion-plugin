@@ -209,7 +209,7 @@ liftMonadPlugin mdopts env = do
 
       dumpWith DumpGenInstancesTyped dopts binds7
 
-      let env3 = env7 { tcg_ev_binds = evbinds7 }
+      let env3 = env7 { tcg_ev_binds = evbinds7 `unionBags` tcg_ev_binds env7 }
       setGblEnv env3 $ setLclEnv lcl7 $ do
         -- compile pattern matching
         (prep, um) <- runStateT
