@@ -48,8 +48,8 @@ ps t' = unsafePerformIO $ do
   return res
 
 {-
-ps :: Search a -> [a]
-ps t' = unsafePerformIO $ do
+psWithoutFinalizer :: Search a -> [a]
+psWithoutFinalizer t' = unsafePerformIO $ do
   ch <- newChan
   let psIO t = case t of
         None -> return ()
@@ -66,31 +66,8 @@ ps t' = unsafePerformIO $ do
 -}
 
 {-
-ps1 :: Search a -> [a]
-ps1 t' = unsafePerformIO $ do
-  ch <- newChan
-  let psIO mvar t = case t of
-        None -> putMVar mvar ()
-        One x -> do
-          writeChan ch (Just x)
-          putMVar mvar ()
-        Choice l r -> do
-          mvarl <- newEmptyMVar
-          mvarr <- newEmptyMVar
-          _ <- forkIO $ psIO mvarl l
-          _ <- forkIO $ psIO mvarr r
-          takeMVar mvarl
-          takeMVar mvarr
-          putMVar mvar ()
-  mvar <- newEmptyMVar
-  _ <- forkIO $ psIO mvar (searchTree t')
-  _ <- forkIO $ do
-    takeMVar mvar
-    writeChan ch Nothing
-  catMaybes . takeWhile isJust <$> getChanContents ch
-
-ps2 :: Search a -> [a]
-ps2 t' = unsafePerformIO $ do
+psNaive :: Search a -> [a]
+psNaive t' = unsafePerformIO $ do
   ch <- newChan
   let psIO t = case t of
         None -> return ()
