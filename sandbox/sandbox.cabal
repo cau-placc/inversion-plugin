@@ -34,6 +34,7 @@ library
     TreeTraversal
     Huffman
     Interpreter
+    Graph
 
     ExampleSubmission
     MainSubmission
