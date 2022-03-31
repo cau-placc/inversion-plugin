@@ -1,5 +1,7 @@
 {-# OPTIONS_GHC -fplugin Plugin.InversionPlugin #-}
 
+-- TODO: Taken from "Principles of Inverse Computation and the Universal Resolving Algorithm" and ???
+
 module TreeTraversal where
 
 data Tree a = Empty
