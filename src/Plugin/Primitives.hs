@@ -3,7 +3,7 @@
 
 module Plugin.Primitives
   ( Invertible, Lifted
-  , inv, partialInv, weakInv, inClassInv, inOutClassInv, var, genInOutClassInverse, showFree
+  , inv, partialInv, weakInv, inClassInv, inOutClassInv, var, showFree
   , funPat
   ) where
 
@@ -17,14 +17,11 @@ import Plugin.Lifted
 
 {-# ANN module "HLint: ignore Redundant bracket" #-}
 
-inv :: Name -> ExpQ
-inv = flip partialInv []
+inv :: Name -> Bool -> ExpQ
+inv f = flip (partialInv f) []
 
-weakInv :: Name -> ExpQ
-weakInv name = [| foldr const (error "no weak inverse") . $(inv name) |]
-
-funPatPartialInv :: Name -> [Int] -> ExpQ
-funPatPartialInv = partialInv --TODO: non-ground
+weakInv :: Name -> Bool -> ExpQ
+weakInv name gnf = [| foldr const (error "no weak inverse") . $(inv name gnf) |]
 
 funPat :: FunPat p => Name -> p
 funPat f = funPat' f []
@@ -39,7 +36,7 @@ instance FunPat PatQ where
         (conIndices, consPs) = unzip cons
         conEs = map patToExp consPs
         tP = mkTupleP (map snd others)
-    partialInvE <- funPatPartialInv name conIndices
+    partialInvE <- partialInv name False conIndices
     vE <- [| (\a -> [b | b@($(return (anonymizePat tP))) <- $(return $ applyExp partialInvE conEs) a]) |]
     ViewP vE <$> [p| $(return tP):_ |]
 

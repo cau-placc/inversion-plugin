@@ -87,8 +87,8 @@ getArity name = do
     _                -> fail $ show name ++ " is no function or class method."
   return $ arrowArity ty
 
-partialInv :: Name -> [Int] -> ExpQ
-partialInv name fixedArgIndices = do
+partialInv :: Name -> Bool -> [Int] -> ExpQ
+partialInv name gnf fixedArgIndices = do
   originalArity <- getArity name
   let validFixedArgIndices = [0 .. originalArity - 1]
       hint = "has to be a subsequence of " ++ show validFixedArgIndices
@@ -100,7 +100,9 @@ partialInv name fixedArgIndices = do
   let fixedArgExps = zip nubbedFixedArgIndices $ map VarE fixedArgNames
       nonFixedArgExps = zip nonFixedArgIndices $ map (AppE (VarE 'var) . mkIntExp) [0 ..]
       inClassExps = map snd $ sortOn fst $ fixedArgExps ++ nonFixedArgExps
-  LamE (map VarP fixedArgNames) <$> inClassInv name (map return inClassExps)
+  LamE (map VarP fixedArgNames) <$> inClassInv name gnf (map return inClassExps)
+
+
 
 {-inv2 :: Name -> ExpQ
 inv2 name = do
@@ -117,14 +119,11 @@ inv2 name = do
 --inv2 :: Name -> ExpQ
 --inv2 name = partialInv2 name []
 
-inOutClassInv :: Name -> [ExpQ] -> ExpQ -> ExpQ
-inOutClassInv f = genInOutClassInverse f False
+inClassInv :: Name -> Bool -> [ExpQ] -> ExpQ
+inClassInv f gnf ins = [| \x -> $(inOutClassInv f gnf ins [| x |]) |]
 
-inClassInv :: Name -> [ExpQ] -> ExpQ
-inClassInv f ins = [| \x -> $(inOutClassInv f ins [| x |]) |]
-
-genInOutClassInverse :: Name -> Bool -> [ExpQ] -> ExpQ -> ExpQ
-genInOutClassInverse name nonGround inClassExpQs outClassExpQ = do
+inOutClassInv :: Name -> Bool -> [ExpQ] -> ExpQ -> ExpQ
+inOutClassInv name gnf inClassExpQs outClassExpQ = do
   originalArity <- getArity name
   let numInClasses = length inClassExpQs
   when (originalArity /= numInClasses) $ fail $ "Wrong number of input classes provided (expected " ++ show originalArity ++ ", but got " ++ show numInClasses ++ ")"
@@ -141,8 +140,8 @@ genInOutClassInverse name nonGround inClassExpQs outClassExpQ = do
       freeNames = map (fst . snd) mapping
       letExp = DoE [NoBindS matchExp, NoBindS returnExp ]
       returnExp = mkLiftedTupleE (map VarE freeNames)
-      bodyExp = applyExp (VarE 'map) [VarE (if nonGround then 'fromEither else 'fromIdentity), applyExp (VarE 'evalFLWith)
-        [ VarE (if nonGround then 'normalFormFL else 'groundNormalFormFL)
+      bodyExp = applyExp (VarE 'map) [VarE (if gnf then 'fromIdentity else 'fromEither), applyExp (VarE 'evalFLWith)
+        [ VarE (if gnf then 'groundNormalFormFL else 'normalFormFL)
         , letExp]]
   bNm <- newName "b"
   let letDecs = [FunD bNm [Clause (map VarP freeNames) (NormalB bodyExp) []]]
