@@ -169,6 +169,65 @@ instance (ShowFree a, ShowFree [a]) => ShowFree [a] where
   showFree' (x:xs) = "((:) " P.++ showFree x P.++ " " P.++ showFree xs P.++ ")"
 
 instance Invertible a => Invertible [a]
+instance FunctorFL (MaybeFL FL) where
+  fmapFL = returnFLF $ \f -> returnFLF $ \x -> x P.>>= \case
+    NothingFL -> P.return NothingFL
+    JustFL y -> P.return (JustFL (f `appFL` y))
+
+instance ApplicativeFL (MaybeFL FL) where
+  pureFL = returnFLF $ \x -> P.return (JustFL x)
+  (<*>#) = returnFLF $ \x -> returnFLF $ \y -> x P.>>= \case
+    NothingFL -> P.return NothingFL
+    JustFL f -> y P.>>= \case
+      NothingFL -> P.return NothingFL
+      JustFL z -> P.return (JustFL (f `appFL` z))
+
+instance MonadFL (MaybeFL FL) where
+  (>>=#) = returnFLF $ \x -> returnFLF $ \f -> x P.>>= \case
+    NothingFL -> P.return NothingFL
+    JustFL y -> f `appFL` y
+
+-- * Lifted Maybe type and internal instances
+
+data MaybeFL (m :: Type -> Type) a = NothingFL | JustFL (m a)
+
+type instance Lifted m P.Maybe = MaybeFL m
+type instance Lifted m (P.Maybe a) = MaybeFL m (Lifted m a)
+
+instance HasPrimitiveInfo a => HasPrimitiveInfo (MaybeFL FL a) where
+  primitiveInfo = NoPrimitive
+
+instance HasPrimitiveInfo a => Narrowable (MaybeFL FL a) where
+  narrow j = [(NothingFL, 0), (JustFL (free j), 1)]
+
+instance Convertible a => Convertible (P.Maybe a) where
+  to P.Nothing = NothingFL
+  to (P.Just x) = JustFL (toFL x)
+  fromWith _ NothingFL = P.Nothing
+  fromWith ff (JustFL x) = P.Just (ff x)
+
+instance (Convertible a, Matchable a) => Matchable (P.Maybe a) where
+  match P.Nothing NothingFL = P.return ()
+  match (P.Just x) (JustFL y) = matchFL x y
+  match _ _ = P.empty
+
+instance Unifiable a => Unifiable (P.Maybe a) where
+  lazyUnify NothingFL NothingFL = P.return ()
+  lazyUnify (JustFL x) (JustFL y) = lazyUnifyFL x y
+  lazyUnify _ _ = P.empty
+
+instance NormalForm a => NormalForm (P.Maybe a) where
+  normalFormWith nf = \case
+      NothingFL -> P.return (P.pure NothingFL)
+      JustFL x ->
+        nf x P.>>= \y ->
+          P.return (P.pure (JustFL y))
+
+instance ShowFree a => ShowFree (P.Maybe a) where
+  showFree' P.Nothing = "Nothing"
+  showFree' (P.Just x) = "(Just " P.++ showFree x P.++ ")"
+
+instance Invertible a => Invertible (P.Maybe a)
 
 data RatioFL m a = m a :%# m a
 
@@ -355,6 +414,19 @@ dropFL = returnFLF $ \n -> returnFLF $ \xs ->
       ConsFL _ as -> dropFL `appFL` ((-#) `appFL` n `appFL` P.return (IntFL 1)) `appFL` as
     TrueFL -> xs
 
+-- | Lifted lookup function
+lookupFL :: EqFL a => FL (a :--> ListFL FL (Tuple2FL FL a b) :--> MaybeFL FL b)
+lookupFL = returnFLF $ \k -> returnFLF $ \xs -> xs P.>>= \case
+  NilFL -> P.return NothingFL
+  ConsFL y kvs -> y P.>>= \case
+    Tuple2FL k2 v -> ((==#) `appFL` k `appFL` k2) P.>>= \case
+      FalseFL -> lookupFL `appFL` k `appFL` kvs
+      TrueFL -> P.return (JustFL v)
+
+-- | Lifted notElem function
+notElemFL :: (FoldableFL t, EqFL a) => FL (a :--> t a :--> BoolFL FL)
+notElemFL = returnFLF $ \x -> (.#) `appFL` notFL `appFL` (elemFL `appFL` x)
+
 --TODO: Move
 data NonEmptyFL a = a :|# [a]
 --TODO: Eq, Ord, Functor, Applicative, Monad
@@ -398,7 +470,7 @@ class FoldableFL t where
     foldMap'FL :: MonoidFL m => FL ((a :--> m) :--> t a :--> m)
     --foldMap'FL = returnFLF $ \f -> foldl'FL `appFL` (returnFLF $ \acc -> returnFLF $ \a -> (<>#) `appFL` acc `appFL` a) `appFL` memptyFL
 
-    foldrFL :: FL ((a -> b -> b) -> b -> t a -> b)
+    foldrFL :: FL ((a :--> b :--> b) :--> b :--> t a :--> b)
     --foldrFL f z t = appEndo (foldMap (Endo #. f) t) z
 
     foldr'FL :: FL ((a :--> b :--> b) :--> b :--> t a :--> b)
@@ -458,6 +530,33 @@ class FoldableFL t where
     --product = getProduct #. foldMap' Product
 
 instance FoldableFL (ListFL FL) where
+  elemFL = returnFLF $ \x -> returnFLF $ \xs -> xs P.>>= \case
+    NilFL -> P.return FalseFL
+    ConsFL y ys -> ((==#) `appFL` x `appFL` y) P.>>= \case
+      FalseFL -> elemFL `appFL` x `appFL` ys
+      TrueFL -> P.return TrueFL
+  foldlFL = returnFLF $ \f -> returnFLF $ \e -> returnFLF $ \xs -> xs P.>>= \case
+    NilFL -> e
+    ConsFL y ys -> foldlFL `appFL` f `appFL` (f `appFL` e `appFL` y) `appFL` ys
+  foldl1FL = returnFLF $ \f -> returnFLF $ \xs -> xs P.>>= \case
+    NilFL -> P.empty
+    ConsFL y ys -> foldlFL `appFL` f `appFL` y `appFL` ys
+  foldrFL = returnFLF $ \f -> returnFLF $ \e -> returnFLF $ \xs -> xs P.>>= \case
+    NilFL -> e
+    ConsFL y ys -> f `appFL` y `appFL` (foldrFL `appFL` f `appFL` e `appFL` ys)
+  foldr1FL = returnFLF $ \f -> returnFLF $ \xs -> xs P.>>= \case
+    NilFL -> P.empty
+    ConsFL y ys -> ys P.>>= \case
+      NilFL -> y
+      zs -> f `appFL` y `appFL` (foldr1FL `appFL` f `appFL` P.return zs)
+  lengthFL = returnFLF $ \xs -> xs P.>>= \case
+    NilFL -> P.return (IntFL 0)
+    ConsFL _ ys -> (+#) `appFL` (lengthFL `appFL` ys) `appFL` P.return (IntFL 1)
+  nullFL = returnFLF $ \xs -> xs P.>>= \case
+    NilFL -> P.return TrueFL
+    ConsFL _ _ -> P.return FalseFL
+  toListFL = idFL
+  --TODO: add missing implementations
   {-elem    = List.elem
   foldl   = List.foldl
   foldl'  = List.foldl'
