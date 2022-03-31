@@ -8,7 +8,7 @@ extra-deps:
     commit: 58f13c937cb8d6847e84c2b1ed3be35f39897526
   - libBF-0.6.2
   - git: https://github.com/GaloisInc/what4.git
-    commit: ac64bcd580f552bd22ec5a135fdbcc3d523723a1
+    commit: c8e6381b9a4c635c70939ac55de1369e9444b77d
     subdirs:
       - what4
   - bv-sized-1.0.3
