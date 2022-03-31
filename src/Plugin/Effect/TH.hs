@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP               #-}
 {-# LANGUAGE TemplateHaskell   #-}
 {-# LANGUAGE TupleSections     #-}
 {-# LANGUAGE LambdaCase        #-}
@@ -9,7 +8,7 @@ import Control.Applicative
 import Control.Monad
 
 import Data.Bifunctor
-import Data.List (partition, sortOn, nub)
+import Data.List (sortOn, nub)
 import Data.Maybe
 import Data.Tuple.Solo
 
@@ -226,9 +225,6 @@ mkLiftedTupleE xs  = AppE (VarE 'return) (applyExp liftedTupleConE xs)
     pkgName = case 'mkLiftedTupleE of
       Name _ (NameG _ p _) -> pkgString p
       _                    -> "inversion-plugin"
-
-partitionByIndices :: [Int] -> [a] -> ([a], [a])
-partitionByIndices is = bimap (map snd) (map snd) . partition ((`elem` is) . fst) . zip [0 ..]
 
 decomposeForallT :: Type -> ([TyVarBndr], [Type], Type)
 decomposeForallT (ForallT bndrs ctxt ty) = (bndrs, ctxt, ty)
