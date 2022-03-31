@@ -389,12 +389,13 @@ mapFL = returnFLF $ \f -> returnFLF $ \xs ->
     NilFL -> P.return NilFL
     ConsFL a as -> P.return (ConsFL (f `appFL` a) (mapFL `appFL` f `appFL` as))
 
--- | Lifted concatMap function for lists
-concatMapFL :: FL ((a :--> ListFL FL b) :--> ListFL FL a :--> ListFL FL b)
-concatMapFL = returnFLF $ \f -> returnFLF $ \xs ->
-  xs P.>>= \case
-    NilFL -> P.return NilFL
-    ConsFL a as -> (++#) `appFL` (f `appFL` a) `appFL` (concatMapFL `appFL` f `appFL` as)
+-- | Lifted concat function
+concatFL :: FoldableFL t => FL (t (ListFL FL a) :--> ListFL FL a)
+concatFL = foldrFL `appFL` (++#) `appFL` P.return NilFL
+
+-- | Lifted concatMap function
+concatMapFL :: FoldableFL t => FL ((a :--> ListFL FL b) :--> t a :--> ListFL FL b)
+concatMapFL = returnFLF $ \f -> foldrFL `appFL` ((.#) `appFL` (++#) `appFL` f) `appFL` P.return NilFL
 
 -- | Lifted takeWhile function for lists
 takeWhileFL :: FL ((a :--> BoolFL FL) :--> ListFL FL a :--> ListFL FL a)
@@ -413,6 +414,12 @@ dropFL = returnFLF $ \n -> returnFLF $ \xs ->
       NilFL -> P.return NilFL
       ConsFL _ as -> dropFL `appFL` ((-#) `appFL` n `appFL` P.return (IntFL 1)) `appFL` as
     TrueFL -> xs
+
+-- | Lifted maybe function
+maybeFL :: FL (b :--> (a :--> b) :--> MaybeFL FL a :--> b)
+maybeFL = returnFLF $ \n -> returnFLF $ \j -> returnFLF $ \m -> m P.>>= \case
+  NothingFL -> n
+  JustFL x -> j `appFL` x
 
 -- | Lifted lookup function
 lookupFL :: EqFL a => FL (a :--> ListFL FL (Tuple2FL FL a b) :--> MaybeFL FL b)
