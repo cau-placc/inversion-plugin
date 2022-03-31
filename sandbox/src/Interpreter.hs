@@ -4,8 +4,6 @@ module Interpreter where
 
 --
 
-data Pair a b = Pair a b
-
 data Maybe2 a = Nothing2 | Just2 a
   deriving Show
 
@@ -23,10 +21,17 @@ instance Monad Maybe2 where
   Nothing2 >>= _ = Nothing2
   Just2 x  >>= f = f x
 
-lookup2 :: Eq a => a -> [Pair a b] -> Maybe2 b
-lookup2 _ [] = Nothing2
-lookup2 k ((Pair k2 v):kvs) | k == k2   = Just2 v
-                            | otherwise = lookup2 k kvs
+lookup2 :: Eq a => a -> [(a, b)] -> Maybe2 b
+lookup2 _ []                        = Nothing2
+lookup2 k ((k2, v):kvs) | k == k2   = Just2 v
+                        | otherwise = lookup2 k kvs
+
+foldl2 :: (a -> a -> a) -> a -> [a] -> a
+foldl2 _ e []     = e
+foldl2 f e (x:xs) = foldl2 f (f e x) xs
+
+foldl12 :: (a -> a -> a) -> [a] -> a
+foldl12 f (x:xs) = foldl2 f x xs
 
 --
 
@@ -56,7 +61,7 @@ data BExpr = Tru
            | Or BExpr BExpr
   deriving Show
 
-type Env = [Pair VarName Integer]
+type Env = [(VarName, Integer)]
 
 evalA :: Env -> AExpr -> Maybe2 Integer
 evalA _   (Lit i)     = Just2 i
@@ -68,15 +73,15 @@ evalA env (Div e1 e2) = div <$> evalA env e1 <*> evalA env e2
 
 evalB :: Env -> BExpr -> Maybe2 Bool
 evalB _   Tru         = Just2 True
-evalB env (Lt e1 e2)  = (<) <$> evalA env e1 <*> evalA env e2
+evalB env (Lt e1 e2)  = (<)  <$> evalA env e1 <*> evalA env e2
 evalB env (Eq e1 e2)  = (==) <$> evalA env e1 <*> evalA env e2
-evalB env (Not e)     = not <$> evalB env e
+evalB env (Not e)     = not  <$> evalB env e
 evalB env (And e1 e2) = (&&) <$> evalB env e1 <*> evalB env e2
 evalB env (Or e1 e2)  = (||) <$> evalB env e1 <*> evalB env e2
 
 run :: Env -> Cmd -> Maybe2 Env
 run env Skip          = Just2 env
-run env (Assign v a)  = evalA env a >>= \i -> Just2 (Pair v i : env)
+run env (Assign v a)  = evalA env a >>= \i -> Just2 ((v, i) : env)
 run env (Seq c1 c2)   = run env c1 >>= \env' -> run env' c2
 run env (Ite e c1 c2) = evalB env e >>= \b -> run env (if b then c1 else c2)
 run env (While e c)   = evalB env e >>= \b -> run env (if b then Seq c (While e c) else Skip)
@@ -99,18 +104,24 @@ run _   Error         = Nothing2
 
 example :: Cmd
 example = Ite (Lt (Var "X") (Lit 0)) Error
-            (foldl1 Seq [ Assign "Y" (Lit 1)
-                        , While (Not (Eq (Var "X") (Lit 0))) (foldl1 Seq [ Assign "Y" (Mul (Var "Y") (Var "X"))
-                                                                         , Assign "X" (Sub (Var "X") (Lit 1))
-                                                                         ])
-                        ])
+            (foldl12 Seq [ Assign "Y" (Lit 1)
+                         , While (Not (Eq (Var "X") (Lit 0))) (foldl12 Seq [ Assign "Y" (Mul (Var "Y") (Var "X"))
+                                                                           , Assign "X" (Sub (Var "X") (Lit 1))
+                                                                           ])
+                         ])
 
-test = run [Pair "X" 10] example >>= lookup2 "Y"
+test x = run [("X", x)] example >>= lookup2 "Y"
+
+-- Test with: $(inv 'test) (Just2 3628800)
+
+--
 
 -- Equivalent test program in Haskell
 
 reference :: Integer -> Maybe2 Integer
-reference x | x < 0     = Nothing2
-            | otherwise = Just2 (reference' x)
-  where reference' 0  = 1
-        reference' x' = x' * reference' (x' - 1)
+reference x = if x < 0 then Nothing2 else Just2 (reference' x)
+  where reference' :: Integer -> Integer
+        reference' 0  = 1
+        reference' x' = (*) x' (reference' ((-) x' 1))
+
+-- Test with: $(inv 'reference) (Just2 3628800)
