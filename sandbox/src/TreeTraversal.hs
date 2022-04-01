@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -fplugin Plugin.InversionPlugin #-}
 
--- TODO: Taken from "Principles of Inverse Computation and the Universal Resolving Algorithm" and ???
+-- TODO: Taken from "Principles of Inverse Computation and the Universal Resolving Algorithm" and "Rebuilding a Tree from Its Traversals: A Case Study of Program Inversion"
 
 module TreeTraversal where
 
