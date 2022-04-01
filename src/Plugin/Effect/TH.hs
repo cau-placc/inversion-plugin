@@ -470,9 +470,10 @@ genInstances originalDataDec liftedDataDec = do
                     originalArgNames <- replicateM originalConArity (newName "x")
                     let originalPat = ConP (conName originalConInfo) $ map VarP originalArgNames
                     let isTuple = originalConName == tupleDataName originalConArity
+                        isInfix = head originalConOccString == ':'
                     body <- NormalB <$> if isTuple
                       then [| showString "(" . $(foldl (\qExp originalArgName -> [| $(qExp) . showString "," . showsFree $(return $ VarE originalArgName) |]) [| showsFree $(return $ VarE $ head originalArgNames) |] (tail originalArgNames)) . showString ")" |]
-                      else [| showParen ($(return $ ConE $ if originalConArity > 0 then trueName else falseName) && $(return $ VarE dName) > 10) $(foldl (\qExp originalArgExp -> [| $(qExp) . showString " " . showsFreePrec 11 $(return originalArgExp) |]) [| showString $(return $ LitE $ StringL originalConOccString) |] (map VarE originalArgNames)) |]
+                      else [| showParen ($(return $ ConE $ if originalConArity > 0 then trueName else falseName) && $(return $ VarE dName) > 10) $(foldl (\qExp originalArgExp -> [| $(qExp) . showString " " . showsFreePrec 11 $(return originalArgExp) |]) [| showParen $(return $ ConE $ if isInfix then trueName else falseName) (showString $(return $ LitE $ StringL originalConOccString)) |] (map VarE originalArgNames)) |]
                     return $ Clause [if isTuple then WildP else VarP dName, originalPat] body []
               clauses <- mapM genClause originalConInfos
               return $ FunD 'showsFreePrec' clauses
