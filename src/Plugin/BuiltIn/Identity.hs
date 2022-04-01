@@ -39,6 +39,7 @@ instance NormalForm a => NormalForm (Identity a) where
         return (pure (IdentityFL y))
 
 instance ShowFree a => ShowFree (Identity a) where
-  showFree' (Identity x) = "(Identity " ++ showFree x ++ ")"
+  showsFreePrec' d (Identity x) = showParen (d > 10) $
+    showString "Identity " . showsFreePrec 11 x
 
 instance Invertible a => Invertible (Identity a)

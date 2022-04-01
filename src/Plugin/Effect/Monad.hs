@@ -352,12 +352,29 @@ evalFLWith nf fl = evalND (nf fl) initFLState
 
 --TODO: ShowFree abtrennen
 
+--TODO: umbenennung bei input classes ist doof, weil die indizes verloren gehen könnten (id [var 1] [var 1] wird mit representanten zu var-1 oder so.)
+--TODO: just use negative indices for fresh variables and keep the positve ones from input classes
+
 class ShowFree a where
   showFree' :: a -> String
+  showsFreePrec' :: Int -> a -> ShowS
 
---TODO: umbenennung bei input classes ist doof, weil die indizes verloren gehen könnten (id [var 1] [var 1] wird mit representanten zu var-1 oder so.)
+  showFree' x = showsFreePrec' 0 x ""
+  showsFreePrec' _ x s = showFree' x ++ s
+
+--TODO: list syntax does not make much sense if there could(!) be free variables. we could only be sure if the list is finite and all tails are non-free. that cannot be tested.
+
 showFree :: ShowFree a => a -> String
-showFree x = unsafePerformIO $ seq x (return (showFree' x)) `catch` (\ (FreeVariableException i) -> return $ "(var " ++ show i ++ ")")
+showFree x = showsFree x ""
+
+showsFree :: ShowFree a => a -> ShowS
+showsFree = showsFreePrec 0
+
+showsFreePrec :: ShowFree a => Int -> a -> ShowS
+showsFreePrec d x s = unsafePerformIO $ seq x (return (showsFreePrec' d x s)) `catch` (\ (FreeVariableException i) -> return $ showsVarPrec d i s)
+
+showsVarPrec :: Int -> ID -> ShowS
+showsVarPrec d i = showParen (d > 10) (showString ("var " ++ showsPrec 11 i ""))
 
 --------------------------------------------------------------------------------
 

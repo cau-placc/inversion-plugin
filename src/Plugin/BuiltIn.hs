@@ -85,7 +85,8 @@ instance NormalForm a => NormalForm (Solo a) where
         P.return (P.pure (SoloFL y))
 
 instance ShowFree a => ShowFree (Solo a) where
-  showFree' (Solo x) = "(Solo " P.++ showFree x P.++ ")"
+  showsFreePrec' d (Solo x) = P.showParen (d P.> 10) $
+    P.showString "Solo " P.. showsFreePrec 11 x
 
 instance Invertible a => Invertible (Solo a)
 
@@ -119,7 +120,7 @@ instance (NormalForm a, NormalForm b) => NormalForm (a, b) where
         P.return (P.pure (Tuple2FL y1 y2))
 
 instance (ShowFree a, ShowFree b) => ShowFree (a, b) where
-  showFree' (x1, x2) = "(" P.++ showFree x1 P.++ ", " P.++ showFree x2 P.++ ")"
+  showsFreePrec' _ (x1, x2) = P.showString "(" P.. showsFree x1 P.. P.showString "," P.. showsFree x2 P.. P.showString ")"
 
 instance (Invertible a, Invertible b) => Invertible (a, b)
 
@@ -165,8 +166,11 @@ instance (NormalForm a, NormalForm [a]) => NormalForm [a] where
             P.return (P.pure (ConsFL y ys))
 
 instance (ShowFree a, ShowFree [a]) => ShowFree [a] where
-  showFree' [] = "[]"
-  showFree' (x:xs) = "((:) " P.++ showFree x P.++ " " P.++ showFree xs P.++ ")"
+  showsFreePrec' _ []     = P.showString "[]"
+  showsFreePrec' d (x:xs) = P.showParen (d P.> 5) $
+    showsFreePrec 6 x P..
+    P.showString " : " P..
+    showsFreePrec 6 xs
 
 instance Invertible a => Invertible [a]
 instance FunctorFL (MaybeFL FL) where
@@ -224,8 +228,9 @@ instance NormalForm a => NormalForm (P.Maybe a) where
           P.return (P.pure (JustFL y))
 
 instance ShowFree a => ShowFree (P.Maybe a) where
-  showFree' P.Nothing = "Nothing"
-  showFree' (P.Just x) = "(Just " P.++ showFree x P.++ ")"
+  showsFreePrec' _ P.Nothing  = P.showString "Nothing"
+  showsFreePrec' d (P.Just x) = P.showParen (d P.> 10) $
+    P.showString "Just " P.. showsFreePrec 11 x
 
 instance Invertible a => Invertible (P.Maybe a)
 
@@ -258,7 +263,8 @@ instance NormalForm a => NormalForm (P.Ratio a) where
              P.return (P.pure (x :%# y))
 
 instance ShowFree a => ShowFree (P.Ratio a) where
-  showFree' (x1 P.:% x2) = "(" P.++ showFree x1 P.++ " :% " P.++ showFree x2 P.++ ")"
+  showsFreePrec' d (x P.:% y) = P.showParen (d P.> 7) $
+    showsFreePrec 8 x P.. P.showString " % " P.. showsFreePrec 8 y
 
 instance Invertible a => Invertible (P.Ratio a)
 

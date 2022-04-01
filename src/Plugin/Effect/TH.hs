@@ -20,7 +20,7 @@ import Lexeme
 import Generics.SYB
 
 import Language.Haskell.TH hiding (match)
-import Language.Haskell.TH.Syntax (Name(..), NameFlavour(..), pkgString, mkNameG_v, OccName (OccName), PkgName (PkgName), ModName (ModName), qRecover, showName', NameIs (Applied))
+import Language.Haskell.TH.Syntax (Name(..), NameFlavour(..), pkgString, mkNameG_v, OccName (OccName), PkgName (PkgName), ModName (ModName), qRecover, trueName, falseName)
 
 
 import Plugin.Lifted
@@ -461,21 +461,22 @@ genInstances originalDataDec liftedDataDec = do
         return $ InstanceD Nothing ctxt (mkNormalFormConstraint originalTy) [dec]
 
       genShowFree = do
-        let genshowFree = do
+        --TODO: improve for infix declarations
+        let genShowsFreePrec' = do
               let genClause originalConInfo = do
+                    dName <- newName "d"
                     let originalConArity = conArity originalConInfo
+                        originalConName@(Name (OccName originalConOccString) _) = conName originalConInfo
                     originalArgNames <- replicateM originalConArity (newName "x")
                     let originalPat = ConP (conName originalConInfo) $ map VarP originalArgNames
-                    let conStrExp = LitE $ StringL $ showName' Applied $ conName originalConInfo
-                    plusPlusExp <- [| (" " ++) |]
-                    let argExps = map (AppE plusPlusExp . AppE (VarE 'showFree) . VarE) originalArgNames
-                    let strListExp = foldr (\x xs -> applyExp (ConE '(:)) [x, xs]) (ConE '[]) (conStrExp:argExps)
-                    wholeExp <- if originalConArity == 0 then return conStrExp else [| "(" ++ concat $(return strListExp) ++ ")" |]
-                    let body = NormalB wholeExp
-                    return $ Clause [originalPat] body []
+                    let isTuple = originalConName == tupleDataName originalConArity
+                    body <- NormalB <$> if isTuple
+                      then [| showString "(" . $(foldl (\qExp originalArgName -> [| $(qExp) . showString "," . showsFree $(return $ VarE originalArgName) |]) [| showsFree $(return $ VarE $ head originalArgNames) |] (tail originalArgNames)) . showString ")" |]
+                      else [| showParen ($(return $ ConE $ if originalConArity > 0 then trueName else falseName) && $(return $ VarE dName) > 10) $(foldl (\qExp originalArgExp -> [| $(qExp) . showString " " . showsFreePrec 11 $(return originalArgExp) |]) [| showString $(return $ LitE $ StringL originalConOccString) |] (map VarE originalArgNames)) |]
+                    return $ Clause [if isTuple then WildP else VarP dName, originalPat] body []
               clauses <- mapM genClause originalConInfos
-              return $ FunD 'showFree' clauses
-        dec <- genshowFree
+              return $ FunD 'showsFreePrec' clauses
+        dec <- genShowsFreePrec'
         let ctxt = map mkShowFreeConstraint originalConArgs
         return $ InstanceD Nothing ctxt (mkShowFreeConstraint originalTy) [dec]
 
