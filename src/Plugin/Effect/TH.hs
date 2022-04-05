@@ -64,36 +64,32 @@ liftTHNameQ name = do
     else fail $ "No inverse for " ++ show name
 
 var :: Integer -> a
-var _ = error "free is undefined outside of inverse contexts"
+var _ = error "var is undefined outside of input and output classes"
 
--- exp <- unType <$>  runQ (([|| (,) (var 1) (var 2) ||] :: Q (TExp (Bool, Bool))))
---putStrLn $(makeFreeMap (createIDMapping exp) >>= \fm -> convertExp fm exp >>= \e -> stringE $ pprint e)
---outClassInv :: InClass p => Name -> ExpQ -> p
---outClassInv _ = undefined
-
--- inv name = inClassInv [| var 1 |] [| var 2 |]
--- partialInv name x.. = inClassInv name [| x1 |] [| x2 |]
-
---inClassInv2 :: Name -> [ExpQ] -> ExpQ
---inClassInv2 = mkInClassInverse
---inClassInverse f []
-
-getArity :: Name -> Q Int
-getArity name = do
+getFunArity :: Name -> Q Int
+getFunArity name = do
   info <- reify name
   (_, _, ty) <- decomposeForallT <$> case info of
     VarI _ ty' _     -> return ty'
     ClassOpI _ ty' _ -> return ty'
-    _                -> fail $ show name ++ " is no function or class method."
+    _                -> fail $ show name ++ " is no function or class method"
+  return $ arrowArity ty
+
+getConArity :: Name -> Q Int
+getConArity name = do
+  info <- reify name
+  (_, _, ty) <- decomposeForallT <$> case info of
+    DataConI _ ty' _ -> return ty'
+    _                -> fail $ show name ++ " is no data constructor"
   return $ arrowArity ty
 
 partialInv :: Name -> Bool -> [Int] -> ExpQ
 partialInv name gnf fixedArgIndices = do
-  originalArity <- getArity name
+  originalArity <- getFunArity name
   let validFixedArgIndices = [0 .. originalArity - 1]
       hint = "has to be a subsequence of " ++ show validFixedArgIndices
   when (any (`notElem` validFixedArgIndices) fixedArgIndices) $ fail $
-    "Invalid argument index sequence for partial inverse provided (" ++ hint ++ ")."
+    "Invalid argument index sequence for partial inverse provided (" ++ hint ++ ")"
   let nubbedFixedArgIndices = nub fixedArgIndices
       nonFixedArgIndices = filter (`notElem` fixedArgIndices) validFixedArgIndices
   fixedArgNames <- replicateM (length nubbedFixedArgIndices) (newName "fixedArg")
@@ -104,35 +100,19 @@ partialInv name gnf fixedArgIndices = do
 
 
 
-{-inv2 :: Name -> ExpQ
-inv2 name = do
-  --TODO: folgendes auslagern, da häufig gebraucht
-  info <- reify name
-  (_, _, ty) <- decomposeForallT <$> case info of
-    VarI _ ty' _     -> return ty'
-    ClassOpI _ ty' _ -> return ty'
-    _                -> fail $ show name ++ " is no function or class method."
-  let originalArity = arrowArity ty
-
-  inClassInv name (map (return . AppE (VarE 'var) . mkIntExp) [0 .. originalArity - 1])-}
-
---inv2 :: Name -> ExpQ
---inv2 name = partialInv2 name []
-
 inClassInv :: Name -> Bool -> [ExpQ] -> ExpQ
 inClassInv f gnf ins = [| \x -> $(inOutClassInv f gnf ins [| x |]) |]
 
 inOutClassInv :: Name -> Bool -> [ExpQ] -> ExpQ -> ExpQ
 inOutClassInv name gnf inClassExpQs outClassExpQ = do
-  originalArity <- getArity name
+  originalArity <- getFunArity name
   let numInClasses = length inClassExpQs
   when (originalArity /= numInClasses) $ fail $ "Wrong number of input classes provided (expected " ++ show originalArity ++ ", but got " ++ show numInClasses ++ ")"
   inClassExps <- sequence inClassExpQs
   outClassExp <- outClassExpQ
   -- We add the output class at the end of the input classes, so that the free variables of the output class appear at the end of the result tuples of inverses.
   let exps = inClassExps ++ [outClassExp]
-
-  mapping <- makeFreeMap (createIDMapping exps)
+  mapping <- createFreeMap exps
   liftedName <- liftTHNameQ name
   resExp : argExps <- mapM (convertExp (map (second fst) mapping)) (outClassExp:inClassExps)
   funPatExp <- genLiftedApply (VarE liftedName) argExps
@@ -140,9 +120,7 @@ inOutClassInv name gnf inClassExpQs outClassExpQ = do
       freeNames = map (fst . snd) mapping
       letExp = DoE [NoBindS matchExp, NoBindS returnExp ]
       returnExp = mkLiftedTupleE (map VarE freeNames)
-      bodyExp = applyExp (VarE 'map) [VarE (if gnf then 'fromIdentity else 'fromEither), applyExp (VarE 'evalFLWith)
-        [ VarE (if gnf then 'groundNormalFormFL else 'normalFormFL)
-        , letExp]]
+      bodyExp = applyExp (VarE 'map) [VarE (if gnf then 'fromIdentity else 'fromEither), applyExp (VarE 'evalFLWith) [VarE (if gnf then 'groundNormalFormFL else 'normalFormFL), letExp]]
   bNm <- newName "b"
   let letDecs = [FunD bNm [Clause (map VarP freeNames) (NormalB bodyExp) []]]
   return $ LetE letDecs (applyExp (VarE bNm) (map (snd . snd) mapping))
@@ -154,25 +132,24 @@ inOutClassInv name gnf inClassExpQs outClassExpQ = do
 --TODO: TTH damit man falsche applications von free oder konstruktoren finden kann. pattern wären nicht ausreichend, da wir so keine freien variablen nicht-linear spezifizieren könnten, da syntaktisch verboten.
 --TODO: mapping zu negativen zahlen
 
-convertTExp :: [(Integer, Name)] -> TExp a -> Q Exp
-convertTExp freeMap = convertExp freeMap . unType
 
+--TODO: mapping sorum gut, weil es sonst durch neu nummerierung sein kann, dass variablen, die vom nutzer angegeben wurden, mit neuen typen identifiziert werden (da diese ja neu vergeben werden).
 convertExp :: [(Integer, Name)] -> Exp -> Q Exp
 convertExp freeMap = \case
   VarE na -> return $ AppE (VarE 'toFL) (VarE na)
-  ConE na ->
-    reify na >>= \case
-      DataConI _ ty _ -> createLambda na ty
-      _ -> fail "unexpected result from reification of a constructor"
+  ConE na -> do
+    argsNum <- getConArity na
+    nms <- replicateM argsNum (newName "arg")
+    return $ LamE (map VarP nms) (AppE (VarE 'return) (foldl AppE (ConE (liftTHName na)) (map VarE nms)))
   LitE lit -> return $ AppE (VarE 'toFL) (LitE lit)
   AppE exp' exp2 -> case exp' of
-    VarE na | na == 'Plugin.Effect.TH.var ->
-                case exp2 of
-                  _ | LitE (IntegerL i) <- exp2 -> case lookup i freeMap of
-                                                      Nothing -> fail "internal error: free var not found"
-                                                      Just n  -> return $ VarE n
-                    | otherwise -> error "wrong form of input class" --TODO: improve error message. only integer literals are allowed. negative only with negativeliterals extensions.
-            | otherwise   -> fail "forbidden function application in input/output specification of an inverse" --TODO
+    VarE na
+      | na == 'var -> case exp2 of
+        LitE (IntegerL i) | i >= 0 -> case lookup i freeMap of
+          Nothing -> error $ "Internal error: var " ++ show i ++ " not found"
+          Just n  -> return $ VarE n
+        _ -> fail "var has to be applied to non-negative integers"
+      | otherwise  -> fail "Wrong form of class (forbidden function application)"
     _ -> AppE <$> convertExp freeMap exp' <*> convertExp freeMap exp2
   ParensE exp' -> ParensE <$> convertExp freeMap exp'
   InfixE m_exp exp' ma | isJust m_exp && isJust ma -> convertExp freeMap (applyExp exp' (map fromJust [m_exp, ma]))
@@ -180,33 +157,20 @@ convertExp freeMap = \case
   ListE exps -> convertExp freeMap (foldr (\x xs -> applyExp (ConE '(:)) [x, xs]) (ConE '[]) exps)
   --TODO: handle wildcard/whole
   UnboundVarE na -> fail $ "Variable not in scope: " ++ show na
-  e -> fail $ "unsupported syntax in convertExp: " ++ show e
-  where
-    createLambda name ty = do
-      let (_, _, ty') = decomposeForallT ty
-          argsNum = arrowArity ty'
-      nms <- replicateM argsNum (newName "arg")
-      return $ LamE (map VarP nms) (AppE (VarE 'return) (foldl AppE (ConE (liftTHName name)) (map VarE nms)))
+  _ -> fail "Wrong form of class (unsupported syntax detected)"
 
-makeFreeMap :: [(Integer, ID)] -> Q [(Integer, (Name, Exp))]
-makeFreeMap = mapM (\(i1, i2) -> do
-  nm <- newName $ "free" ++ show (abs i2)
-  return (i1, (nm, AppE (VarE 'Plugin.Effect.Monad.free) (LitE (IntegerL i2)))))
+createFreeMap :: [Exp] -> Q [(Integer, (Name, Exp))]
+createFreeMap = mapM (\case
+    AppE _ (LitE (IntegerL i)) -> do
+      nm <- newName $ "free" ++ (if i < 0 then "m" else "") ++ show (abs i)
+      return (i, (nm, AppE (VarE 'free) (LitE (IntegerL i))))
+    _ -> fail "Internal error in createFreeMap") .
+  nub .
+  listify (\case
+    AppE (VarE nm) (LitE (IntegerL _)) | nm == 'var -> True
+    _ -> False)
 
-createIDMapping :: [Exp] -> [(Integer, ID)]
-createIDMapping exps = zip (nub $ map (\case
-  AppE exp' exp2 -> case exp' of --TODO: integrate PM
-    VarE na | na == 'var,
-              LitE (IntegerL n) <- exp2 -> n
-    _ -> error "cannot happen"
-  _ -> error "cannot happen") $ listify (\case
-  AppE exp' exp2 -> case exp' of
-    VarE na | na == 'var,
-              LitE (IntegerL _) <- exp2 -> True
-            | otherwise   -> False
-    _ -> False
-  _ -> False) exps) [-1, -2 ..]
-
+--TODO: use elsewhere
 thisPkgName :: String
 thisPkgName = case 'toFL of
   Name _ (NameG _ (PkgName s) _) -> s
@@ -218,12 +182,9 @@ mkLiftedTupleE []  = AppE (VarE 'return) (AppE (VarE 'to) (ConE '()))
 mkLiftedTupleE xs  = AppE (VarE 'return) (applyExp liftedTupleConE xs)
   where
     -- TODO does this really work?
-    liftedTupleConE = ConE $ mkNameG_v pkgName builtInModule tupleConName
+    liftedTupleConE = ConE $ mkNameG_v thisPkgName builtInModule tupleConName
     tupleConName | length xs == 1 = "SoloFL"
                  | otherwise      = "Tuple" ++ show (length xs) ++ "FL"
-    pkgName = case 'mkLiftedTupleE of
-      Name _ (NameG _ p _) -> pkgString p
-      _                    -> "inversion-plugin"
 
 decomposeForallT :: Type -> ([TyVarBndr], [Type], Type)
 decomposeForallT (ForallT bndrs ctxt ty) = (bndrs, ctxt, ty)
@@ -329,10 +290,13 @@ renameTcInfo suffix (TcInfo tcNm vs cis) = TcInfo tcNm (map rename vs) (map rena
 
 mkNarrowEntry :: Name -> ConInfo -> Exp
 mkNarrowEntry idName conInfo = mkTupleE [conExp, mkIntExp (conArity conInfo)]
-  where conExp = foldl (\conExp' idOffset -> AppE conExp' (mkFreeP (mkPlus (VarE idName) (mkIntExp idOffset)))) (ConE $ conName conInfo) [0 .. conArity conInfo - 1]
+  where conExp = foldl (\conExp' idOffset -> AppE conExp' (mkFreeP (mkMinus (VarE idName) (mkIntExp idOffset)))) (ConE $ conName conInfo) [0 .. conArity conInfo - 1]
 
 mkPlus :: Exp -> Exp -> Exp
 mkPlus e1 e2 = applyExp (VarE '(+)) [e1, e2]
+
+mkMinus :: Exp -> Exp -> Exp
+mkMinus e1 e2 = applyExp (VarE '(-)) [e1, e2]
 
 genMTy :: Q Type
 genMTy = VarT <$> newName "m"

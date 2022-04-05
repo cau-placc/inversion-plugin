@@ -100,7 +100,7 @@ instance (HasPrimitiveInfo a, HasPrimitiveInfo b) => HasPrimitiveInfo (Tuple2FL 
   primitiveInfo = NoPrimitive
 
 instance (HasPrimitiveInfo a, HasPrimitiveInfo b) => Narrowable (Tuple2FL FL a b) where
-  narrow j = [(Tuple2FL (free j) (free (j P.+ 1)), 2)]
+  narrow j = [(Tuple2FL (free j) (free (j P.- 1)), 2)]
 
 instance (Convertible a, Convertible b) => Convertible (a, b) where
   to (x1, x2) = Tuple2FL (toFL x1) (toFL x2)
@@ -139,7 +139,7 @@ instance (HasPrimitiveInfo a, HasPrimitiveInfo (ListFL FL a)) => HasPrimitiveInf
   primitiveInfo = NoPrimitive
 
 instance (HasPrimitiveInfo a, HasPrimitiveInfo (ListFL FL a)) => Narrowable (ListFL FL a) where
-  narrow j = [(NilFL, 0), (ConsFL (free j) (free (j P.+ 1)), 2)]
+  narrow j = [(NilFL, 0), (ConsFL (free j) (free (j P.- 1)), 2)]
 
 instance (Convertible a, Convertible [a]) => Convertible [a] where
   to [] = NilFL
@@ -243,7 +243,7 @@ instance HasPrimitiveInfo a => HasPrimitiveInfo (RatioFL FL a) where
   primitiveInfo = NoPrimitive
 
 instance HasPrimitiveInfo a => Narrowable (RatioFL FL a) where
-  narrow j = [(free j :%# free (j P.+ 1), 2)]
+  narrow j = [(free j :%# free (j P.- 1), 2)]
 
 instance Convertible a => Convertible (P.Ratio a) where
   to (a P.:% b) = toFL a :%# toFL b

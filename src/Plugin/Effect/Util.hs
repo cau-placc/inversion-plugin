@@ -41,7 +41,7 @@ checkConsistencyND :: ND FLState ()
 checkConsistencyND = get >>= \FLState {..} -> unless (isConsistent constraintStore) empty
 
 freshIdentifierND :: ND FLState ID
-freshIdentifierND = get >>= \FLState {..} -> put (FLState (nextID + 1) heap constraintStore) >> return nextID
+freshIdentifierND = get >>= \FLState {..} -> put (FLState (nextID - 1) heap constraintStore) >> return nextID
 
 apply2FL :: FL ((-->) FL a ((-->) FL b c)) -> FL a -> FL b -> FL c
 apply2FL f a b = f `appFL` a `appFL` b

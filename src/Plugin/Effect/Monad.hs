@@ -244,7 +244,7 @@ data FLState = FLState {
 
 initFLState :: FLState
 initFLState = FLState {
-    nextID          = 0,
+    nextID          = -1,
     heap            = emptyHeap,
     constraintStore = initConstraintStore
   }
@@ -282,7 +282,7 @@ instantiate i = get >>= \ FLState { .. } ->
   case primitiveInfo @a of
     NoPrimitive -> msum (map update (narrow nextID))
       where update (x, o) = do
-              put (FLState { nextID = nextID + o, heap = insertBinding i (return @FL x) heap, .. })
+              put (FLState { nextID = nextID - o, heap = insertBinding i (return @FL x) heap, .. })
               return x
     Primitive   -> msum (map update (generate i constraintStore))
       where update x = do
@@ -303,7 +303,7 @@ instantiate i = get >>= \ FLState { .. } ->
   case primitiveInfo @a of
     NoPrimitive -> msum (map update (narrow nextID))
       where update (x, o) = do
-              put (FLState { nextID = nextID + o, heap = insertBinding i x heap, .. })
+              put (FLState { nextID = nextID - o, heap = insertBinding i x heap, .. })
               return x
     Primitive   -> msum (map update (generate i constraintStore))
       where update x = do
@@ -459,7 +459,7 @@ lazyUnifyVar i x = FL $ get >>= \ FLState { .. } ->
       --TODO: just narrow a single constructor
       unFL $ narrowSameConstr i x
       {-let (y, o) = undefined
-      put (FLState { nextID = nextID + o, heap = insertBinding i (return @FL y) heap, .. })-}
+      put (FLState { nextID = nextID - o, heap = insertBinding i (return @FL y) heap, .. })-}
     Primitive -> do
       let c = eqConstraint (Var i) (Val x)
       put (FLState { heap =  insertBinding i (return @FL x) heap, constraintStore = insertConstraint c [i] constraintStore, .. })
