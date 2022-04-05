@@ -29,4 +29,5 @@ library
     Main
     Palindrome
     Peano
+    RunLength
     TreeTraversal
