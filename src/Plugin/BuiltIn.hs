@@ -412,6 +412,14 @@ takeWhileFL = returnFLF $ \p -> returnFLF $ \xs ->
       FalseFL -> P.return NilFL
       TrueFL -> P.return (ConsFL a (takeWhileFL `appFL` p `appFL` as))
 
+-- | Lifted replicate function
+replicateFL :: FL (IntFL FL :--> a :--> ListFL FL a)
+replicateFL = returnFLF $ \n -> returnFLF $ \x -> ((==#) `appFL` n `appFL` P.return (IntFL 0)) P.>>= \case
+  FalseFL -> ((>#) `appFL` n `appFL` P.return (IntFL 0)) P.>>= \case
+    FalseFL -> P.empty
+    TrueFL -> P.return (ConsFL x (replicateFL `appFL` ((-#) `appFL` n `appFL` P.return (IntFL 1)) `appFL` x))
+  TrueFL -> P.return NilFL
+
 -- | Lifted drop function for lists
 dropFL :: FL (IntFL FL :--> ListFL FL a :--> ListFL FL a)
 dropFL = returnFLF $ \n -> returnFLF $ \xs ->
