@@ -1,11 +1,14 @@
 {-# LANGUAGE TemplateHaskell, FlexibleContexts, ViewPatterns #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
-module MainSubmission where
+module Main where
 
 import Plugin.InversionPlugin
 
-import ExampleSubmission
+import TreeTraversal
 
+f = map showFree $ ($(inOutClassInv 'id False [[| Test True True |]] [| var 2 |]) :: [Solo Test])
+
+{-
 import Prelude hiding (map, lookup, (++), last, Maybe(..))
 
 split123 :: [([Int], [Int])]
@@ -32,3 +35,4 @@ hasDuplicates _ = False
 isSame :: Invertible a => (a, a) -> Bool
 isSame $(funPat 'dup [p| _ |]) = True
 isSame _                       = False
+-}
