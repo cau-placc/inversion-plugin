@@ -27,4 +27,5 @@ library
     Huffman
     Interpreter
     Main
+    Palindrome
     TreeTraversal
