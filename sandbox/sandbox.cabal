@@ -28,4 +28,5 @@ library
     Interpreter
     Main
     Palindrome
+    Peano
     TreeTraversal
