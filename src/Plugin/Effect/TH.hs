@@ -98,12 +98,12 @@ partialInv name gnf fixedArgIndices = do
       inClassExps = map snd $ sortOn fst $ fixedArgExps ++ nonFixedArgExps
   LamE (map VarP fixedArgNames) <$> inClassInv name gnf (map return inClassExps)
 
+type Class = ExpQ
 
-
-inClassInv :: Name -> Bool -> [ExpQ] -> ExpQ
+inClassInv :: Name -> Bool -> [Class] -> ExpQ
 inClassInv f gnf ins = [| \x -> $(inOutClassInv f gnf ins [| x |]) |]
 
-inOutClassInv :: Name -> Bool -> [ExpQ] -> ExpQ -> ExpQ
+inOutClassInv :: Name -> Bool -> [Class] -> ExpQ -> ExpQ
 inOutClassInv name gnf inClassExpQs outClassExpQ = do
   originalArity <- getFunArity name
   let numInClasses = length inClassExpQs

@@ -3,7 +3,7 @@
 
 module Plugin.Primitives
   ( Invertible, Lifted
-  , inv, partialInv, weakInv, inClassInv, inOutClassInv, var, showFree
+  , inv, partialInv, weakInv, Class, inClassInv, inOutClassInv, var, showFree
   , funPat
   ) where
 
@@ -26,6 +26,7 @@ weakInv name gnf = [| foldr const (error "no weak inverse") . $(inv name gnf) |]
 funPat :: FunPat p => Name -> p
 funPat f = funPat' f []
 
+--TODO: Use ng inverse with input classes for funpat.
 class FunPat p where
    funPat' :: Name -> [PatQ] -> p
 
