@@ -27,6 +27,7 @@ library
     Huffman
     Interpreter
     Main
+    Match
     Palindrome
     Peano
     RunLength
