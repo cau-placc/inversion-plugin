@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -fplugin Plugin.InversionPlugin #-}
 
-module Peano where
+module P where
 
 data P = Z | S P
   deriving (Eq, Ord, Show)

@@ -29,6 +29,6 @@ library
     Main
     Match
     Palindrome
-    Peano
+    P
     RunLength
     TreeTraversal
