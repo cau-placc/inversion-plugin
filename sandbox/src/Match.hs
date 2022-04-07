@@ -4,12 +4,12 @@ module Match where
 
 ---TODO: substring/match from the URA: inverse computation in a functional language
 
-import Peano
+import P
 
 match :: Eq a => [a] -> [a] -> Bool
 match [] _      = True
 match _  []     = False
-match xs (y:ys) = take2 (length2 xs) (y:ys) == xs || match xs ys
+match xs (y:ys) = take (length xs) (y:ys) == xs || match xs ys
 
 matchP :: Eq a => [a] -> [a] -> Bool
 matchP [] _      = True
