@@ -433,6 +433,15 @@ replicateFL = returnFLF $ \n -> returnFLF $ \x -> ((==#) `appFL` n `appFL` P.ret
     TrueFL -> P.return (ConsFL x (replicateFL `appFL` ((-#) `appFL` n `appFL` P.return (IntFL 1)) `appFL` x))
   TrueFL -> P.return NilFL
 
+-- | Lifted take function for lists
+takeFL :: FL (IntFL FL :--> ListFL FL a :--> ListFL FL a)
+takeFL = returnFLF $ \n -> returnFLF $ \xs ->
+  (<=#) `appFL` n `appFL` P.return (IntFL 0) P.>>= \case
+    FalseFL -> xs P.>>= \case
+      NilFL -> P.return NilFL
+      ConsFL a as -> P.return (ConsFL a (takeFL `appFL` ((-#) `appFL` n `appFL` P.return (IntFL 1)) `appFL` as))
+    TrueFL -> P.return NilFL
+
 -- | Lifted drop function for lists
 dropFL :: FL (IntFL FL :--> ListFL FL a :--> ListFL FL a)
 dropFL = returnFLF $ \n -> returnFLF $ \xs ->
