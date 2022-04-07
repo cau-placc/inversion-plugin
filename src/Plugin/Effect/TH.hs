@@ -20,7 +20,7 @@ import Lexeme
 import Generics.SYB
 
 import Language.Haskell.TH hiding (match)
-import Language.Haskell.TH.Syntax (Name(..), NameFlavour(..), pkgString, mkNameG_v, OccName (OccName), PkgName (PkgName), ModName (ModName), qRecover, trueName, falseName)
+import Language.Haskell.TH.Syntax (Name(..), NameFlavour(..), mkNameG_v, OccName (OccName), PkgName (PkgName), ModName (ModName), qRecover, trueName, falseName)
 
 
 import Plugin.Lifted
@@ -100,8 +100,9 @@ partialInv name gnf fixedArgIndices = do
 
 type Class = ExpQ
 
+-- CAUTION! This primitive has to generate a let expression (instead of the following lambda expression `[| \x = $(inOutClassInv f gnf ins [| x |]) |]`), because otherwise examples like `$(inv 'id True) [True]` would fail in the REPL (and only the REPL). Weird behavior of the GHC and probably a bug. Remark by Kai-Oliver Prott: Could be a confluence error.
 inClassInv :: Name -> Bool -> [Class] -> ExpQ
-inClassInv f gnf ins = [| \x -> $(inOutClassInv f gnf ins [| x |]) |]
+inClassInv f gnf ins = [| let g x = $(inOutClassInv f gnf ins [| x |]) in g |]
 
 inOutClassInv :: Name -> Bool -> [Class] -> ExpQ -> ExpQ
 inOutClassInv name gnf inClassExpQs outClassExpQ = do
