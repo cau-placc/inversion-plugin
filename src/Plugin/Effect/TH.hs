@@ -188,7 +188,9 @@ mkLiftedTupleE xs  = AppE (VarE 'return) (applyExp liftedTupleConE xs)
                  | otherwise      = "Tuple" ++ show (length xs) ++ "FL"
 
 decomposeForallT :: Type -> ([TyVarBndr], [Type], Type)
-decomposeForallT (ForallT bndrs ctxt ty) = (bndrs, ctxt, ty)
+decomposeForallT (ForallT bndrs ctxt ty) =
+  let (bndrs', ctxt', ty') = decomposeForallT ty
+  in (bndrs ++ bndrs', ctxt ++ ctxt', ty')
 decomposeForallT ty                      = ([], [], ty)
 
 getTyVarBndrName :: TyVarBndr -> Name
