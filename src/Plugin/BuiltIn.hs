@@ -576,7 +576,7 @@ instance FoldableFL (ListFL FL) where
   foldl'FL = returnFLF $ \f -> returnFLF $ \z -> returnFLF $ \xs -> xs P.>>= \case
     NilFL -> z
     ConsFL y ys -> let z' = f `appFL` z `appFL` y
-                    in seqFL `appFL` z' `appFL` (foldl'FL `appFL` f `appFL` z' `appFL` ys)
+                   in seqFL `appFL` z' `appFL` (foldl'FL `appFL` f `appFL` z' `appFL` ys)
   foldrFL = returnFLF $ \f -> returnFLF $ \e -> returnFLF $ \xs -> xs P.>>= \case
     NilFL -> e
     ConsFL y ys -> f `appFL` y `appFL` (foldrFL `appFL` f `appFL` e `appFL` ys)
@@ -591,8 +591,10 @@ instance FoldableFL (ListFL FL) where
   nullFL = returnFLF $ \xs -> xs P.>>= \case
     NilFL -> P.return TrueFL
     ConsFL _ _ -> P.return FalseFL
-  sumFL = returnFLF $ \xs -> foldl'FL `appFL` (+#) `appFL` (fromIntegerFL `appFL` P.return (IntegerFL 0)) `appFL` xs
-  productFL = returnFLF $ \xs -> foldl'FL `appFL` (*#) `appFL` (fromIntegerFL `appFL` P.return (IntegerFL 1)) `appFL` xs
+  -- TODO: originally strict
+  sumFL = foldlFL `appFL` (+#) `appFL` (fromIntegerFL `appFL` P.return (IntegerFL 0))
+  -- TODO: originally strict
+  productFL = foldlFL `appFL` (*#) `appFL` (fromIntegerFL `appFL` P.return (IntegerFL 1))
   toListFL = idFL
   --TODO: add missing implementations
   {-elem    = List.elem
