@@ -381,12 +381,16 @@ constFL = returnFLF $ \a -> returnFLF $ P.const a
 otherwiseFL :: FL (BoolFL FL)
 otherwiseFL = P.return TrueFL
 
--- | Lifted (++) function for lists
+-- | Lifted (++) function
 (++#) :: FL (ListFL FL a :--> ListFL FL a :--> ListFL FL a)
 (++#) = returnFLF $ \xs -> returnFLF $ \ys ->
   xs P.>>= \case
     NilFL -> ys
     ConsFL a as -> P.return (ConsFL a ((++#) `appFL` as `appFL` ys))
+
+-- | Lifted reverse function
+reverseFL :: FL (ListFL FL a :--> ListFL FL a)
+reverseFL = foldlFL `appFL` (flipFL `appFL` (returnFLF $ \x -> returnFLF $ \xs -> P.return (ConsFL x xs))) `appFL` (P.return NilFL)
 
 -- | Lifted map function for lists
 mapFL :: FL ((a :--> b) :--> ListFL FL a :--> ListFL FL b)
@@ -411,6 +415,15 @@ takeWhileFL = returnFLF $ \p -> returnFLF $ \xs ->
     ConsFL a as -> (p `appFL` a) P.>>= \case
       FalseFL -> P.return NilFL
       TrueFL -> P.return (ConsFL a (takeWhileFL `appFL` p `appFL` as))
+
+-- | Lifted dropWhile function for lists
+dropWhileFL :: FL ((a :--> BoolFL FL) :--> ListFL FL a :--> ListFL FL a)
+dropWhileFL = returnFLF $ \p -> returnFLF $ \xs ->
+  xs P.>>= \case
+    NilFL -> P.return NilFL
+    ConsFL a as -> (p `appFL` a) P.>>= \case
+      FalseFL -> P.return (ConsFL a as)
+      TrueFL -> dropWhileFL `appFL` p `appFL` as
 
 -- | Lifted replicate function
 replicateFL :: FL (IntFL FL :--> a :--> ListFL FL a)
@@ -502,8 +515,6 @@ class FoldableFL t where
     --foldl f z t = appEndo (getDual (foldMap (Dual . Endo . flip f) t)) z
 
     foldl'FL :: FL ((b :--> a :--> b) :--> b :--> t a :--> b)
-    --foldl'FL f z0 xs = foldr f' id xs z0
-    --  where f' x k z = k $! f z x
 
     foldr1FL :: FL ((a :--> a :--> a) :--> t a :--> a)
     --foldr1FL f xs = fromMaybe (errorWithoutStackTrace "foldr1: empty structure")
@@ -562,6 +573,10 @@ instance FoldableFL (ListFL FL) where
   foldl1FL = returnFLF $ \f -> returnFLF $ \xs -> xs P.>>= \case
     NilFL -> P.empty
     ConsFL y ys -> foldlFL `appFL` f `appFL` y `appFL` ys
+  foldl'FL = returnFLF $ \f -> returnFLF $ \z -> returnFLF $ \xs -> xs P.>>= \case
+    NilFL -> z
+    ConsFL y ys -> let z' = f `appFL` z `appFL` y
+                    in seqFL `appFL` z' `appFL` (foldl'FL `appFL` f `appFL` z' `appFL` ys)
   foldrFL = returnFLF $ \f -> returnFLF $ \e -> returnFLF $ \xs -> xs P.>>= \case
     NilFL -> e
     ConsFL y ys -> f `appFL` y `appFL` (foldrFL `appFL` f `appFL` e `appFL` ys)
@@ -576,6 +591,8 @@ instance FoldableFL (ListFL FL) where
   nullFL = returnFLF $ \xs -> xs P.>>= \case
     NilFL -> P.return TrueFL
     ConsFL _ _ -> P.return FalseFL
+  sumFL = returnFLF $ \xs -> foldl'FL `appFL` (+#) `appFL` (fromIntegerFL `appFL` P.return (IntegerFL 0)) `appFL` xs
+  productFL = returnFLF $ \xs -> foldl'FL `appFL` (*#) `appFL` (fromIntegerFL `appFL` P.return (IntegerFL 1)) `appFL` xs
   toListFL = idFL
   --TODO: add missing implementations
   {-elem    = List.elem
@@ -591,6 +608,18 @@ instance FoldableFL (ListFL FL) where
   product = List.product
   sum     = List.sum
   toList  = id-}
+
+--allFL :: FoldableFL t => FL ((a :--> BoolFL FL) :--> t a :--> BoolFL FL)
+--allFL = returnFLF $ \p -> (.#) `appFL` andFL `appFL` (fmapFL `appFL` p)
+
+--anyFL :: FoldableFL t => FL ((a :--> BoolFL FL) :--> t a :--> BoolFL FL)
+--anyFL = returnFLF $ \p -> (.#) `appFL` orFL `appFL` (fmapFL `appFL` p)
+
+andFL :: FoldableFL t => FL (t (BoolFL FL) :--> BoolFL FL)
+andFL = foldrFL `appFL` (&&#) `appFL` P.return TrueFL
+
+orFL :: FoldableFL t => FL (t (BoolFL FL) :--> BoolFL FL)
+orFL = foldrFL `appFL` (||#) `appFL` P.return TrueFL
 
 data BoolFL (m :: Type -> Type) = FalseFL | TrueFL
 
