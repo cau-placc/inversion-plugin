@@ -30,10 +30,10 @@ import IfaceSyn
 import TcEvidence
 import Predicate
 import Exception
+import TcType (isCallStackPred)
 
 import Plugin.Trans.Var
 import Plugin.Trans.Import
-
 -- This Type contains an IORef, because looking up the mapping between
 -- new <-> old type constructors needs IO.
 -- We do not want to lookup the full mapping on plugin startup, as
@@ -168,7 +168,13 @@ liftType ftc mty s tcs = liftType' s
     -- Lift a type application of a type constructor.
     -- If it is a type class constraint or ANY, do not wrap it with our monad.
     liftType' us (TyConApp tc tys)
-      | anyTyCon == tc = return $ TyConApp tc tys
+      | Just ty <- synTyConRhs_maybe tc,
+        [] <- tys,
+        TyConApp tc' tys' <- ty,
+        isJust (tyConClass_maybe tc' >>= flip isCallStackPred tys')
+        = return $ TyConApp tc tys
+      | anyTyCon == tc || liftedRepDataConTyCon == tc
+        = return $ TyConApp tc tys
       | isClassTyCon tc = do
         tc' <- lookupTyConMap GetNew tcs tc
         tys' <- mapM (liftInnerTy ftc mty us tcs) tys
