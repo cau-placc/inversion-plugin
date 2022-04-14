@@ -175,4 +175,6 @@ getLiftedRecSel _ _ _ _ p@(RecSelPatSyn _) v =
       reason = "Pattern synonyms are not supported by the plugin yet"
 
 liftRepName :: UniqSupply -> TyConRepName -> TyConRepName
-liftRepName u n = mkSystemName (uniqFromSupply u) (mkOccName (occNameSpace (occName n)) (occNameString (occName n) ++ "FL"))
+liftRepName u n
+  | Just mdl <- nameModule_maybe n = mkExternalName (uniqFromSupply u) mdl (mkOccName (occNameSpace (occName n)) (occNameString (occName n) ++ "FL" ++ show (uniqFromSupply u))) noSrcSpan
+  | otherwise = panicAnyUnsafe "no module in repName" n

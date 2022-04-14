@@ -55,8 +55,8 @@ getType e = do
   return (exprType <$> mbe)
 
 printDesugared :: LHsExpr GhcTc -> TcM ()
-printDesugared e = do 
-  hs_env <- getTopEnv 
+printDesugared e = do
+  hs_env <- getTopEnv
   (_, mbe) <- liftIO (deSugarExpr hs_env e `catch` (\(SomeException _) -> return (undefined, Nothing)))
   liftIO $ putStr "desugared: "
   getDynFlags >>= liftIO . putStrLn . flip showPpr mbe

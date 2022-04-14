@@ -30,7 +30,6 @@ import Language.Haskell.TH  as TH (Type, Kind, Name)
 import GHC.Hs
 import Plugins
 import TcRnTypes
-import TcEvidence
 import GhcPlugins
 import Bag
 import TcSimplify
@@ -98,9 +97,6 @@ liftMonadPlugin mdopts env = do
   dumpWith DumpOriginalInstEnv dopts (tcg_inst_env env)
   dumpWith DumpOriginalTypeEnv dopts (tcg_type_env env)
 
-  -- remove any dummy evidence introduced by the constraint solver plugin
-  let tcg_ev_binds' = filterBag (not . isDummyEv) (tcg_ev_binds env)
-
   fullEnv <- getEnv
   mapRef <- loadDefaultTyConMap
   let tyconsMap = (fullEnv, mapRef)
@@ -140,6 +136,12 @@ liftMonadPlugin mdopts env = do
     Right r -> return r
 
   let new = map snd tycons
+
+  -- update name cache so that the new names can be found in the interface later on
+  forM_ new (\tc -> externaliseName (tcg_mod env) (tyConName tc) >> case tyConRepName_maybe tc of
+                Just n  -> void (externaliseName (tcg_mod env) n)
+                Nothing -> return ())
+
   -- The order is important,
   -- as we want to keep t2 if it has the same unique as t1.
   let getRelevant (t1, Just t2) = if t1 == t2 then [t2] else [t1, t2]
@@ -172,7 +174,6 @@ liftMonadPlugin mdopts env = do
                  , tcg_ann_env    = aenv'
                  , tcg_anns       = anns'
                  , tcg_rdr_env    = rdr
-                 , tcg_ev_binds   = tcg_ev_binds'
                  , tcg_binds      = filterBag notTypeableBind (tcg_binds env)
                  , tcg_tc_plugins = [] }
   env1 <- setGblEnv env0 mkTypeableBinds -- derive typeable again
@@ -285,17 +286,13 @@ liftMonadPlugin mdopts env = do
           nms <- mapM (externaliseName (tcg_mod env)) keepNames
           liftIO $ modifyIORef (tcg_keep finalEnv)
                       (`extendNameSetList` nms)
-                      
+
           return finalEnv
   where
     liftBindings :: TyConMap -> [(ClsInst, ClsInst)] -> [LHsBindLR GhcTc GhcTc]
                  -> TcM [LHsBindLR GhcTc GhcTc]
     liftBindings y z = fmap (map noLoc) .
       concatMapM (fmap fst . liftMonadicBinding False False [] y z . unLoc)
-
-    isDummyEv (EvBind _ (EvExpr (Var v)) _) =
-                  occNameString (occName v) == "#dummy_remove"
-    isDummyEv _ = False
 
 toTH :: TyCon -> TcM Dec
 toTH tc = do
