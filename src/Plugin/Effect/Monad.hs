@@ -343,7 +343,8 @@ groundNormalFormFL fl = resolveFL fl >>= \case
 normalFormFL :: NormalForm a => FL (Lifted FL a) -> ND FLState (Either ID (Lifted (Either ID) a))
 normalFormFL fl = resolveFL fl >>= \case
   Val x -> normalFormWith normalFormFL x
-  Var i -> return (Left i)
+  Var i -> get >>= \ FLState { .. } ->
+    if isUnconstrained i constraintStore then return (Left i) else instantiate i >>= normalFormWith normalFormFL
 
 evalFLWith :: NormalForm a => (forall b. NormalForm b => FL (Lifted FL b) -> ND FLState (m (Lifted m b))) -> FL (Lifted FL a) -> [m (Lifted m a)]
 evalFLWith nf fl = evalND (nf fl) initFLState
