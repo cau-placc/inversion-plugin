@@ -402,7 +402,8 @@ liftMonadicExpr given tcs (L l (HsIf _ Nothing e1 e2 e3)) = do
   ty2' <- getTypeOrPanic e2'
   let ty1 = bindingType ty1'
   v <- noLoc <$> freshVar ty1
-  let ife = HsIf noExtField Nothing (noLoc (HsVar noExtField v)) e2' e3'
+  conv <- mkNewBoolConversion
+  let ife = HsIf noExtField Nothing (mkHsApp conv (noLoc (HsVar noExtField v))) e2' e3'
   let alt = mkSimpleAlt LambdaExpr (noLoc ife) [noLoc (VarPat noExtField v)]
   let mgtc = MatchGroupTc [ty1] ty2'
   let mg = MG mgtc (noLoc [noLoc alt]) Generated

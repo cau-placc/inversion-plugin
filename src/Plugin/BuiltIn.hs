@@ -634,6 +634,10 @@ orFL = foldrFL `appFL` (||#) `appFL` P.return TrueFL
 
 data BoolFL (m :: Type -> Type) = FalseFL | TrueFL
 
+boolFLtoBool :: BoolFL FL -> Bool
+boolFLtoBool FalseFL = False
+boolFLtoBool TrueFL  = True
+
 type instance Lifted m Bool = BoolFL m
 
 instance HasPrimitiveInfo (BoolFL FL) where

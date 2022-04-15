@@ -19,6 +19,10 @@ import GHC.Hs.Extension
 import GHC.Hs.Pat
 import GHC.Hs.Utils
 import GHC.Hs.Expr
+import GHC.ThToHs
+import TcExpr
+import TcType
+import RnExpr
 import TcRnMonad
 import TcHsSyn
 import TysWiredIn
@@ -37,6 +41,7 @@ import Plugin.Trans.Constr
 import Plugin.Trans.Type
 import Plugin.Trans.Util
 import Plugin.Trans.Var
+import Plugin.BuiltIn
 
 -- | Create the lambda functions used to lift value constructors.
 -- Look at their lifting for details.
@@ -108,6 +113,16 @@ mkAppWith con cts typ args = do
   let constraints = WC (unionBags wanted (listToBag cts)) impls
   wrapper <- mkWpLet . EvBinds <$> simplifyTop constraints
   zonkTopLExpr (foldl mkHsApp (mkLHsWrap wrapper e') args)
+
+mkNewBoolConversion :: TcM (LHsExpr GhcTc)
+mkNewBoolConversion = do
+  th_expr <- liftQ [| boolFLtoBool |]
+  ps_expr <- case convertToHsExpr Generated noSrcSpan th_expr of
+    Left  msg -> do
+      flags <- getDynFlags
+      panic ("Error while converting TemplateHaskell: " ++ showSDoc flags msg)
+    Right res -> return res
+  fst <$> (rnLExpr ps_expr >>= tcInferSigma . fst)
 
 -- | Create a 'return' for the given argument types.
 mkNewReturnTh :: Type -> TcM (LHsExpr GhcTc)
