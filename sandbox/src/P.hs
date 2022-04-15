@@ -9,6 +9,13 @@ addP :: P -> P -> P
 addP Z     n = n
 addP (S m) n = S (addP m n)
 
+decP :: P -> P
+decP (S m) = m
+
+timesP :: P -> P -> P
+timesP Z     _ = Z
+timesP (S m) n = addP n (timesP n m)
+
 lengthP :: [a] -> P
 lengthP []     = Z
 lengthP (_:xs) = S (lengthP xs)

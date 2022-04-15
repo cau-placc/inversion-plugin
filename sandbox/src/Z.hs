@@ -87,7 +87,7 @@ negateZ (Neg n) = Pos n
 
 fromIntegerZ :: Integer -> Z
 fromIntegerZ 0             = Zero
-fromIntegerZ i | i < 0     = Neg (fromIntegerN (abs i))
+fromIntegerZ i | i < 0     = Neg (fromIntegerN (negate i))
                | otherwise = Pos (fromIntegerN i)
 
 lengthZ :: [a] -> Z
