@@ -381,6 +381,18 @@ constFL = returnFLF $ \a -> returnFLF $ P.const a
 otherwiseFL :: FL (BoolFL FL)
 otherwiseFL = P.return TrueFL
 
+-- | Lifted head function
+headFL :: FL (ListFL FL a :--> a)
+headFL = returnFLF $ \xs -> xs P.>>= \case
+  NilFL -> P.empty
+  ConsFL x _ -> x
+
+-- | Lifted tail function
+tailFL :: FL (ListFL FL a :--> ListFL FL a)
+tailFL = returnFLF $ \xs -> xs P.>>= \case
+  NilFL -> P.empty
+  ConsFL _ ys -> ys
+
 -- | Lifted (++) function
 (++#) :: FL (ListFL FL a :--> ListFL FL a :--> ListFL FL a)
 (++#) = returnFLF $ \xs -> returnFLF $ \ys ->
