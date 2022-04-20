@@ -76,6 +76,8 @@ mssHomRef = (f, c)
         hWI = mssTupledWIRef
         c a b = h (hWI a ++ hWI b)
 
+fst4 (x, _, _, _) = x
+
 -- Test with: test1X [1,-2,2,1]
 -- let xs = [1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1]
 test1 xs e = fst (mapRedl f c e xs)
@@ -87,6 +89,9 @@ test1Par xs e = fst (mapRedlPar f c e xs)
 test1Eden xs e = fst (mapRedlEden f c e xs)
   where (f, c) = mpsHom
 
+test2Eden xs e = fst4 (mapRedlEden f c e xs)
+  where (f, c) = mssHom
+
 --test1Eden xs =
 
 test1Ref xs e = fst (mapRedl f c e xs)
@@ -97,3 +102,6 @@ test1RefPar xs e = fst (mapRedlPar f c e xs)
 
 test1RefEden xs e = fst (mapRedlEden f c e xs)
   where (f, c) = mpsHomRef
+
+test2RefEden xs e = fst4 (mapRedlEden f c e xs)
+  where (f, c) = mssHomRef

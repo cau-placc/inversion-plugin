@@ -18,10 +18,13 @@ main = do
   numCores <- getNumProcessors
   putStrLn $ "Number of cores available: " ++ show numCores
   putStrLn $ "Number of threads used: " ++ show numCapabilities
-  print (test1Eden list e)
+  print (test2Eden list e2)
 
 e :: (Z, Z)
 e = (0, 0)
+
+e2 :: (Z, Z, Z, Z)
+e2 = (0, 0, 0, 0)
 
 list :: [Z]
 list = concat $ take 100 $ repeat [1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5,1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5,1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5,1,-1,2,-1,-2,3]
