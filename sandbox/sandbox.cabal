@@ -27,7 +27,6 @@ library
     Huffman
     Interpreter
     Main
-    Interpreter4
     Match
     Palindrome
     P
