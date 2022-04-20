@@ -205,6 +205,7 @@ initConstraintStore = ConstraintStore {
   }
 
 --TODO: [ID] parameter only for efficiency reason
+--TODO: no longer true as we need to know which variables are constrained in normal form computation. however, this could be possible by traversing all constrains everytime.
 insertConstraint :: Constraint -> [ID] -> ConstraintStore -> ConstraintStore
 insertConstraint c ids ConstraintStore { .. } =
   ConstraintStore { constraints = c : constraints, constrainedVars = Set.fromList ids `Set.union` constrainedVars }
@@ -420,7 +421,7 @@ matchFL x fl = FL $ resolveFL fl >>= \case
         return (Val ())
       Primitive   ->
         if isUnconstrained i constraintStore
-          then do
+          then do --TODO: fallunterscheidung tauschen. da nur variablen primitiven typs constrained sein können, kann man die unterscheidung von primitive und noprimitive eigentlich weglassen. @Kai: wie siehst du das? andererseits braucht man die primitiveinfo um den kontext zur verfügung zu haben....
             put (FLState { heap = insertBinding i (toFL x) heap
                         , .. })
             return (Val ())
@@ -545,7 +546,7 @@ class (Convertible a, Matchable a, Unifiable a, NormalForm a, HasPrimitiveInfo (
 
 --------------------------------------------------------------------------------
 
---TODO: move?!
+--TODO: move?! But where to?
 infixr 0 :-->
 type (:-->) = (-->) FL
 
