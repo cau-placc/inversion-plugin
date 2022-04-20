@@ -20,9 +20,9 @@ matchAlt :: Eq a => [a] -> [a] -> Bool
 matchAlt [] _      = True
 matchAlt _  []     = False
 matchAlt xs (y:ys) = match' xs (y:ys) || matchAlt xs ys
-  where match' [] _ = True
+  where match' []      _     = True
         match' (x:xs) (y:ys) = x == y && match' xs ys
-        match' _ _ = False
+        match' _      _      = False
 
 -- $(partialInv 'match [1]) "abcd" True
 -- \x -> $(clsInv 'match [ free 1, "abcd" ] (x))
