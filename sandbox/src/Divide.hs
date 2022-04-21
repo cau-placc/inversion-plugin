@@ -39,3 +39,13 @@ mssTupled xs = (mss xs, mps xs, mts xs, sum xs)
 
 mpsTupled :: (Num a, Ord a) => [a] -> (a, a)
 mpsTupled xs = (mps xs, sum xs)
+
+amax [a] = a
+amax (a:x) = max a (amax x)
+
+visible :: Ord a => [a] -> Bool
+visible [a] = True
+visible (a:x) = a <= amax x && visible x
+
+visibleTupled :: Ord a => [a] -> (Bool, a)
+visibleTupled x = (visible x, amax x)

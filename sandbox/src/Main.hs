@@ -8,6 +8,9 @@ import Plugin.InversionPlugin
 
 import Z
 
+import Par
+import Divide
+
 import Conquer
 
 -- Build with: stack build sandbox:main --flag inversion-plugin:use-what4
@@ -18,7 +21,7 @@ main = do
   numCores <- getNumProcessors
   putStrLn $ "Number of cores available: " ++ show numCores
   putStrLn $ "Number of threads used: " ++ show numCapabilities
-  print (test2Eden list e2)
+  print (test3Eden buildings)
 
 e :: (Z, Z)
 e = (0, 0)
@@ -26,8 +29,14 @@ e = (0, 0)
 e2 :: (Z, Z, Z, Z)
 e2 = (0, 0, 0, 0)
 
+e3 :: (Bool, Z)
+e3 = (True, 0)
+
+buildings :: [Z]
+buildings = concat $ take 100 $ repeat [30,30,20,25,30,15,40,20]
+
 list :: [Z]
-list = concat $ take 100 $ repeat [1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5,1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5,1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5,1,-1,2,-1,-2,3]
+list = concat $ take 24 $ repeat [1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5,1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5,1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5,1,-1,2,-1,-2,3]
 --list = [1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1]
 
 {---f = map showFree $ ($(inOutClassInv 'id False [[| Test True True |]] [| var 2 |]) :: [Solo Test])

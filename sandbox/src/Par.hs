@@ -2,6 +2,8 @@ module Par where
 
 import Control.Parallel.Strategies as Par
 
+import Data.List (inits)
+
 import Eden.EdenConcHs
 import Eden.Map
 import Eden.MapReduce
@@ -19,3 +21,8 @@ mapRedlPar f g e = foldl g e . reducedList . chunkList . withStrategy (parList P
 mapRedlEden :: (Trans a, Trans b) => (a -> b) -> (b -> b -> b) -> b -> [a] -> b
 mapRedlEden f g e = parMapRedl g e f
 --mapReduceEden f g = parScanl g . map f
+
+myinits = tail . inits --without []
+
+scanlEden :: Trans a => (a -> a -> a) -> [a] -> [a]
+scanlEden g = Eden.Map.parMap (foldl1 g) . myinits

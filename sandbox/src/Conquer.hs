@@ -48,6 +48,9 @@ mssTupledWI = getSolo . $(weakInv 'mssTupled True)
 mssTupledWIRef :: _ => _
 mssTupledWIRef (m, p, t, s) = [p, -p - t - s, m, -m + t]
 
+visibleTupledWI :: _ => _
+visibleTupledWI = getSolo . $(weakInv 'visibleTupled True)
+
 mpsHom :: _ => _
 mpsHom = (f, c)
   where h = mpsTupled
@@ -76,6 +79,13 @@ mssHomRef = (f, c)
         hWI = mssTupledWIRef
         c a b = h (hWI a ++ hWI b)
 
+visibleHom :: _ => _
+visibleHom = (f, c)
+  where h = visibleTupled
+        f a = h [a]
+        hWI = visibleTupledWI
+        c a b = h (hWI a ++ hWI b)
+
 fst4 (x, _, _, _) = x
 
 -- Test with: test1X [1,-2,2,1]
@@ -91,6 +101,9 @@ test1Eden xs e = fst (mapRedlEden f c e xs)
 
 test2Eden xs e = fst4 (mapRedlEden f c e xs)
   where (f, c) = mssHom
+
+test3Eden xs = map fst (scanlEden c (map f xs))
+  where (f, c) = visibleHom
 
 --test1Eden xs =
 
