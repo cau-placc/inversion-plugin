@@ -24,6 +24,7 @@ library
   import: deps
   exposed-modules:
     Arith
+    FunPat
     Graph
     Huffman
     Interpreter
