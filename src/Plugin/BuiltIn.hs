@@ -285,7 +285,6 @@ seq = P.seq
 seqFL :: forall (k :: RuntimeRep) a b. FL (a :--> b :--> b)
 seqFL = returnFLF $ \a -> returnFLF $ \b ->
   a P.>>= \a' -> P.seq a' b
--- TODO try seq
 
 -- | Lifted coercion function to replace coercion in newtype-derived instances
 -- We need to introduce this unused dummy k,
@@ -402,7 +401,7 @@ tailFL = returnFLF $ \xs -> xs P.>>= \case
 
 -- | Lifted reverse function
 reverseFL :: FL (ListFL FL a :--> ListFL FL a)
-reverseFL = foldlFL `appFL` (flipFL `appFL` (returnFLF $ \x -> returnFLF $ \xs -> P.return (ConsFL x xs))) `appFL` (P.return NilFL)
+reverseFL = foldlFL `appFL` (flipFL `appFL` returnFLF (\x -> returnFLF $ \xs -> P.return (ConsFL x xs))) `appFL` P.return NilFL
 
 -- | Lifted map function for lists
 mapFL :: FL ((a :--> b) :--> ListFL FL a :--> ListFL FL b)
@@ -498,32 +497,33 @@ class SemigroupFL a where
   stimes :: IntegralFL b => FL (b :--> a :--> a)
   --stimes = stimesDefault
 
-{-instance SemigroupFL (ListFL FL a) where
+instance SemigroupFL (ListFL FL a) where
   (<>#) = (++#)
-  --stimesFL = stimesListFL-}
+  --stimesFL = stimesListFL
 
 --TODO: Move
 class SemigroupFL a => MonoidFL a where
-  mempty  :: FL a
+  memptyFL  :: FL a
 
-  mappend :: FL (a :--> a :--> a)
-  mappend = (<>#)
+  mappendFL :: FL (a :--> a :--> a)
+  mappendFL = (<>#)
 
-  mconcat :: FL (ListFL FL a :--> a)
-  --mconcat = foldr mappend mempty
+  mconcatFL :: FL (ListFL FL a :--> a)
+  mconcatFL = foldrFL `appFL` mappendFL `appFL` memptyFL
 
---instance MonoidFL (ListFL FL a) where
+instance MonoidFL (ListFL FL a) where
+  memptyFL = P.return NilFL
 
 --TODO: Move to BuiltIn.Foldable
 class FoldableFL t where
     foldFL :: MonoidFL m => FL (t m :--> m)
-    --foldFL = foldMapFL `appFL` idFL
+    foldFL = foldMapFL `appFL` idFL
 
     foldMapFL :: MonoidFL m => FL ((a :--> m) :--> t a :--> m)
-    --foldMapFL = returnFLF $ \f -> foldrFL `appFL` ((.#) `appFL` mappendFL `appFL` f) `appFL` memptyFL
+    foldMapFL = returnFLF $ \f -> foldrFL `appFL` ((.#) `appFL` mappendFL `appFL` f) `appFL` memptyFL
 
     foldMap'FL :: MonoidFL m => FL ((a :--> m) :--> t a :--> m)
-    --foldMap'FL = returnFLF $ \f -> foldl'FL `appFL` (returnFLF $ \acc -> returnFLF $ \a -> (<>#) `appFL` acc `appFL` a) `appFL` memptyFL
+    foldMap'FL = returnFLF $ \f -> foldl'FL `appFL` returnFLF (\acc -> returnFLF $ \a -> (<>#) `appFL` acc `appFL` (f `appFL` a)) `appFL` memptyFL
 
     foldrFL :: FL ((a :--> b :--> b) :--> b :--> t a :--> b)
     --foldrFL f z t = appEndo (foldMap (Endo #. f) t) z
@@ -612,6 +612,8 @@ instance FoldableFL (ListFL FL) where
   nullFL = returnFLF $ \xs -> xs P.>>= \case
     NilFL -> P.return TrueFL
     ConsFL _ _ -> P.return FalseFL
+  maximumFL = foldl1FL `appFL` maxFL
+  minimumFL = foldl1FL `appFL` minFL
   -- TODO: originally strict
   sumFL = foldlFL `appFL` (+#) `appFL` (fromIntegerFL `appFL` P.return (IntegerFL 0))
   -- TODO: originally strict
