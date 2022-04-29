@@ -1469,7 +1469,7 @@ primitive1 f mConstraint = returnFLF $ \x ->
     P.Just constraint -> FL $
       resolveFL x P.>>= \case
         Val a -> unFL $ P.return (coerce (f (coerce a)))
-        HaskellVal a -> unFL $ P.return (coerce (f (coerce a))) --TODO: check this, why not unsafeCoerce?
+        HaskellVal a -> unFL $ P.return (coerce (f (unsafeCoerce a)))
         x'    -> do
           j <- freshIdentifierND
           assertConstraintND (constraint x' (Var j)) (j: varOf x')
@@ -1488,9 +1488,9 @@ primitive2 op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
       resolveFL x P.>>= \x' -> resolveFL y P.>>= \y' ->
         case (# x', y' #) of
           (# Val a, Val b #) -> unFL $ P.return $ coerce (coerce a `op` coerce b)
-          (# Val a, HaskellVal b #) -> unFL $ P.return $ coerce (coerce a `op` coerce b)
-          (# HaskellVal a, Val b #) -> unFL $ P.return $ coerce (coerce a `op` coerce b)
-          (# HaskellVal a, HaskellVal b #) -> unFL $ P.return $ coerce (coerce a `op` coerce b)
+          (# Val a, HaskellVal b #) -> unFL $ P.return $ coerce (coerce a `op` unsafeCoerce b)
+          (# HaskellVal a, Val b #) -> unFL $ P.return $ coerce (unsafeCoerce a `op` coerce b)
+          (# HaskellVal a, HaskellVal b #) -> unFL $ P.return $ coerce (unsafeCoerce a `op` unsafeCoerce b)
           --TODO:
           _                  -> do
             j <- freshIdentifierND
@@ -1518,9 +1518,9 @@ primitiveOrd2 op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
       resolveFL x P.>>= \x' -> resolveFL y P.>>= \y' ->
         case (# x', y' #) of
           (# Val a, Val b #) -> unFL $ toFL $ coerce a `op` coerce b
-          (# Val a, HaskellVal b #) -> unFL $ toFL $ coerce a `op` coerce b
-          (# HaskellVal a, Val b #) -> unFL $ toFL $ coerce a `op` coerce b
-          (# HaskellVal a, HaskellVal b #) -> unFL $ toFL $ coerce a `op` coerce b
+          (# Val a, HaskellVal b #) -> unFL $ toFL $ coerce a `op` unsafeCoerce b
+          (# HaskellVal a, Val b #) -> unFL $ toFL $ unsafeCoerce a `op` coerce b
+          (# HaskellVal a, HaskellVal b #) -> unFL $ toFL $ unsafeCoerce a `op` unsafeCoerce b
           _                  -> trueBranch P.<|> falseBranch
             where
               trueBranch = do
@@ -1544,9 +1544,9 @@ primitive2Pair op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
       resolveFL x P.>>= \x' -> resolveFL y P.>>= \y' ->
         case (# x', y' #) of
           (# Val a, Val b #) -> unFL $ toFL $ coerce a `op` coerce b
-          (# Val a, HaskellVal b #) -> unFL $ toFL $ coerce a `op` coerce b
-          (# HaskellVal a, Val b #) -> unFL $ toFL $ coerce a `op` coerce b
-          (# HaskellVal a, HaskellVal b #) -> unFL $ toFL $ coerce a `op` coerce b
+          (# Val a, HaskellVal b #) -> unFL $ toFL $ coerce a `op` unsafeCoerce b
+          (# HaskellVal a, Val b #) -> unFL $ toFL $ unsafeCoerce a `op` coerce b
+          (# HaskellVal a, HaskellVal b #) -> unFL $ toFL $ unsafeCoerce a `op` unsafeCoerce b
           _                  -> do
             j <- freshIdentifierND
             k <- freshIdentifierND
