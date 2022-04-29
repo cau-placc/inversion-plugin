@@ -36,7 +36,7 @@ instance NormalForm a => NormalForm (Identity a) where
   normalFormWith nf = \case
     IdentityFL x ->
       nf x >>= \y ->
-        return (pure (IdentityFL y))
+        return (FTODO (pure (IdentityFL y)))
 
 instance ShowFree a => ShowFree (Identity a) where
   showsFreePrec' d (Identity x) = showParen (d > 10) $

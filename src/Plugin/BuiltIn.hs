@@ -82,7 +82,7 @@ instance NormalForm a => NormalForm (Solo a) where
   normalFormWith nf = \case
     SoloFL x ->
       nf x P.>>= \y ->
-        P.return (P.pure (SoloFL y))
+        P.return (FTODO (P.pure (SoloFL y)))
 
 instance ShowFree a => ShowFree (Solo a) where
   showsFreePrec' d (Solo x) = P.showParen (d P.> 10) $
@@ -117,7 +117,7 @@ instance (NormalForm a, NormalForm b) => NormalForm (a, b) where
     Tuple2FL x1 x2 ->
       nf x1 P.>>= \y1 ->
         nf x2 P.>>= \y2 ->
-        P.return (P.pure (Tuple2FL y1 y2))
+        P.return (FTODO (P.pure (Tuple2FL y1 y2)))
 
 instance (ShowFree a, ShowFree b) => ShowFree (a, b) where
   showsFreePrec' _ (x1, x2) = P.showString "(" P.. showsFree x1 P.. P.showString "," P.. showsFree x2 P.. P.showString ")"
@@ -159,11 +159,11 @@ instance (Unifiable a, Unifiable [a]) => Unifiable [a] where
 
 instance (NormalForm a, NormalForm [a]) => NormalForm [a] where
   normalFormWith nf = \case
-      NilFL -> P.return (P.pure NilFL)
+      NilFL -> P.return (FTODO (P.pure NilFL))
       ConsFL x xs ->
         nf x P.>>= \y ->
           nf xs P.>>= \ys ->
-            P.return (P.pure (ConsFL y ys))
+            P.return (FTODO (P.pure (ConsFL y ys)))
 
 instance (ShowFree a, ShowFree [a]) => ShowFree [a] where
   showsFreePrec' _ []     = P.showString "[]"
@@ -222,10 +222,10 @@ instance Unifiable a => Unifiable (P.Maybe a) where
 
 instance NormalForm a => NormalForm (P.Maybe a) where
   normalFormWith nf = \case
-      NothingFL -> P.return (P.pure NothingFL)
+      NothingFL -> P.return (FTODO (P.pure NothingFL))
       JustFL x ->
         nf x P.>>= \y ->
-          P.return (P.pure (JustFL y))
+          P.return (FTODO (P.pure (JustFL y)))
 
 instance ShowFree a => ShowFree (P.Maybe a) where
   showsFreePrec' _ P.Nothing  = P.showString "Nothing"
@@ -256,11 +256,11 @@ instance Unifiable a => Unifiable (P.Ratio a) where
   lazyUnify (a :%# b) (x :%# y) = lazyUnifyFL a x P.>> lazyUnifyFL b y
 
 instance NormalForm a => NormalForm (P.Ratio a) where
-   normalFormWith nf = \case
-       a :%# b ->
-         nf a P.>>= \x ->
-           nf b P.>>= \y ->
-             P.return (P.pure (x :%# y))
+  normalFormWith nf = \case
+      a :%# b ->
+        nf a P.>>= \x ->
+          nf b P.>>= \y ->
+            P.return (FTODO (P.pure (x :%# y)))
 
 instance ShowFree a => ShowFree (P.Ratio a) where
   showsFreePrec' d (x P.:% y) = P.showParen (d P.> 7) $
@@ -675,7 +675,7 @@ instance Unifiable Bool where
   lazyUnify _       _       = P.empty
 
 instance NormalForm Bool where
-  normalFormWith _ !x = P.return (P.pure (P.coerce x))
+  normalFormWith _ !x = P.return (FTODO (P.pure (P.coerce x)))
 
 instance ShowFree Bool where
   showFree' False = "False"
@@ -704,7 +704,7 @@ instance Unifiable () where
   lazyUnify UnitFL UnitFL = P.return ()
 
 instance NormalForm () where
-  normalFormWith _ !x = P.return (P.pure (P.coerce x))
+  normalFormWith _ !x = P.return (FTODO (P.pure (P.coerce x)))
 
 instance ShowFree () where
   showFree' () = "()"
@@ -744,7 +744,7 @@ instance Unifiable Ordering where
   lazyUnify _    _    = P.empty
 
 instance NormalForm Ordering where
-  normalFormWith _ !x = P.return (P.pure (P.coerce x))
+  normalFormWith _ !x = P.return (FTODO (P.pure (P.coerce x)))
 
 instance ShowFree Ordering where
   showFree' LT = "LT"
@@ -767,7 +767,7 @@ instance Unifiable Integer where
   lazyUnify (IntegerFL x) (IntegerFL y) = P.guard (x P.== y)
 
 instance NormalForm Integer where
-  normalFormWith _ !x = P.return (P.pure (P.coerce x))
+  normalFormWith _ !x = P.return (FTODO (P.pure (P.coerce x)))
 
 instance ShowFree Integer where
   showFree' = P.show
@@ -788,7 +788,7 @@ instance Unifiable Int where
   lazyUnify (IntFL x) (IntFL y) = P.guard (x P.== y)
 
 instance NormalForm Int where
-  normalFormWith _ !x = P.return (P.pure (P.coerce x))
+  normalFormWith _ !x = P.return (FTODO (P.pure (P.coerce x)))
 
 instance ShowFree Int where
   showFree' = P.show
@@ -809,7 +809,7 @@ instance Unifiable Float where
   lazyUnify (FloatFL x) (FloatFL y) = P.guard (x P.== y)
 
 instance NormalForm Float where
-  normalFormWith _ !x = P.return (P.pure (P.coerce x))
+  normalFormWith _ !x = P.return (FTODO (P.pure (P.coerce x)))
 
 instance ShowFree Float where
   showFree' = P.show
@@ -830,7 +830,7 @@ instance Unifiable Double where
   lazyUnify (DoubleFL x) (DoubleFL y) = P.guard (x P.== y)
 
 instance NormalForm Double where
-  normalFormWith _ !x = P.return (P.pure (P.coerce x))
+  normalFormWith _ !x = P.return (FTODO (P.pure (P.coerce x)))
 
 instance ShowFree Double where
   showFree' = P.show
@@ -851,7 +851,7 @@ instance Unifiable P.Char where
   lazyUnify (CharFL x) (CharFL y) = P.guard (x P.== y)
 
 instance NormalForm P.Char where
-  normalFormWith _ !x = P.return (P.pure (P.coerce x))
+  normalFormWith _ !x = P.return (FTODO (P.pure (P.coerce x)))
 
 instance ShowFree P.Char where
   showFree' = P.show
@@ -1469,6 +1469,7 @@ primitive1 f mConstraint = returnFLF $ \x ->
     P.Just constraint -> FL $
       resolveFL x P.>>= \case
         Val a -> unFL $ P.return (coerce (f (coerce a)))
+        HaskellVal a -> unFL $ P.return (coerce (f (coerce a))) --TODO: check this, why not unsafeCoerce?
         x'    -> do
           j <- freshIdentifierND
           assertConstraintND (constraint x' (Var j)) (j: varOf x')
@@ -1487,6 +1488,10 @@ primitive2 op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
       resolveFL x P.>>= \x' -> resolveFL y P.>>= \y' ->
         case (# x', y' #) of
           (# Val a, Val b #) -> unFL $ P.return $ coerce (coerce a `op` coerce b)
+          (# Val a, HaskellVal b #) -> unFL $ P.return $ coerce (coerce a `op` coerce b)
+          (# HaskellVal a, Val b #) -> unFL $ P.return $ coerce (coerce a `op` coerce b)
+          (# HaskellVal a, HaskellVal b #) -> unFL $ P.return $ coerce (coerce a `op` coerce b)
+          --TODO:
           _                  -> do
             j <- freshIdentifierND
             assertConstraintND (constraint x' y' (Var j)) (j : varsOf x' y')
@@ -1513,6 +1518,9 @@ primitiveOrd2 op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
       resolveFL x P.>>= \x' -> resolveFL y P.>>= \y' ->
         case (# x', y' #) of
           (# Val a, Val b #) -> unFL $ toFL $ coerce a `op` coerce b
+          (# Val a, HaskellVal b #) -> unFL $ toFL $ coerce a `op` coerce b
+          (# HaskellVal a, Val b #) -> unFL $ toFL $ coerce a `op` coerce b
+          (# HaskellVal a, HaskellVal b #) -> unFL $ toFL $ coerce a `op` coerce b
           _                  -> trueBranch P.<|> falseBranch
             where
               trueBranch = do
@@ -1536,6 +1544,9 @@ primitive2Pair op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
       resolveFL x P.>>= \x' -> resolveFL y P.>>= \y' ->
         case (# x', y' #) of
           (# Val a, Val b #) -> unFL $ toFL $ coerce a `op` coerce b
+          (# Val a, HaskellVal b #) -> unFL $ toFL $ coerce a `op` coerce b
+          (# HaskellVal a, Val b #) -> unFL $ toFL $ coerce a `op` coerce b
+          (# HaskellVal a, HaskellVal b #) -> unFL $ toFL $ coerce a `op` coerce b
           _                  -> do
             j <- freshIdentifierND
             k <- freshIdentifierND

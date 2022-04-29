@@ -28,6 +28,8 @@ import {-# SOURCE #-} Plugin.Effect.Monad
 
 import System.IO.Unsafe
 
+import Unsafe.Coerce (unsafeCoerce)
+
 runSBVSolver :: Symbolic a -> IO a
 #ifndef USE_CVC
 runSBVSolver = runSMTWith z3
@@ -157,8 +159,9 @@ liftSBVOrd2 :: Constrainable a => (SBV (SBVType a) -> SBV (SBVType a) -> SBool) 
 liftSBVOrd2 sOp x y = toSBV x `sOp` toSBV y
 
 toSBV :: Constrainable a => FLVal a -> SBV (SBVType a)
-toSBV (Var i) = varToSBV i
-toSBV (Val x) = literal (coerce x)
+toSBV (Var i)        = varToSBV i
+toSBV (Val x)        = literal (coerce x)
+toSBV (HaskellVal x) = literal (unsafeCoerce x)
 
 varToSBV :: SymVal a => ID -> SBV a
 varToSBV i = sym $ "x" ++ (if i < 0 then "n" else "") ++ show (abs i)

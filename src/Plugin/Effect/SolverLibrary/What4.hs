@@ -51,6 +51,8 @@ import What4.Protocol.SMTLib2
 import What4.Solver
 import What4.Utils.StringLiteral
 
+import Unsafe.Coerce (unsafeCoerce)
+
 #ifndef USE_CVC
 type What4Solver = Z3
 #else
@@ -540,8 +542,9 @@ isEq' sym x y = case exprType x of
   BaseArrayRepr {}  -> arrayEq sym x y
 
 toSym :: (IsSymExprBuilder sym, Constrainable a) => sym -> IORef Heap -> IORef [Pred sym] -> FLVal a -> IO (SymExpr sym (What4BaseType a))
-toSym sym ref ref2 (Var i) = varToSym sym ref ref2 i
-toSym sym _   _    (Val x) = lit sym x
+toSym sym ref ref2 (Var i)               = varToSym sym ref ref2 i
+toSym sym _   _    (Val x)               = lit sym x
+toSym sym _   _    (HaskellVal x) = lit sym (unsafeCoerce x)
 
 varToSym :: forall sym a. (IsSymExprBuilder sym, Constrainable a) => sym -> IORef Heap -> IORef [Pred sym] -> ID -> IO (SymExpr sym (What4BaseType a))
 varToSym sym ref ref2 i = do

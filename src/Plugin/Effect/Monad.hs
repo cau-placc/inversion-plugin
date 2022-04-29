@@ -233,7 +233,11 @@ class HasPrimitiveInfo a where
 
 --------------------------------------------------------------------------------
 
-data FLVal a = HasPrimitiveInfo a => Var ID | Val a
+--data FLVal a = HasPrimitiveInfo a => Var ID | Val a
+data FLVal (a :: *) where
+  Var        :: HasPrimitiveInfo a => ID -> FLVal a
+  Val        :: a -> FLVal a
+  HaskellVal :: Convertible b => b -> FLVal (Lifted FL b)
 
 --------------------------------------------------------------------------------
 
@@ -275,8 +279,9 @@ resolveFL = resolveFL' []
           Val x -> return (Val x)
           Var i | i `elem` is -> return (Var i)
                 | otherwise   -> get >>= \ FLState { .. } -> case findBinding i heap of
-            Nothing -> return (Var i)
-            Just x  -> resolveFL' (i:is) x
+                                                               Nothing -> return (Var i)
+                                                               Just x  -> resolveFL' (i : is) x
+          HaskellVal y -> return (HaskellVal y)
 
 instantiate :: forall a. HasPrimitiveInfo a => ID -> ND FLState a
 instantiate i = get >>= \ FLState { .. } ->
@@ -315,8 +320,9 @@ instantiate i = get >>= \ FLState { .. } ->
 
 instance Monad FL where
   fl >>= f = FL $ resolveFL fl >>= \case
-    Var i -> instantiate i >>= unFL . f
-    Val x -> unFL (f x)
+    Var i        -> instantiate i >>= unFL . f
+    Val x        -> unFL (f x)
+    HaskellVal y -> unFL (f (to y))
 
 instance Alternative FL where
   empty = FL empty
@@ -331,21 +337,57 @@ free :: HasPrimitiveInfo a => ID -> FL a
 free i = FL (return (Var i))
 
 --------------------------------------------------------------------------------
+data TODO (f :: * -> *) (a :: *) where
+  FTODO :: f a -> TODO f a
+  HaskellTODO :: b -> TODO f (Lifted (TODO f) b)
+
+--TODO: use the following one
+data Result (f :: * -> *) (a :: *) where
+  Result :: f a -> Result f a
+  HaskellResult :: b -> Result f (Lifted (Result f) b)
 
 class NormalForm a where
-  normalFormWith :: Applicative m => (forall b. NormalForm b => FL (Lifted FL b) -> ND FLState (m (Lifted m b))) -> Lifted FL a -> ND FLState (m (Lifted m a))
+  normalFormWith :: Applicative m => (forall b. NormalForm b => FL (Lifted FL b) -> ND FLState (TODO m (Lifted (TODO m) b))) -> Lifted FL a -> ND FLState (TODO m (Lifted (TODO m) a))
 
---TODO: groundNormalFormND or groundNormalForm?
-groundNormalFormFL :: NormalForm a => FL (Lifted FL a) -> ND FLState (Identity (Lifted Identity a))
+groundNormalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> ND FLState (TODO Identity (Lifted (TODO Identity) a))
 groundNormalFormFL fl = resolveFL fl >>= \case
   Val x -> normalFormWith groundNormalFormFL x
   Var i -> instantiate i >>= normalFormWith groundNormalFormFL
+  HaskellVal (y :: b) -> case decomposeInjectivity @FL @a @b of
+    Refl -> return (HaskellTODO y)
 
-normalFormFL :: NormalForm a => FL (Lifted FL a) -> ND FLState (Either ID (Lifted (Either ID) a))
+normalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> ND FLState (TODO (Either ID) (Lifted (TODO (Either ID)) a))
 normalFormFL fl = resolveFL fl >>= \case
   Val x -> normalFormWith normalFormFL x
   Var i -> get >>= \ FLState { .. } ->
-    if isUnconstrained i constraintStore then return (Left i) else instantiate i >>= normalFormWith normalFormFL
+    case primitiveInfo @(Lifted FL a) of --TODO: eigentlich nicht notwendig, da nicht primitive typen immer unconstrained sind, aber so spart man sich ggf. das nachschlagen und die unterscheidung wird auch hier konsequent umgesetzt.
+      NoPrimitive -> return (FTODO (Left i))
+      Primitive   -> if isUnconstrained i constraintStore
+                       then return (FTODO (Left i))
+                       else instantiate i >>= normalFormWith normalFormFL
+  HaskellVal (y :: b) -> case decomposeInjectivity @FL @a @b of
+    Refl -> return (HaskellTODO y)
+
+{-groundNormalFormFL :: NormalForm a => FL (Lifted FL a) -> ND FLState (Identity (Lifted Identity a))
+groundNormalFormFL fl = resolveFL fl >>= \case
+  Val x -> normalFormWith groundNormalFormFL x
+  Var i -> instantiate i >>= normalFormWith groundNormalFormFL
+  HaskellVal y ->
+
+normalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> ND FLState (Either ID (Lifted (Either ID) a))
+normalFormFL fl = resolveFL fl >>= \case
+  Val x -> normalFormWith normalFormFL x
+  {-
+  x = JustFL (toFL (error "bla"))   ---> JustFL (Right (error "bla"))
+  x = JustFL ()   ---> JustFL (error "bla"))
+  Just
+  -}
+  Var i -> get >>= \ FLState { .. } ->
+    case primitiveInfo @(Lifted FL a) of --TODO: eigentlich nicht notwendig, da nicht primitive typen immer unconstrained sind, aber so spart man sich ggf. das nachschlagen und die unterscheidung wird auch hier konsequent umgesetzt.
+      NoPrimitive -> return (Left i)
+      Primitive   -> if isUnconstrained i constraintStore
+                       then return (Left i)
+                       else instantiate i >>= normalFormWith normalFormFL-}
 
 evalFLWith :: NormalForm a => (forall b. NormalForm b => FL (Lifted FL b) -> ND FLState (m (Lifted m b))) -> FL (Lifted FL a) -> [m (Lifted m a)]
 evalFLWith nf fl = evalND (nf fl) initFLState
@@ -384,16 +426,16 @@ class Convertible a where
   to :: a -> Lifted FL a
   fromWith :: (forall b. Convertible b => m (Lifted m b) -> b) -> Lifted m a -> a
 
--- This function already incorporates the improvement from the paper for
--- partial values in the context of partial inversion with higher-order functions.
 toFL :: Convertible a => a -> FL (Lifted FL a)
-toFL x | isBottom x = empty
-       | otherwise  = return (to x)
+toFL x = FL (return (HaskellVal x)) -- return (to x)
 
-fromM :: Convertible a => (forall b. m b -> b) -> m (Lifted m a) -> a
-fromM unM = fromWith (fromM unM) . unM
+fromM :: forall m a. Convertible a => (forall b. m b -> b) -> TODO m (Lifted (TODO m) a) -> a
+fromM unM = \case
+  HaskellTODO (y :: b) -> case decomposeInjectivity @(TODO m) @a @b of
+    Refl -> y -- unsafeCoerce y
+  FTODO x -> (fromWith (fromM unM) . unM) x
 
-fromIdentity :: Convertible a => Identity (Lifted Identity a) -> a
+fromIdentity :: Convertible a => TODO Identity (Lifted (TODO Identity) a) -> a
 fromIdentity = fromM runIdentity
 
 data FreeVariableException = FreeVariableException ID
@@ -403,7 +445,7 @@ instance Show FreeVariableException where
 
 instance Exception FreeVariableException
 
-fromEither :: Convertible a => Either ID (Lifted (Either ID) a) -> a
+fromEither :: Convertible a => TODO (Either ID) (Lifted (TODO (Either ID)) a) -> a
 fromEither = fromM (either (throw . FreeVariableException) id)
 
 --------------------------------------------------------------------------------
@@ -416,7 +458,7 @@ matchFL x fl = FL $ resolveFL fl >>= \case
   Var i -> get >>= \ FLState { .. } ->
     case primitiveInfo @(Lifted FL a) of
       NoPrimitive -> do
-        put (FLState { heap = insertBinding i (toFL x) heap
+        put (FLState { heap = insertBinding i (toFL x) heap --TODO: toFL == ... toWith toFL
                      , .. })
         return (Val ())
       Primitive   ->
@@ -436,6 +478,7 @@ matchFL x fl = FL $ resolveFL fl >>= \case
                    return (Val ())
                  else empty
   Val y  -> unFL $ match x y
+  HaskellVal y -> unFL $ match x (to y)
 
 -- linMatchFL :: forall a. (Convertible a, Matchable a) => a -> FL (Lifted a) -> FL ()
 -- linMatchFL x (FL nd) = FL $ nd >>= \case
@@ -488,7 +531,7 @@ lazyUnifyFL fl1 fl2 = FL $ resolveFL fl2 >>= \case
     case primitiveInfo @(Lifted FL a) of
       NoPrimitive -> do
         put (FLState { heap = insertBinding i fl1 heap
-                    , .. })
+                     , .. })
         return (Val ())
       Primitive   ->
         if isUnconstrained i constraintStore
@@ -518,9 +561,25 @@ lazyUnifyFL fl1 fl2 = FL $ resolveFL fl2 >>= \case
                                     , .. })
                        return (Val ())
                      else empty
+              HaskellVal y ->
+                let x = to y in
+                let c = eqConstraint (Var i) (Val x)
+                    constraintStore' = insertConstraint c [i] constraintStore
+                in if isConsistent constraintStore'
+                     then do
+                       put (FLState { heap = insertBinding i (return @FL x) heap
+                                    , constraintStore = constraintStore'
+                                    , .. })
+                       return (Val ())
+                     else empty
   Val y  -> resolveFL fl1 >>= \case
     Var j -> unFL $ lazyUnifyVar j y
     Val x -> unFL $ lazyUnify x y
+    HaskellVal x -> unFL $ lazyUnify (to x) y
+  HaskellVal y -> resolveFL fl1 >>= \case
+    Var j -> unFL $ lazyUnifyVar j (to y)
+    Val x -> unFL $ lazyUnify x (to y)
+    HaskellVal x -> unFL $ lazyUnify @a (to x) (to y) --TODO
 
 -- "unify (error "bla") (var 1)" zeigt, dass es notwendig ist, dass man wissen muss ob 1 unconstrained ist.
 -- var 1 == var 2
@@ -560,6 +619,7 @@ type instance Lifted m (->) = (-->) m
 type instance Lifted m ((->) a) = (-->) m (Lifted m a)
 type instance Lifted m ((->) a b) = (-->) m (Lifted m a) (Lifted m b)
 
+-- TODO: Move up
 -- TODO: GHC injectivity check cannot do decomposition, https://gitlab.haskell.org/ghc/ghc/-/issues/10833
 -- Thus, we create the proof manually using unsafeCoerce
 decomposeInjectivity :: Lifted m a ~ Lifted m b => a :~: b
@@ -578,4 +638,11 @@ instance (Convertible a, NormalForm a, Convertible b) => Convertible (a -> b) wh
 appFL :: FL ((-->) FL a b) -> FL a -> FL b
 mf `appFL` x = mf >>= \case
   Func f        -> f x
-  HaskellFunc f -> FL $ groundNormalFormFL x >>= (unFL . toFL . f . fromIdentity)
+  HaskellFunc f -> FL $ groundNormalFormFL x >>= (unFL . toFL' . f . fromIdentity)
+
+--TODO: toFLWith
+-- This function incorporates the improvement from the paper for
+-- partial values in the context of partial inversion with higher-order functions.
+toFL' :: Convertible a => a -> FL (Lifted FL a)
+toFL' x | isBottom x = empty
+        | otherwise  = toFL x

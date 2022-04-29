@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP                       #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE GADTs                     #-}
 {-# LANGUAGE MultiParamTypeClasses     #-}
 {-# LANGUAGE PolyKinds                 #-}
 {-# LANGUAGE TypeFamilyDependencies    #-}
@@ -132,7 +133,11 @@ class HasPrimitiveInfo a where
 
 --------------------------------------------------------------------------------
 
-data FLVal a = HasPrimitiveInfo a => Var ID | Val a
+--data FLVal a = HasPrimitiveInfo a => Var ID | Val a
+data FLVal (a :: *) where
+  Var        :: HasPrimitiveInfo a => ID -> FLVal a
+  Val        :: a -> FLVal a
+  HaskellVal :: Convertible b => b -> FLVal (Lifted FL b)
 
 --------------------------------------------------------------------------------
 
@@ -145,3 +150,7 @@ data FLState = FLState {
 --------------------------------------------------------------------------------
 
 newtype FL a = FL { unFL :: ND FLState (FLVal a) }
+
+--------------------------------------------------------------------------------
+
+class Convertible (a :: *)
