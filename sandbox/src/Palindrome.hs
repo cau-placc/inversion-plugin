@@ -10,11 +10,12 @@ isPalindrome :: Eq a => [a] -> Bool
 isPalindrome xs = xs == reverse xs
 
 fromPalindromes :: Eq a => [[a]] -> [a]
-fromPalindromes xs | and (map (\x -> not (null x) && isPalindrome x) xs) = concat xs
+fromPalindromes xs | all (\x -> not (null x) && isPalindrome x) xs = concat xs
 
--- TODO: Testen, ob das nachfolgende Palindrom nicht dasselbe ist, um nur die längsten zu bekommen
 fromPalindromes2 :: Eq a => [[a]] -> [a]
-fromPalindromes2 xs | and (map (\x -> not (null x) && isPalindrome x) xs) && check xs = concat xs
-  where check [] = True
-        check [_] = True
-        check (x:y:xs) = x /= y && check (y:xs)
+fromPalindromes2 xs | all (\x -> not (null x) && isPalindrome x) xs && ensureNoDoubles xs = concat xs
+  where ensureNoDoubles []       = True
+        ensureNoDoubles [_]      = True
+        ensureNoDoubles (x:y:xs) = x /= y && ensureNoDoubles (y : xs)
+
+-- Test with: head $ $(inv 'fromPalindromes2 True) "abba"

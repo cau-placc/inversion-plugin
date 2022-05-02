@@ -634,11 +634,11 @@ instance FoldableFL (ListFL FL) where
   sum     = List.sum
   toList  = id-}
 
---allFL :: FoldableFL t => FL ((a :--> BoolFL FL) :--> t a :--> BoolFL FL)
---allFL = returnFLF $ \p -> (.#) `appFL` andFL `appFL` (fmapFL `appFL` p)
+allFL :: FoldableFL t => FL ((a :--> BoolFL FL) :--> t a :--> BoolFL FL)
+allFL = returnFLF $ \p -> foldrFL `appFL` returnFLF (\x -> returnFLF $ \acc -> (&&#) `appFL` (p `appFL` x) `appFL` acc) `appFL` P.return TrueFL
 
---anyFL :: FoldableFL t => FL ((a :--> BoolFL FL) :--> t a :--> BoolFL FL)
---anyFL = returnFLF $ \p -> (.#) `appFL` orFL `appFL` (fmapFL `appFL` p)
+anyFL :: FoldableFL t => FL ((a :--> BoolFL FL) :--> t a :--> BoolFL FL)
+anyFL = returnFLF $ \p -> foldrFL `appFL` returnFLF (\x -> returnFLF $ \acc -> (||#) `appFL` (p `appFL` x) `appFL` acc) `appFL` P.return FalseFL
 
 andFL :: FoldableFL t => FL (t (BoolFL FL) :--> BoolFL FL)
 andFL = foldrFL `appFL` (&&#) `appFL` P.return TrueFL
