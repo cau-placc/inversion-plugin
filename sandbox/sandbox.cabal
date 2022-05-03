@@ -16,9 +16,7 @@ common deps
   build-depends:
     base             ^>=4.14.0.0,
     inversion-plugin -any,
-    parallel,
-    template-haskell -any,
-    mini-egison
+    template-haskell -any
 
 library
   import: deps
@@ -40,12 +38,13 @@ executable main
   main-is:       Main.hs
   build-depends:
     deepseq,
-    containers
+    containers,
+    parallel,
+    mini-egison,
+    criterion
   other-modules:
     Conquer
     Divide
-    Par
-    Z
     Eden.Edi
     Eden.Merge
     Eden.EdenConcHs
@@ -53,4 +52,5 @@ executable main
     Eden.Map
     Eden.MapReduce
     Eden.Auxiliary
+    Z
   ghc-options:   -O2 -threaded -rtsopts -main-is Main
