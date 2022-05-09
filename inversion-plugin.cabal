@@ -135,6 +135,8 @@ common deps
     Plugin.Trans.Type
     Plugin.Trans.Util
     Plugin.Trans.Var
+    SBVTest
+    What4Test
 
 library
   import: deps
