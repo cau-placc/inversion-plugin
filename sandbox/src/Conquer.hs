@@ -1,30 +1,13 @@
-{-# LANGUAGE DeriveGeneric         #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE PartialTypeSignatures #-}
-{-# LANGUAGE StandaloneDeriving    #-}
 {-# LANGUAGE TemplateHaskell       #-}
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 
 module Conquer where
 
-import Eden.EdenConcHs
-import Eden.MapReduce
-
-import GHC.Generics
-
 import Plugin.InversionPlugin
 
 import Divide
-import Z
-
-deriving instance Generic N
-deriving instance Generic Z
-
-instance NFData N
-instance NFData Z
-
-instance Trans N
-instance Trans Z
 
 -- Maximum prefix/segment sum problem
 
@@ -37,10 +20,6 @@ mpsHom = (f, c)
         f a = h [a]
         hWI = mpsTupledWI
         c a b = h (hWI a ++ hWI b)
-
-mpsTest :: Z
-mpsTest = fst (parMapRedl c (0, 0) f (take 2000 list))
-  where (f, c) = mpsHom
 
 mpsTupledWIRef :: _ => _
 mpsTupledWIRef (p, s) = [p, s - p]
@@ -62,9 +41,9 @@ mssHom = (f, c)
         hWI = mssTupledWI
         c a b = h (hWI a ++ hWI b)
 
-mssTest xs e = fst4 (parMapRedl c e f xs)
-  where (f, c) = mssHom
-        fst4 (x, _, _, _) = x
+--mssTest xs e = fst4 (parMapRedl c e f xs)
+--  where (f, c) = mssHom
+--        fst4 (x, _, _, _) = x
 
 mssTupledWIRef :: _ => _
 mssTupledWIRef (m, p, t, s) = [p, -p - t - s, m, -m + t]
@@ -118,8 +97,8 @@ e = (0, 0)
 e2 :: (Integer, Integer, Integer, Integer) -- (Z, Z, Z, Z)
 e2 = (0, 0, 0, 0)-}
 
-list :: Num a => [a]
-list = concat $ repeat [1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5]
+--list :: Num a => [a]
+--list = concat $ repeat [1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5]
 
 
 -- Line-of-sight problem
@@ -146,8 +125,8 @@ visibleHomRef = (f, c)
         c a b = h (hWI a ++ hWI b)
 
 
-e3 :: (Bool, Z)
-e3 = (True, 0)
+--e3 :: (Bool, Z)
+--e3 = (True, 0)
 
-buildings :: [Z]
-buildings = concat $ take 10000 $ repeat [30,30,20,25,30,15,40,20]
+--buildings :: [Z]
+--buildings = concat $ take 10000 $ repeat [30,30,20,25,30,15,40,20]

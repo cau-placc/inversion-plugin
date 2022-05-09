@@ -42,7 +42,8 @@ executable main
     containers,
     parallel,
     mini-egison,
-    criterion
+    criterion,
+    time
   other-modules:
     Conquer
     Divide
