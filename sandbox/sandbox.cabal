@@ -23,6 +23,7 @@ library
   exposed-modules:
     Arith
     FunPat
+    FunPatSrc
     Graph
     Huffman
     Interpreter
