@@ -12,7 +12,7 @@ import Plugin.Effect.Monad
 import Plugin.Lifted
 
 returnFL' :: a -> FL a
-returnFL' x | isBottom x = empty
+returnFL' x -- | isBottom x = empty
             | otherwise  = return x
 
 returnFLF :: (FL a -> FL b) -> FL (a :--> b)

@@ -322,7 +322,8 @@ instance Monad FL where
   fl >>= f = FL $ resolveFL fl >>= \case
     Var i        -> instantiate i >>= unFL . f
     Val x        -> unFL (f x)
-    HaskellVal y -> unFL (f (to y))
+    HaskellVal y -- | isBottom y -> empty
+                 | otherwise  -> unFL (f (to y))
 
 instance Alternative FL where
   empty = FL empty
@@ -489,6 +490,12 @@ matchFL x fl = FL $ resolveFL fl >>= \case
 class Unifiable a where
   lazyUnify :: Lifted FL a -> Lifted FL a -> FL ()
 
+{-TODO:
+
+type Output a = (Unifiable a, From a, NormalForm a)
+
+type Input a = (To a, HasPrimitiveInfo (Lifted FL a))-}
+
 --TODO: eigentlich nur narrowable notwendig
 narrowSameConstr :: (HasPrimitiveInfo (Lifted FL a), Unifiable a) => ID -> Lifted FL a -> FL ()
 narrowSameConstr i x = FL $
@@ -522,6 +529,7 @@ lazyUnifyVar i x = FL $ get >>= \ FLState { .. } ->
 -- f Nothing = False
 
 --TODO: flip, rename fl1 to flx etc.
+--TODO: check lazyUnifyFL (x, failed) (y,y)
 lazyUnifyFL :: forall a. Unifiable a => FL (Lifted FL a) -> FL (Lifted FL a) -> FL ()
 lazyUnifyFL fl1 fl2 = FL $ resolveFL fl2 >>= \case
   Var i -> get >>= \ FLState { .. } ->
