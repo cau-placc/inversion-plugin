@@ -337,9 +337,6 @@ free :: HasPrimitiveInfo a => ID -> FL a
 free i = FL (return (Var i))
 
 --------------------------------------------------------------------------------
-data TODO (f :: * -> *) (a :: *) where
-  FTODO :: f a -> TODO f a
-  HaskellTODO :: b -> TODO f (Lifted (TODO f) b)
 
 --TODO: use the following one
 data Result (f :: * -> *) (a :: *) where
@@ -347,26 +344,26 @@ data Result (f :: * -> *) (a :: *) where
   HaskellResult :: b -> Result f (Lifted (Result f) b)
 
 class NormalForm a where
-  normalFormWith :: Applicative m => (forall b. NormalForm b => FL (Lifted FL b) -> ND FLState (TODO m (Lifted (TODO m) b))) -> Lifted FL a -> ND FLState (TODO m (Lifted (TODO m) a))
+  normalFormWith :: Applicative m => (forall b. NormalForm b => FL (Lifted FL b) -> ND FLState (Result m (Lifted (Result m) b))) -> Lifted FL a -> ND FLState (Result m (Lifted (Result m) a))
 
-groundNormalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> ND FLState (TODO Identity (Lifted (TODO Identity) a))
+groundNormalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> ND FLState (Result Identity (Lifted (Result Identity) a))
 groundNormalFormFL fl = resolveFL fl >>= \case
   Val x -> normalFormWith groundNormalFormFL x
   Var i -> instantiate i >>= normalFormWith groundNormalFormFL
   HaskellVal (y :: b) -> case decomposeInjectivity @FL @a @b of
-    Refl -> return (HaskellTODO y)
+    Refl -> return (HaskellResult y)
 
-normalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> ND FLState (TODO (Either ID) (Lifted (TODO (Either ID)) a))
+normalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> ND FLState (Result (Either ID) (Lifted (Result (Either ID)) a))
 normalFormFL fl = resolveFL fl >>= \case
   Val x -> normalFormWith normalFormFL x
   Var i -> get >>= \ FLState { .. } ->
     case primitiveInfo @(Lifted FL a) of --TODO: eigentlich nicht notwendig, da nicht primitive typen immer unconstrained sind, aber so spart man sich ggf. das nachschlagen und die unterscheidung wird auch hier konsequent umgesetzt.
-      NoPrimitive -> return (FTODO (Left i))
+      NoPrimitive -> return (Result (Left i))
       Primitive   -> if isUnconstrained i constraintStore
-                       then return (FTODO (Left i))
+                       then return (Result (Left i))
                        else instantiate i >>= normalFormWith normalFormFL
   HaskellVal (y :: b) -> case decomposeInjectivity @FL @a @b of
-    Refl -> return (HaskellTODO y)
+    Refl -> return (HaskellResult y)
 
 {-groundNormalFormFL :: NormalForm a => FL (Lifted FL a) -> ND FLState (Identity (Lifted Identity a))
 groundNormalFormFL fl = resolveFL fl >>= \case
@@ -429,13 +426,13 @@ class Convertible a where
 toFL :: Convertible a => a -> FL (Lifted FL a)
 toFL x = FL (return (HaskellVal x)) -- return (to x)
 
-fromM :: forall m a. Convertible a => (forall b. m b -> b) -> TODO m (Lifted (TODO m) a) -> a
+fromM :: forall m a. Convertible a => (forall b. m b -> b) -> Result m (Lifted (Result m) a) -> a
 fromM unM = \case
-  HaskellTODO (y :: b) -> case decomposeInjectivity @(TODO m) @a @b of
+  HaskellResult (y :: b) -> case decomposeInjectivity @(Result m) @a @b of
     Refl -> y -- unsafeCoerce y
-  FTODO x -> (fromWith (fromM unM) . unM) x
+  Result x -> (fromWith (fromM unM) . unM) x
 
-fromIdentity :: Convertible a => TODO Identity (Lifted (TODO Identity) a) -> a
+fromIdentity :: Convertible a => Result Identity (Lifted (Result Identity) a) -> a
 fromIdentity = fromM runIdentity
 
 data FreeVariableException = FreeVariableException ID
@@ -445,7 +442,7 @@ instance Show FreeVariableException where
 
 instance Exception FreeVariableException
 
-fromEither :: Convertible a => TODO (Either ID) (Lifted (TODO (Either ID)) a) -> a
+fromEither :: Convertible a => Result (Either ID) (Lifted (Result (Either ID)) a) -> a
 fromEither = fromM (either (throw . FreeVariableException) id)
 
 --------------------------------------------------------------------------------

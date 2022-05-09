@@ -419,7 +419,7 @@ genInstances originalDataDec liftedDataDec = do
               liftedArgNames <- replicateM liftedConArity (newName "x")
               freshLiftedArgNames <- replicateM liftedConArity (newName "y")
               let pat = ConP liftedConName $ map VarP liftedArgNames
-                  body = NormalB $ foldr (\ (liftedArgName, freshLiftedArgName) e -> applyExp (VarE '(>>=)) [AppE (VarE nfName) (VarE liftedArgName), LamE [VarP freshLiftedArgName] e]) (AppE (VarE 'return) $ AppE (ConE 'FTODO) $ AppE (VarE 'pure) $ applyExp (ConE liftedConName) $ map VarE freshLiftedArgNames) $ zip liftedArgNames freshLiftedArgNames
+                  body = NormalB $ foldr (\ (liftedArgName, freshLiftedArgName) e -> applyExp (VarE '(>>=)) [AppE (VarE nfName) (VarE liftedArgName), LamE [VarP freshLiftedArgName] e]) (AppE (VarE 'return) $ AppE (ConE 'Result) $ AppE (VarE 'pure) $ applyExp (ConE liftedConName) $ map VarE freshLiftedArgNames) $ zip liftedArgNames freshLiftedArgNames
               return $ Match pat body []
         matches <- mapM genMatch liftedConInfos
         let body = NormalB (LamCaseE matches)
