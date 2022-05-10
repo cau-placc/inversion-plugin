@@ -68,11 +68,13 @@ instance HasPrimitiveInfo a => HasPrimitiveInfo (SoloFL FL a) where
 instance HasPrimitiveInfo a => Narrowable (SoloFL FL a) where
   narrow j = [(SoloFL (free j), 1)]
 
-instance Convertible a => Convertible (Solo a) where
-  to (Solo x) = SoloFL (toFL x)
+instance To a => To (Solo a) where
+  toWith tf (Solo x) = SoloFL (tf x)
+
+instance From a => From (Solo a) where
   fromWith ff (SoloFL x) = Solo (ff x)
 
-instance (Convertible a, Matchable a) => Matchable (Solo a) where
+instance (To a, Matchable a) => Matchable (Solo a) where
   match (Solo x) (SoloFL y) = matchFL x y
 
 instance Unifiable a => Unifiable (Solo a) where
@@ -102,11 +104,13 @@ instance (HasPrimitiveInfo a, HasPrimitiveInfo b) => HasPrimitiveInfo (Tuple2FL 
 instance (HasPrimitiveInfo a, HasPrimitiveInfo b) => Narrowable (Tuple2FL FL a b) where
   narrow j = [(Tuple2FL (free j) (free (j P.- 1)), 2)]
 
-instance (Convertible a, Convertible b) => Convertible (a, b) where
-  to (x1, x2) = Tuple2FL (toFL x1) (toFL x2)
+instance (To a, To b) => To (a, b) where
+  toWith tf (x1, x2) = Tuple2FL (tf x1) (tf x2)
+
+instance (From a, From b) => From (a, b) where
   fromWith ff (Tuple2FL x1 x2) = (ff x1, ff x2)
 
-instance (Convertible a, Convertible b, Matchable a, Matchable b) => Matchable (a, b) where
+instance (To a, To b, Matchable a, Matchable b) => Matchable (a, b) where
   match (x1, x2) (Tuple2FL y1 y2) = matchFL x1 y1 P.>> matchFL x2 y2
 
 instance (Unifiable a, Unifiable b) => Unifiable (a, b) where
@@ -141,13 +145,15 @@ instance (HasPrimitiveInfo a, HasPrimitiveInfo (ListFL FL a)) => HasPrimitiveInf
 instance (HasPrimitiveInfo a, HasPrimitiveInfo (ListFL FL a)) => Narrowable (ListFL FL a) where
   narrow j = [(NilFL, 0), (ConsFL (free j) (free (j P.- 1)), 2)]
 
-instance (Convertible a, Convertible [a]) => Convertible [a] where
-  to [] = NilFL
-  to (x : xs) = ConsFL (toFL x) (toFL xs)
-  fromWith _ NilFL = []
+instance (To a, To [a]) => To [a] where
+  toWith _  [] = NilFL
+  toWith tf (x : xs) = ConsFL (tf x) (tf xs)
+
+instance (From a, From [a]) => From [a] where
+  fromWith _  NilFL = []
   fromWith ff (ConsFL x xs) = ff x : ff xs
 
-instance (Convertible a, Matchable a, Matchable [a], Convertible [a]) => Matchable [a] where
+instance (To a, Matchable a, Matchable [a], To [a]) => Matchable [a] where
   match [] NilFL = P.return ()
   match (x : xs) (ConsFL y ys) = matchFL x y P.>> matchFL xs ys
   match _ _ = P.empty
@@ -204,13 +210,15 @@ instance HasPrimitiveInfo a => HasPrimitiveInfo (MaybeFL FL a) where
 instance HasPrimitiveInfo a => Narrowable (MaybeFL FL a) where
   narrow j = [(NothingFL, 0), (JustFL (free j), 1)]
 
-instance Convertible a => Convertible (P.Maybe a) where
-  to P.Nothing = NothingFL
-  to (P.Just x) = JustFL (toFL x)
+instance To a => To (P.Maybe a) where
+  toWith _  P.Nothing = NothingFL
+  toWith tf (P.Just x) = JustFL (tf x)
+
+instance From a => From (P.Maybe a) where
   fromWith _ NothingFL = P.Nothing
   fromWith ff (JustFL x) = P.Just (ff x)
 
-instance (Convertible a, Matchable a) => Matchable (P.Maybe a) where
+instance (To a, Matchable a) => Matchable (P.Maybe a) where
   match P.Nothing NothingFL = P.return ()
   match (P.Just x) (JustFL y) = matchFL x y
   match _ _ = P.empty
@@ -245,11 +253,13 @@ instance HasPrimitiveInfo a => HasPrimitiveInfo (RatioFL FL a) where
 instance HasPrimitiveInfo a => Narrowable (RatioFL FL a) where
   narrow j = [(free j :%# free (j P.- 1), 2)]
 
-instance Convertible a => Convertible (P.Ratio a) where
-  to (a P.:% b) = toFL a :%# toFL b
+instance To a => To (P.Ratio a) where
+  toWith tf (a P.:% b) = tf a :%# tf b
+
+instance From a => From (P.Ratio a) where
   fromWith ff (a :%# b) = ff a P.:% ff b
 
-instance (Convertible a, Matchable a) => Matchable (P.Ratio a) where
+instance (To a, Matchable a) => Matchable (P.Ratio a) where
   match (a P.:% b) (x :%# y) = matchFL a x P.>> matchFL b y
 
 instance Unifiable a => Unifiable (P.Ratio a) where
@@ -660,9 +670,11 @@ instance HasPrimitiveInfo (BoolFL FL) where
 instance Narrowable (BoolFL FL) where
   narrow _ = [(FalseFL, 0), (TrueFL, 0)]
 
-instance Convertible Bool where
-  to False = FalseFL
-  to True = TrueFL
+instance To Bool where
+  toWith _ False = FalseFL
+  toWith _ True = TrueFL
+
+instance From Bool where
   fromWith _ FalseFL = False
   fromWith _ TrueFL = True
 
@@ -695,8 +707,10 @@ instance HasPrimitiveInfo (UnitFL FL) where
 instance Narrowable (UnitFL FL) where
   narrow _ = [(UnitFL, 0)]
 
-instance Convertible () where
-  to () = UnitFL
+instance To () where
+  toWith _ () = UnitFL
+
+instance From () where
   fromWith _ UnitFL = ()
 
 instance Matchable () where
@@ -723,11 +737,12 @@ instance HasPrimitiveInfo (OrderingFL FL) where
 instance Narrowable (OrderingFL FL) where
   narrow _ = [(LTFL , 0), (EQFL, 0), (GTFL, 0)]
 
-instance Convertible Ordering where
-  to LT = LTFL
-  to EQ = EQFL
-  to GT = GTFL
+instance To Ordering where
+  toWith _ LT = LTFL
+  toWith _ EQ = EQFL
+  toWith _ GT = GTFL
 
+instance From Ordering where
   fromWith _ = \case
     LTFL -> LT
     EQFL -> EQ
@@ -758,8 +773,10 @@ instance Invertible Ordering
 instance HasPrimitiveInfo (IntegerFL FL) where
   primitiveInfo = Primitive
 
-instance Convertible Integer where
-  to = P.coerce
+instance To Integer where
+  toWith _ = P.coerce
+
+instance From Integer where
   fromWith _ = P.coerce
 
 instance Matchable Integer where
@@ -779,8 +796,10 @@ instance Invertible Integer
 instance HasPrimitiveInfo (IntFL FL) where
   primitiveInfo = Primitive
 
-instance Convertible Int where
-  to = P.coerce
+instance To Int where
+  toWith _ = P.coerce
+
+instance From Int where
   fromWith _ = P.coerce
 
 instance Matchable Int where
@@ -800,8 +819,10 @@ instance Invertible Int
 instance HasPrimitiveInfo (FloatFL FL) where
   primitiveInfo = Primitive
 
-instance Convertible Float where
-  to = P.coerce
+instance To Float where
+  toWith _ = P.coerce
+
+instance From Float where
   fromWith _ = P.coerce
 
 instance Matchable Float where
@@ -821,8 +842,10 @@ instance Invertible Float
 instance HasPrimitiveInfo (DoubleFL FL) where
   primitiveInfo = Primitive
 
-instance Convertible Double where
-  to = P.coerce
+instance To Double where
+  toWith _ = P.coerce
+
+instance From Double where
   fromWith _ = P.coerce
 
 instance Matchable Double where
@@ -842,8 +865,10 @@ instance Invertible Double
 instance HasPrimitiveInfo (CharFL FL) where
   primitiveInfo = Primitive
 
-instance Convertible P.Char where
-  to = P.coerce
+instance To P.Char where
+  toWith _ = P.coerce
+
+instance From P.Char where
   fromWith _ = P.coerce
 
 instance Matchable P.Char where
@@ -1513,6 +1538,7 @@ primitive2 op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
 
 --TODO: Note on usage, true and false branch are important
 --TODO: Important to mention in the disseration, as the implementation differs from the other constraints!
+--TODO: why are here no convertible, to or from constraints?
 primitiveOrd2 :: (a -> a -> Bool) -> P.Maybe (FLVal (Lifted FL a) -> FLVal (Lifted FL a) -> Constraint) -> FL (Lifted FL a :--> Lifted FL a :--> Lifted FL Bool)
 primitiveOrd2 op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
   case mConstraint of
@@ -1539,7 +1565,7 @@ primitiveOrd2 op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
     P.Nothing         -> x P.>>= \a -> y P.>>= \b -> P.return $ coerce (coerce a `op` coerce b) --TODO: lift2FL-irgendetwas verwenden
 
 --TODO: Use coerce instead of convertible
-primitive2Pair :: (Convertible a, Convertible b, Convertible c, Convertible d, HasPrimitiveInfo (Lifted FL c), HasPrimitiveInfo  (Lifted FL d)) => (a -> b -> (c, d)) -> P.Maybe (FLVal (Lifted FL a) -> FLVal (Lifted FL b) -> FLVal (Lifted FL c) -> FLVal (Lifted FL d) -> Constraint) -> FL (Lifted FL a :--> Lifted FL b :--> Lifted FL (c, d))
+primitive2Pair :: (From a, From b, To c, To d, HasPrimitiveInfo (Lifted FL c), HasPrimitiveInfo  (Lifted FL d)) => (a -> b -> (c, d)) -> P.Maybe (FLVal (Lifted FL a) -> FLVal (Lifted FL b) -> FLVal (Lifted FL c) -> FLVal (Lifted FL d) -> Constraint) -> FL (Lifted FL a :--> Lifted FL b :--> Lifted FL (c, d))
 primitive2Pair op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
   case mConstraint of
     P.Just constraint -> FL $

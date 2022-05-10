@@ -35,7 +35,7 @@ import TcSimplify
 import Constraint
 import Bag
 
-import Plugin.Effect.Monad ( type (-->)(..), appFL, unFL, to, toFL, Convertible, FL )
+import Plugin.Effect.Monad ( type (-->)(..), appFL, unFL, toWith, toFL, To, FL )
 import Plugin.Lifted --TODO: necessary?
 import Plugin.Trans.Constr
 import Plugin.Trans.Type
@@ -186,7 +186,7 @@ mkNewFmapTh etype btype = do
 mkNewLiftETh :: Type -> Type -> TcM (LHsExpr GhcTc)
 mkNewLiftETh ty1 ty2 = do
   mty <- (. (: [])) . mkTyConApp <$> getMonadTycon
-  th_expr <- liftQ [| (\px -> FL $ fmap to <$> unFL px) :: Convertible a => FL a -> FL (Lifted a) |]
+  th_expr <- liftQ [| (\px -> FL $ fmap (toWith toFL) <$> unFL px) :: To a => FL a -> FL (Lifted a) |]
   let expType = mkVisFunTy (mty ty1) (mty ty2) -- m a -> m b
   mkNewAny th_expr expType
 

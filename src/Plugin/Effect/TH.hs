@@ -179,12 +179,12 @@ thisPkgName = case 'toFL of
 
 --TODO: lift to q and throw error when length of list is > maxTupleArity
 mkLiftedTupleE :: [Exp] -> Exp
-mkLiftedTupleE []  = AppE (VarE 'return) (AppE (VarE 'to) (ConE '()))
 mkLiftedTupleE xs  = AppE (VarE 'return) (applyExp liftedTupleConE xs)
   where
     -- TODO does this really work?
     liftedTupleConE = ConE $ mkNameG_v thisPkgName builtInModule tupleConName
-    tupleConName | length xs == 1 = "SoloFL"
+    tupleConName | null xs        = "UnitFL"
+                 | length xs == 1 = "SoloFL"
                  | otherwise      = "Tuple" ++ show (length xs) ++ "FL"
 
 decomposeForallT :: Type -> ([TyVarBndr], [Type], Type)
@@ -352,17 +352,23 @@ genInstances originalDataDec liftedDataDec = do
             ctxt = map mkHasPrimitiveInfoConstraint liftedConArgs
         return $ InstanceD Nothing ctxt (mkNarrowableConstraint liftedTy) [dec]
 
-      genConvertible = do
-        let genTo = do
+      genTo = do
+        let genTo' = do
+              tf <- newName "tf"
               let genMatch originalConInfo liftedConInfo = do
                     argNames <- replicateM (conArity originalConInfo) (newName "x")
                     let pat = ConP (conName originalConInfo) $ map VarP argNames
-                        body = NormalB $ applyExp (ConE $ conName liftedConInfo) $ map (AppE (VarE 'toFL) . VarE) argNames
+                        body = NormalB $ applyExp (ConE $ conName liftedConInfo) $ map (AppE (VarE tf) . VarE) argNames
                     return $ Match pat body []
               matches <- zipWithM genMatch originalConInfos liftedConInfos
               arg <- newName "arg"
-              return $ FunD 'to [Clause [VarP arg] (NormalB (CaseE (VarE arg) matches)) []]
-            genFrom = do
+              return $ FunD 'toWith [Clause [VarP tf, VarP arg] (NormalB (CaseE (VarE arg) matches)) []]
+        let ctxt = map mkToConstraint originalConArgs
+        InstanceD Nothing ctxt (mkToConstraint originalTy) <$>
+          sequence [genTo']
+
+      genFrom = do
+        let genFrom' = do
               ff <- newName "ff"
               let genMatch liftedConInfo originalConInfo = do
                     argNames <- replicateM (conArity liftedConInfo) (newName "x")
@@ -372,9 +378,9 @@ genInstances originalDataDec liftedDataDec = do
               arg <- newName "arg"
               matches <- zipWithM genMatch liftedConInfos originalConInfos
               return $ FunD 'fromWith [Clause [VarP ff, VarP arg] (NormalB (CaseE (VarE arg) matches)) []]
-        let ctxt = map mkConvertibleConstraint originalConArgs
-        InstanceD Nothing ctxt (mkConvertibleConstraint originalTy) <$>
-          sequence [genTo, genFrom]
+        let ctxt = map mkFromConstraint originalConArgs
+        InstanceD Nothing ctxt (mkFromConstraint originalTy) <$>
+          sequence [genFrom']
 
       genMatchable = do
         let genMatch = do
@@ -389,7 +395,7 @@ genInstances originalDataDec liftedDataDec = do
               let failClause = Clause [WildP, WildP] (NormalB $ VarE 'Control.Applicative.empty) []
               return $ FunD 'match (clauses ++ [failClause])
         dec <- genMatch
-        let ctxt = map mkConvertibleConstraint originalConArgs ++
+        let ctxt = map mkToConstraint originalConArgs ++
                      map mkMatchableConstraint originalConArgs
         return $ InstanceD Nothing ctxt (mkMatchableConstraint originalTy) [dec]
 
@@ -449,7 +455,8 @@ genInstances originalDataDec liftedDataDec = do
         return $ InstanceD Nothing ctxt (mkShowFreeConstraint originalTy) [dec]
 
       genInvertible = do
-        let ctxt = [ mkConvertibleConstraint originalTy
+        let ctxt = [ mkToConstraint originalTy
+                   , mkFromConstraint originalTy
                    , mkMatchableConstraint originalTy
                    , mkUnifiableConstraint originalTy
                    , mkNormalFormConstraint originalTy
@@ -459,7 +466,7 @@ genInstances originalDataDec liftedDataDec = do
         return $ InstanceD Nothing ctxt (mkInvertibleConstraint originalTy) [] :: Q Dec
 
   (++) <$> genLifted originalTc liftedTc liftedTyVars mTy
-       <*> sequence [genHasPrimitiveInfo, genNarrowable, genConvertible, genMatchable, genUnifiable, genNormalForm, genShowFree, genInvertible]
+       <*> sequence [genHasPrimitiveInfo, genNarrowable, genTo, genFrom, genMatchable, genUnifiable, genNormalForm, genShowFree, genInvertible]
 
 replaceMTyVar :: Name -> Type -> Type -> Type
 replaceMTyVar tvar replacement = go
@@ -484,8 +491,11 @@ mkHasPrimitiveInfoConstraint ty = applyType (ConT ''HasPrimitiveInfo) [ty]
 mkNarrowableConstraint :: Type -> Type
 mkNarrowableConstraint ty = applyType (ConT ''Narrowable) [ty]
 
-mkConvertibleConstraint :: Type -> Type
-mkConvertibleConstraint ty = applyType (ConT ''Convertible) [ty]
+mkToConstraint :: Type -> Type
+mkToConstraint ty = applyType (ConT ''To) [ty]
+
+mkFromConstraint :: Type -> Type
+mkFromConstraint ty = applyType (ConT ''From) [ty]
 
 mkMatchableConstraint :: Type -> Type
 mkMatchableConstraint ty = applyType (ConT ''Matchable) [ty]

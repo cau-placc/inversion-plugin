@@ -22,11 +22,13 @@ instance HasPrimitiveInfo a => HasPrimitiveInfo (IdentityFL FL a) where
 instance HasPrimitiveInfo a => Narrowable (IdentityFL FL a) where
   narrow j = [(IdentityFL (free j), 1)]
 
-instance Convertible a => Convertible (Identity a) where
-  to (Identity x) = IdentityFL (toFL x)
+instance To a => To (Identity a) where
+  toWith tf (Identity x) = IdentityFL (tf x)
+
+instance From a => From (Identity a) where
   fromWith ff (IdentityFL x) = Identity (ff x)
 
-instance (Convertible a, Matchable a) => Matchable (Identity a) where
+instance (To a, Matchable a) => Matchable (Identity a) where
   match (Identity x) (IdentityFL y) = matchFL x y
 
 instance Unifiable a => Unifiable (Identity a) where
