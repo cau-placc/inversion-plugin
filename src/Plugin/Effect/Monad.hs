@@ -646,3 +646,6 @@ mf `appFL` x = mf >>= \ (Func f) -> f x
 toFL' :: To a => a -> FL (Lifted FL a)
 toFL' x | isBottom x = empty
         | otherwise  = return (toWith toFL' x)
+
+type Input a = (To a, Unifiable a)
+type Output a = (From a, HasPrimitiveInfo (Lifted FL a), NormalForm a)
