@@ -10,14 +10,9 @@ import Plugin.InversionPlugin
 
 lastTH $(funPat '(++) [p| _ |] [p| [x] |]) = x
 
-lastVP (\arg -> [p | p@(_, [_]) <- $(inv '(++) False) arg] -> ((_, [x]) : _)) = x
+--lastTH2 $(funPatLegacy '(++) [p| _ |] [p| [x] |]) = x
 
-lastVP2 (\arg -> [p | p@(_, [_]) <- $(inv '(++) True) arg] -> ((_, [x]) : _)) = x
-
-lastIC ($(inClassInv '(++) False [[| var 0 |], [| [var 1] |]]) -> ((_, x) : _)) = x
-
-h $(funPat 'pat [p| y |]) = True
-
+{-
 --lazyUnifyFL (x, empty) (y,y)
 -- (y,y) =:<= (x, failed)
 -- f (y, y)
@@ -31,3 +26,8 @@ testFunPat2 = \x -> $(inOutClassInv 'g True [[| var 0 |], [| x |]] [| (var 1, va
 
 testFunPat3 :: _ => Bool -> _
 testFunPat3 = \x -> $(inOutClassInv 'g True [[| var 0 |], [| var 0 |]] [| (var 0, x) |])
+
+--f2Inv :: (Output a1, Input a2, To (a3 -> b)) => (a3 -> b) -> a2 -> [Solo a1]
+--f2Inv = $(partialInv 'f2 True [0])
+
+-}
