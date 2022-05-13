@@ -7,9 +7,6 @@ module Plugin.Effect.TH where
 import Control.Applicative
 import Control.Monad
 
-import Data.Bifunctor
-import Data.List (sortOn, nub)
-import Data.Maybe
 import Data.Tuple.Solo
 
 import FastString
@@ -82,94 +79,6 @@ getConArity name = do
     DataConI _ ty' _ -> return ty'
     _                -> fail $ show name ++ " is no data constructor"
   return $ arrowArity ty
-
-partialInv :: Name -> Bool -> [Int] -> ExpQ
-partialInv name gnf fixedArgIndices = do
-  originalArity <- getFunArity name
-  let validFixedArgIndices = [0 .. originalArity - 1]
-      hint = "has to be a subsequence of " ++ show validFixedArgIndices
-  when (any (`notElem` validFixedArgIndices) fixedArgIndices) $ fail $
-    "Invalid argument index sequence for partial inverse provided (" ++ hint ++ ")"
-  let nubbedFixedArgIndices = nub fixedArgIndices
-      nonFixedArgIndices = filter (`notElem` fixedArgIndices) validFixedArgIndices
-  fixedArgNames <- replicateM (length nubbedFixedArgIndices) (newName "fixedArg")
-  let fixedArgExps = zip nubbedFixedArgIndices $ map VarE fixedArgNames
-      nonFixedArgExps = zip nonFixedArgIndices $ map (AppE (VarE 'var) . mkIntExp) [0 ..]
-      inClassExps = map snd $ sortOn fst $ fixedArgExps ++ nonFixedArgExps
-  LamE (map VarP fixedArgNames) <$> inClassInv name gnf (map return inClassExps)
-
-type Class = ExpQ
-
--- CAUTION! This primitive has to generate a let expression (instead of the following lambda expression `[| \x = $(inOutClassInv f gnf ins [| x |]) |]`), because otherwise examples like `$(inv 'id True) [True]` would fail in the REPL (and only the REPL). Weird behavior of the GHC and probably a bug. Remark by Kai-Oliver Prott: Could be a confluence error.
-inClassInv :: Name -> Bool -> [Class] -> ExpQ
-inClassInv f gnf ins = [| let g x = $(inOutClassInv f gnf ins [| x |]) in g |]
-
-inOutClassInv :: Name -> Bool -> [Class] -> ExpQ -> ExpQ
-inOutClassInv name gnf inClassExpQs outClassExpQ = do
-  originalArity <- getFunArity name
-  let numInClasses = length inClassExpQs
-  when (originalArity /= numInClasses) $ fail $ "Wrong number of input classes provided (expected " ++ show originalArity ++ ", but got " ++ show numInClasses ++ ")"
-  inClassExps <- sequence inClassExpQs
-  outClassExp <- outClassExpQ
-  -- We add the output class at the end of the input classes, so that the free variables of the output class appear at the end of the result tuples of inverses.
-  let exps = inClassExps ++ [outClassExp]
-  mapping <- createFreeMap exps
-  liftedName <- liftTHNameQ name
-  resExp : argExps <- mapM (convertExp (map (second fst) mapping)) (outClassExp:inClassExps)
-  funPatExp <- genLiftedApply (VarE liftedName) argExps
-  let matchExp = applyExp (VarE 'lazyUnifyFL) [resExp, funPatExp]
-      freeNames = map (fst . snd) mapping
-      letExp = DoE [NoBindS matchExp, NoBindS returnExp ]
-      returnExp = mkLiftedTupleE (map VarE freeNames)
-      bodyExp = applyExp (VarE 'map) [VarE (if gnf then 'fromIdentity else 'fromEither), applyExp (VarE 'evalFLWith) [VarE (if gnf then 'groundNormalFormFL else 'normalFormFL), letExp]]
-  bNm <- newName "b"
-  let letDecs = [FunD bNm [Clause (map VarP freeNames) (NormalB bodyExp) []]]
-  return $ LetE letDecs (applyExp (VarE bNm) (map (snd . snd) mapping))
-  --TODO: explain why monomorph types, let generalisation does not take place, because the type of free1/2 leaks to the outside (as every free variable is part of the return value of an inverse)
-
-
--- $(partialInv 'map [| replicate 2 True |] [| free 1 |])
---TODO: inferenzsystem für erlaubte ausdrücke in input classes.
---TODO: TTH damit man falsche applications von free oder konstruktoren finden kann. pattern wären nicht ausreichend, da wir so keine freien variablen nicht-linear spezifizieren könnten, da syntaktisch verboten.
---TODO: mapping zu negativen zahlen
-
-
---TODO: mapping sorum gut, weil es sonst durch neu nummerierung sein kann, dass variablen, die vom nutzer angegeben wurden, mit neuen typen identifiziert werden (da diese ja neu vergeben werden).
-convertExp :: [(Integer, Name)] -> Exp -> Q Exp
-convertExp freeMap = \case
-  VarE na -> return $ AppE (VarE 'toFL) (VarE na) --return $ applyExp (VarE 'return) [applyExp (VarE 'to) [VarE na]] --
-  ConE na -> do
-    argsNum <- getConArity na
-    nms <- replicateM argsNum (newName "arg")
-    return $ LamE (map VarP nms) (AppE (VarE 'return) (foldl AppE (ConE (liftTHName na)) (map VarE nms)))
-  LitE lit -> return $ AppE (VarE 'toFL) (LitE lit)
-  AppE exp' exp2 -> case exp' of
-    VarE na
-      | na == 'var -> case exp2 of
-        LitE (IntegerL i) | i >= 0 -> case lookup i freeMap of
-          Nothing -> error $ "Internal error: var " ++ show i ++ " not found"
-          Just n  -> return $ VarE n
-        _ -> fail "var has to be applied to non-negative integers"
-      | otherwise  -> fail "Wrong form of class (forbidden function application)"
-    _ -> AppE <$> convertExp freeMap exp' <*> convertExp freeMap exp2
-  ParensE exp' -> ParensE <$> convertExp freeMap exp'
-  InfixE m_exp exp' ma | isJust m_exp && isJust ma -> convertExp freeMap (applyExp exp' (map fromJust [m_exp, ma]))
-  TupE m_exps | all isJust m_exps -> mkLiftedTupleE <$> mapM (convertExp freeMap . fromJust) m_exps
-  ListE exps -> convertExp freeMap (foldr (\x xs -> applyExp (ConE '(:)) [x, xs]) (ConE '[]) exps)
-  --TODO: handle wildcard/whole
-  UnboundVarE na -> fail $ "Variable not in scope: " ++ show na
-  _ -> fail "Wrong form of class (unsupported syntax detected)"
-
-createFreeMap :: [Exp] -> Q [(Integer, (Name, Exp))]
-createFreeMap = mapM (\case
-    AppE _ (LitE (IntegerL i)) -> do
-      nm <- newName $ "free" ++ (if i < 0 then "m" else "") ++ show (abs i)
-      return (i, (nm, AppE (VarE 'free) (LitE (IntegerL i))))
-    _ -> fail "Internal error in createFreeMap") .
-  nub .
-  listify (\case
-    AppE (VarE nm) (LitE (IntegerL _)) | nm == 'var -> True
-    _ -> False)
 
 --TODO: use elsewhere
 thisPkgName :: String
