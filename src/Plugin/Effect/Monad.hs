@@ -13,7 +13,6 @@
 {-# LANGUAGE TypeApplications          #-}
 {-# LANGUAGE TypeFamilyDependencies    #-}
 {-# LANGUAGE TypeOperators             #-}
-{-# LANGUAGE UnboxedTuples             #-}
 {-# LANGUAGE UndecidableInstances      #-}
 
 {-# OPTIONS_GHC -Wno-orphans #-}
@@ -241,6 +240,8 @@ data FLVal (a :: *) where
   Val        :: a -> FLVal a
   HaskellVal :: To b => b -> FLVal (Lifted FL b)
 
+  --TODO: stark ähnlich zu uneval von den set functions. nur war da die idee, dass der wert nicht umgewandelt werden muss, sondern der effekt da einfach unausgewertet drin stecken kann. bei der normalform berechnung müsste man einen weg haben, diesen wert nicht weiter anzuschauen
+
 --------------------------------------------------------------------------------
 
 data FLState = FLState {
@@ -340,13 +341,17 @@ free i = FL (return (Var i))
 
 --------------------------------------------------------------------------------
 
---TODO: use the following one
 data Result (f :: * -> *) (a :: *) where
   Result :: f a -> Result f a
   HaskellResult :: b -> Result f (Lifted (Result f) b)
 
 class NormalForm a where
   normalFormWith :: Applicative m => (forall b. NormalForm b => FL (Lifted FL b) -> ND FLState (Result m (Lifted (Result m) b))) -> Lifted FL a -> ND FLState (Result m (Lifted (Result m) a))
+
+-- TODO: GHC injectivity check cannot do decomposition, https://gitlab.haskell.org/ghc/ghc/-/issues/10833
+-- Thus, we create the proof manually using unsafeCoerce
+decomposeInjectivity :: Lifted m a ~ Lifted m b => a :~: b
+decomposeInjectivity = unsafeCoerce Refl
 
 groundNormalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> ND FLState (Result Identity (Lifted (Result Identity) a))
 groundNormalFormFL fl = resolveFL fl >>= \case
@@ -393,7 +398,7 @@ evalFLWith nf fl = evalND (nf fl) initFLState
 
 --TODO: mit dre run equality stimmt nicht ganz, da das nur für die grundnormalform gilt. für die normalform ist trotzdem noch evalFL x /= evalFL (x >>= return)
 
---TODO: ShowFree abtrennen
+--------------------------------------------------------------------------------
 
 --TODO: umbenennung bei input classes ist doof, weil die indizes verloren gehen könnten (id [var 1] [var 1] wird mit representanten zu var-1 oder so.)
 --TODO: just use negative indices for fresh variables and keep the positve ones from input classes
@@ -622,7 +627,7 @@ class (From a, To a, Matchable a, Unifiable a, NormalForm a, HasPrimitiveInfo (L
 infixr 0 :-->
 type (:-->) = (-->) FL --TODO: move to util. gehört aber eigentlich auch nicht hier hin.
 
-data (-->) (m :: * -> *) (a :: *) (b :: *) = Func (m a -> m b)
+newtype (-->) (m :: * -> *) (a :: *) (b :: *) = Func (m a -> m b)
 
 infixr 0 -->
 
@@ -630,21 +635,12 @@ type instance Lifted m (->) = (-->) m
 type instance Lifted m ((->) a) = (-->) m (Lifted m a)
 type instance Lifted m ((->) a b) = (-->) m (Lifted m a) (Lifted m b)
 
--- TODO: Move up
--- TODO: GHC injectivity check cannot do decomposition, https://gitlab.haskell.org/ghc/ghc/-/issues/10833
--- Thus, we create the proof manually using unsafeCoerce
-decomposeInjectivity :: Lifted m a ~ Lifted m b => a :~: b
-decomposeInjectivity = unsafeCoerce Refl
-
 instance (From a, NormalForm a, To b) => To (a -> b) where
   toWith _ f = Func $ \x -> FL $ groundNormalFormFL x >>= (unFL . toFL' . f . fromIdentity)
 
---TODO: appM :: Monad m => m ((-->) m a b) -> m a -> m b
---appFL :: FL ((-->) FL a b) -> FL a -> FL b
 appFL :: Monad m => m ((-->) m a b) -> m a -> m b
 mf `appFL` x = mf >>= \ (Func f) -> f x
 
---TODO: toFLWith
 -- This function incorporates the improvement from the paper for
 -- partial values in the context of partial inversion with higher-order functions.
 toFL' :: To a => a -> FL (Lifted FL a)
