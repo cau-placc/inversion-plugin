@@ -1,13 +1,30 @@
+{-# LANGUAGE DeriveGeneric         #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE StandaloneDeriving    #-}
 {-# LANGUAGE TemplateHaskell       #-}
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 
 module Conquer where
 
+import GHC.Generics
+
+import Eden.EdenConcHs
+import Eden.MapReduce
+
 import Plugin.InversionPlugin
 
 import Divide
+import Z
+
+deriving instance Generic N
+deriving instance Generic Z
+
+instance NFData N
+instance NFData Z
+
+instance Trans N
+instance Trans Z
 
 -- Maximum prefix/segment sum problem
 
@@ -23,6 +40,10 @@ mpsHom = (f, c)
 
 mpsTupledWIRef :: _ => _
 mpsTupledWIRef (p, s) = [p, s - p]
+
+mpsTest :: _ => _
+mpsTest xs e = fst (parMapRedl c e f xs)
+  where (f, c) = mpsHom
 
 mpsHomRef :: _ => _
 mpsHomRef = (f, c)
@@ -41,9 +62,11 @@ mssHom = (f, c)
         hWI = mssTupledWI
         c a b = h (hWI a ++ hWI b)
 
---mssTest xs e = fst4 (parMapRedl c e f xs)
---  where (f, c) = mssHom
---        fst4 (x, _, _, _) = x
+
+mssTest :: _ => _
+mssTest xs e = fst4 (parMapRedl c e f xs)
+  where (f, c) = mssHom
+        fst4 (x, _, _, _) = x
 
 mssTupledWIRef :: _ => _
 mssTupledWIRef (m, p, t, s) = [p, -p - t - s, m, -m + t]
@@ -54,41 +77,6 @@ mssHomRef = (f, c)
         f a = h [a]
         hWI = mssTupledWIRef
         c a b = h (hWI a ++ hWI b)
-{-
-parMapRedl
-fst4 (x, _, _, _) = x
--- Test with: test1X [1,-2,2,1]
--- let xs = [1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1,-2,2,1]
-test1 xs e = fst (mapRedl f c e xs)
-  where (f, c) = mpsHom
-
-test1Par xs e = fst (mapRedlPar f c e xs)
-  where (f, c) = mpsHom
-
-test1Eden xs e = fst (mapRedlEden f c e xs)
-  where (f, c) = mpsHom
-
-test2Eden xs e = fst4 (mapRedlEden f c e xs)
-  where (f, c) = mssHom
-
-test3Eden xs = map fst (scanlEden c xs)
-  where (f, c) = visibleHom
-
---test1Eden xs =
-
-test1Ref xs e = fst (mapRedl f c e xs)
-  where (f, c) = mpsHomRef
-
-test1RefPar xs e = fst (mapRedlPar f c e xs)
-  where (f, c) = mpsHomRef
-
-test1RefEden xs e = fst (mapRedlEden f c e xs)
-  where (f, c) = mpsHomRef
-
-test2RefEden xs e = fst4 (mapRedlEden f c e xs)
-  where (f, c) = mssHomRef
--}
-
 
 
 {-e :: (Z, Z)

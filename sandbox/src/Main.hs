@@ -1,35 +1,22 @@
-{-# OPTIONS_GHC -fno-full-laziness #-}
-{-# LANGUAGE DeriveGeneric         #-}
-{-# LANGUAGE StandaloneDeriving    #-}
+-- {-# OPTIONS_GHC -fno-full-laziness #-}
+{-# LANGUAGE OverloadedStrings     #-}
 
 module Main where
 
 import Control.DeepSeq
+import Control.Exception
 
---import Criterion.Main
---import Criterion.Types
+import Formatting
+import Formatting.Clock
 
-import Data.Time
 
-import Eden.EdenConcHs
-import Eden.MapReduce
-import GHC.Generics
-import Z
+--import GHC.Conc     (setNumCapabilities)
 
-import GHC.Conc (setNumCapabilities)
-
+import System.Clock
 import System.Environment
 
 import Conquer
-
-deriving instance Generic N
-deriving instance Generic Z
-
-instance NFData N
-instance NFData Z
-
-instance Trans N
-instance Trans Z
+import Z
 
 -- Build with: stack build sandbox:main --flag inversion-plugin:use-what4
 -- Run with: time stack exec main -- +RTS -N16
@@ -45,17 +32,15 @@ main3 num = do
   () <- return (rnf (mpsTest ()))
   return ()-}
 
-bench n = do
-  setNumCapabilities n
-  start <- getCurrentTime
-  let (f, c) = mpsHom
-  () <- return $ rnf (fst (parMapRedl c (0, 0 :: Z) f (take 2000 list)))
-  end <- getCurrentTime
-  print (diffUTCTime end start)
+bench () = do
+  start <- getTime ProcessCPUTime
+  () <- return $ rnf $ mpsTest (take 2000 list2) (0, 0 :: Z)
+  end <- getTime ProcessCPUTime
+  fprint (timeSpecs % "\n") start end
 
 
-list :: Num a => [a]
-list = concat $ repeat [1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5]
+list2 :: Num a => [a]
+list2 = concat $ repeat [1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5]
 
 {-myConfig = defaultConfig {
               -- Resample 10 times for bootstrapping
@@ -63,10 +48,13 @@ list = concat $ repeat [1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5]
            }-}
 
 main = do
-  bench 2
-  bench 2
-  bench 3
-  bench 3
+  --let (f, c) = mpsHom
+  --print $ mpsTest (take 2000 list2) (0, 0 :: Z)
+  --print ((fst (parMapRedl c (0, 0 :: Z) f (take 2000 list2))))
+  bench ()
+  --bench 2
+  --bench 3
+  --bench 3
   {-defaultMainWith myConfig [ bgroup "mps"[ bench "1 core"  $ nfAppIO (main3) 1
                             , bench "2 cores" $ nfAppIO (main3) 2
                             , bench "3 cores" $ nfAppIO (main3) 3
