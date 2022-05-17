@@ -38,12 +38,9 @@ executable main
   import:        deps
   main-is:       Main.hs
   build-depends:
-    deepseq,
     containers,
-    parallel,
-    mini-egison,
-    clock,
-    formatting
+    deepseq,
+    parallel
   other-modules:
     Conquer
     Divide

@@ -41,9 +41,11 @@ mpsHom = (f, c)
 mpsTupledWIRef :: _ => _
 mpsTupledWIRef (p, s) = [p, s - p]
 
-mpsTest :: _ => _
-mpsTest xs e = fst (parMapRedl c e f xs)
+mpsBenchmark :: _ => _
+mpsBenchmark = fst (parMapRedl c e f xs)
   where (f, c) = mpsHom
+        xs = take 5000 $ concat $ repeat [1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5]
+        e = (0 :: Z, 0 :: Z)
 
 mpsHomRef :: _ => _
 mpsHomRef = (f, c)
@@ -62,11 +64,12 @@ mssHom = (f, c)
         hWI = mssTupledWI
         c a b = h (hWI a ++ hWI b)
 
-
-mssTest :: _ => _
-mssTest xs e = fst4 (parMapRedl c e f xs)
+mssBenchmark :: _ => _
+mssBenchmark = fromInteger $ fst4 (parMapRedl c e f xs)
   where (f, c) = mssHom
         fst4 (x, _, _, _) = x
+        xs = take 100 $ concat $ repeat [1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5]
+        e = (0 :: Integer, 0 :: Integer, 0 :: Integer, 0 :: Integer)
 
 mssTupledWIRef :: _ => _
 mssTupledWIRef (m, p, t, s) = [p, -p - t - s, m, -m + t]
@@ -77,17 +80,6 @@ mssHomRef = (f, c)
         f a = h [a]
         hWI = mssTupledWIRef
         c a b = h (hWI a ++ hWI b)
-
-
-{-e :: (Z, Z)
-e = (0, 0)
-
-e2 :: (Integer, Integer, Integer, Integer) -- (Z, Z, Z, Z)
-e2 = (0, 0, 0, 0)-}
-
---list :: Num a => [a]
---list = concat $ repeat [1,-1,2,-1,-2,3,-2,5,-5,-1,-5,2,2,-5]
-
 
 -- Line-of-sight problem
 
