@@ -88,45 +88,40 @@ type ID = Integer
 
 --------------------------------------------------------------------------------
 
---TODO: introduce heapval?
+type Heap a = Map ID a
 
-#ifdef TYPED
-data Typed = forall a. Typeable a => Typed a
-#else
-data Untyped = forall a. Untyped a
-#endif
-
-#ifdef TYPED
-type Heap = Map ID Typed
-#else
-type Heap = Map ID Untyped
-#endif
-
-emptyHeap :: Heap
+emptyHeap :: Heap a
 emptyHeap = Map.empty
 
-#ifdef TYPED
-insertBinding :: Typeable a => ID -> a -> Heap -> Heap
-insertBinding i = Map.insert i . Typed
-#else
-insertBinding :: ID -> a -> Heap -> Heap
-insertBinding i = Map.insert i . Untyped
-#endif
+insertHeap :: ID -> a -> Heap a -> Heap a
+insertHeap = Map.insert
 
-#ifdef TYPED
-data TypeCastException = TypeCastException
+lookupHeap :: ID -> Heap a -> Maybe a
+lookupHeap = Map.lookup
 
-instance Show TypeCastException where
-  show TypeCastException = "type cast failed"
+--------------------------------------------------------------------------------
 
-instance Exception TypeCastException
+--TODO: Check in GHC 9.0
 
-findBinding :: Typeable a => ID -> Heap -> Maybe a
-findBinding i = fmap (\ (Typed x) -> fromMaybe (throw TypeCastException) (cast x)) . Map.lookup i
-#else
-findBinding :: ID -> Heap -> Maybe a
-findBinding i = fmap (\ (Untyped x) -> unsafeCoerce x) . Map.lookup i
-#endif
+{-type Untyped = forall a. a
+
+insertBinding :: ID -> a -> Heap Untyped -> Heap Untyped
+insertBinding = insertHeap
+
+findBinding :: ID -> Heap Untyped -> Maybe a
+findBinding i = unsafeCoerce . lookupHeap i-}
+
+data Untyped = forall a. Untyped a
+
+typed :: Untyped -> a
+typed (Untyped x) = unsafeCoerce x
+
+insertBinding :: ID -> a -> Heap Untyped -> Heap Untyped
+insertBinding i = insertHeap i . Untyped
+
+findBinding :: ID -> Heap Untyped -> Maybe a
+findBinding i = fmap typed . lookupHeap i
+
 
 --------------------------------------------------------------------------------
 
@@ -246,7 +241,7 @@ data FLVal (a :: *) where
 
 data FLState = FLState {
     nextID          :: ID,
-    heap            :: Heap,
+    heap            :: Heap Untyped,
     constraintStore :: ConstraintStore
   }
 

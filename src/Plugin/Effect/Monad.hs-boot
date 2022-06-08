@@ -31,30 +31,24 @@ type ID = Integer
 --------------------------------------------------------------------------------
 
 #ifdef TYPED
-data Typed = forall a. Typeable a => Typed a
+data Untyped = forall a. Typeable a => Unyped a
 #else
 data Untyped = forall a. Untyped a
 #endif
 
-#ifdef TYPED
-type Heap = Map ID Typed
-#else
-type Heap = Map ID Untyped
-#endif
+typed :: Untyped -> a
 
-emptyHeap :: Heap
+type Heap a = Map ID a
+
+emptyHeap :: Heap a
 
 #ifdef TYPED
-insertBinding :: Typeable a => ID -> a -> Heap -> Heap
+insertBinding :: Typeable a => ID -> a -> Heap Untyped -> Heap Untyped
 #else
-insertBinding :: ID -> a -> Heap -> Heap
+insertBinding :: ID -> a -> Heap Untyped -> Heap Untyped
 #endif
 
-#ifdef TYPED
-findBinding :: Typeable a => ID -> Heap -> Maybe a
-#else
-findBinding :: ID -> Heap -> Maybe a
-#endif
+findBinding :: ID -> Heap Untyped -> Maybe a
 
 --------------------------------------------------------------------------------
 
@@ -143,7 +137,7 @@ data FLVal (a :: *) where
 
 data FLState = FLState {
     nextID          :: ID,
-    heap            :: Heap,
+    heap            :: Heap Untyped,
     constraintStore :: ConstraintStore
   }
 
