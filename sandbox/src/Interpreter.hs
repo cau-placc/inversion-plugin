@@ -230,7 +230,7 @@ graph = [ "abc"
 
 ---
 
--- Faculty test program
+-- Factorial test program
 -- Expects input in variable "x", puts output in variable "y"
 
 -- IF x < 0 THEN
