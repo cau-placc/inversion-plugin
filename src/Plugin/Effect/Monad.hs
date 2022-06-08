@@ -84,7 +84,7 @@ evalND3 nd s = runCodensity (runReaderT (runCodensity nd return) s) return-}
 
 --------------------------------------------------------------------------------
 
-type ID = Integer
+type ID = Int
 
 --------------------------------------------------------------------------------
 
@@ -126,7 +126,7 @@ findBinding i = fmap typed . lookupHeap i
 --------------------------------------------------------------------------------
 
 class Narrowable a where
-  narrow :: ID -> [(a, Integer)]
+  narrow :: ID -> [(a, ID)]
   --TODO: narrowSameConstr :: ID -> a -> (a, Integer)
 
 --------------------------------------------------------------------------------
@@ -271,6 +271,7 @@ resolve fl = unFL fl >>= \case
     Nothing -> return (Var i)
     Just x  -> resolve x-}
 
+--TODO: name dereferenceFL
 resolveFL :: FL a -> ND FLState (FLVal a)
 resolveFL = resolveFL' []
   where resolveFL' is fl = unFL fl >>= \case
@@ -502,7 +503,7 @@ type Input a = (To a, HasPrimitiveInfo (Lifted FL a))-}
 --TODO: eigentlich nur narrowable notwendig
 narrowSameConstr :: (HasPrimitiveInfo (Lifted FL a), Unifiable a) => ID -> Lifted FL a -> FL ()
 narrowSameConstr i x = FL $
-  instantiate i >>= unFL . flip lazyUnify x
+  instantiate i >>= unFL . flip lazyUnify x --TODO: discuss why this is inefficient
 
 lazyUnifyVar :: forall a. (Unifiable a, HasPrimitiveInfo (Lifted FL a)) => ID -> Lifted FL a -> FL ()
 lazyUnifyVar i x = FL $ get >>= \ FLState { .. } ->
