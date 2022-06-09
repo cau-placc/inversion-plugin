@@ -562,7 +562,7 @@ varToSym sym ref ref2 i = do
       return e
     Just e  -> return e
 
-class Typeable a => What4Constrainable a where
+class What4Constrainable a where
   type family What4BaseType a = (b :: BaseType) | b -> a
   what4BaseTypeRepr :: BaseTypeRepr (What4BaseType a)
   lit :: IsSymExprBuilder sym => sym -> a -> IO (SymExpr sym (What4BaseType a))
