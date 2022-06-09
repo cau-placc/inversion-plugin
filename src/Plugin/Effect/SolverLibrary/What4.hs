@@ -18,7 +18,7 @@
 
 module Plugin.Effect.SolverLibrary.What4 () where
 
-#ifdef USE_WHAT4
+#ifndef USE_SBV
 
 import Data.Bits
 import Data.BitVector.Sized

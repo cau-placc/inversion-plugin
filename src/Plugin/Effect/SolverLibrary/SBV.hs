@@ -16,7 +16,7 @@
 
 module Plugin.Effect.SolverLibrary.SBV () where
 
-#ifndef USE_WHAT4
+#ifdef USE_SBV
 
 import Data.Coerce
 import Data.SBV

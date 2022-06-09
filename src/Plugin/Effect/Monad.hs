@@ -34,7 +34,7 @@ import           Data.Set                  (Set)
 import qualified Data.Set           as Set
 import           Data.Typeable             (type (:~:)(..))
 
-#ifndef USE_WHAT4
+#ifdef USE_SBV
 import Plugin.Effect.SolverLibrary.SBV   ()
 #else
 import Plugin.Effect.SolverLibrary.What4 ()
