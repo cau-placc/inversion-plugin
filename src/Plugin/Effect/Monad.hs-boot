@@ -1,25 +1,14 @@
-{-# LANGUAGE CPP                       #-}
-{-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE GADTs                     #-}
-{-# LANGUAGE MultiParamTypeClasses     #-}
-{-# LANGUAGE PolyKinds                 #-}
-{-# LANGUAGE TypeFamilyDependencies    #-}
+{-# LANGUAGE GADTs                 #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE RoleAnnotations       #-}
+{-# LANGUAGE TypeFamilies          #-}
 
 module Plugin.Effect.Monad where
 
-import Control.Monad.Codensity  (Codensity)
-import Control.Monad.Reader     (ReaderT)
-import Control.Monad.SearchTree (Search)
-
 import qualified Data.Kind
 import           Data.Map      (Map)
-import           Data.Set      (Set)
 
 import Plugin.Lifted
-
---------------------------------------------------------------------------------
-
-type ND s = Codensity (ReaderT s Search)
 
 --------------------------------------------------------------------------------
 
@@ -27,22 +16,17 @@ type ID = Int
 
 --------------------------------------------------------------------------------
 
-data Untyped = forall a. Untyped a
-
-typed :: Untyped -> a
-
 type Heap a = Map ID a
 
 emptyHeap :: Heap a
 
+--------------------------------------------------------------------------------
+
+data Untyped
+
 insertBinding :: ID -> a -> Heap Untyped -> Heap Untyped
 
 findBinding :: ID -> Heap Untyped -> Maybe a
-
---------------------------------------------------------------------------------
-
-class Narrowable a where
-  narrow :: ID -> [(a, ID)]
 
 --------------------------------------------------------------------------------
 
@@ -97,22 +81,10 @@ class SolverLibrary where
 
 --------------------------------------------------------------------------------
 
-data ConstraintStore = ConstraintStore {
-    constraints     :: [Constraint],
-    constrainedVars :: Set ID
-  }
+class HasPrimitiveInfo (a :: *)
 
 --------------------------------------------------------------------------------
 
-data PrimitiveInfo a = Narrowable a => NoPrimitive
-                     | Constrainable a => Primitive
-
-class HasPrimitiveInfo a where
-  primitiveInfo :: PrimitiveInfo a
-
---------------------------------------------------------------------------------
-
---data FLVal a = HasPrimitiveInfo a => Var ID | Val a
 data FLVal (a :: *) where
   Var        :: HasPrimitiveInfo a => ID -> FLVal a
   Val        :: a -> FLVal a
@@ -120,18 +92,14 @@ data FLVal (a :: *) where
 
 --------------------------------------------------------------------------------
 
-data FLState = FLState {
-    nextID          :: ID,
-    heap            :: Heap Untyped,
-    constraintStore :: ConstraintStore
-  }
+type role FL nominal
 
---------------------------------------------------------------------------------
-
-newtype FL a = FL { unFL :: ND FLState (FLVal a) }
+data FL (a :: *)
 
 --------------------------------------------------------------------------------
 
 class To (a :: *)
 
---TODO: hs-boot aufräumen
+to :: To a => a -> Lifted FL a
+
+--TODO: hs-boot file aufräumen
