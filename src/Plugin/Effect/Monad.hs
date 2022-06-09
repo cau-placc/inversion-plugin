@@ -80,11 +80,11 @@ evalND3 nd s = runCodensity (runReaderT (runCodensity nd return) s) return-}
 
 --------------------------------------------------------------------------------
 
-type ID = Int
+type ID = Int --TODO: Enum voraussetzen, damit man mit pred den vrogänger berechnen kann. Id muss als schlüssel für den Heap verwendet werden können (d.h. im normalfall mindestens eq), integer ist ein guter wert, in der praxis
 
 --------------------------------------------------------------------------------
 
-type Heap a = Map ID a
+type Heap a = Map ID a --TODO: intmap oder gar intmap von maja r.
 
 emptyHeap :: Heap a
 emptyHeap = Map.empty

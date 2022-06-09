@@ -6,7 +6,7 @@
 module Plugin.Effect.Monad where
 
 import qualified Data.Kind
-import           Data.Map      (Map)
+import           Data.Map  (Map)
 
 import Plugin.Lifted
 
