@@ -29,10 +29,10 @@ import {-# SOURCE #-} Plugin.Effect.Monad
 import System.IO.Unsafe
 
 runSBVSolver :: Symbolic a -> IO a
-#ifndef USE_CVC
-runSBVSolver = runSMTWith z3
-#else
+#ifdef USE_CVC
 runSBVSolver = runSMTWith cvc5
+#else
+runSBVSolver = runSMTWith z3
 #endif
 
 instance SolverLibrary where
