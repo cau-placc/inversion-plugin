@@ -231,7 +231,7 @@ data What4Constraint where
   DoubleLtConstraint, DoubleLeqConstraint, DoubleGtConstraint, DoubleGeqConstraint :: FLVal (DoubleFL FL) -> FLVal (DoubleFL FL) -> What4Constraint
   DoubleMaxConstraint, DoubleMinConstraint :: FLVal (DoubleFL FL) -> FLVal (DoubleFL FL) -> FLVal (DoubleFL FL) -> What4Constraint
 
-toPred :: IsSymExprBuilder sym => sym -> IORef Heap -> IORef [Pred sym] -> Constraint -> IO (Pred sym)
+toPred :: IsSymExprBuilder sym => sym -> IORef (Heap Untyped) -> IORef [Pred sym] -> Constraint -> IO (Pred sym)
 toPred sym ref ref2 (EqConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
@@ -541,12 +541,12 @@ isEq' sym x y = case exprType x of
   BaseStructRepr {} -> structEq sym x y
   BaseArrayRepr {}  -> arrayEq sym x y
 
-toSym :: (IsSymExprBuilder sym, Constrainable a) => sym -> IORef Heap -> IORef [Pred sym] -> FLVal a -> IO (SymExpr sym (What4BaseType a))
 toSym sym ref ref2 (Var i)               = varToSym sym ref ref2 i
 toSym sym _   _    (Val x)               = lit sym x
 toSym sym _   _    (HaskellVal x) = lit sym (unsafeCoerce x)
+toSym :: (IsSymExprBuilder sym, Constrainable a) => sym -> IORef (Heap Untyped) -> IORef [Pred sym] -> FLVal a -> IO (SymExpr sym (What4BaseType a))
 
-varToSym :: forall sym a. (IsSymExprBuilder sym, Constrainable a) => sym -> IORef Heap -> IORef [Pred sym] -> ID -> IO (SymExpr sym (What4BaseType a))
+varToSym :: forall sym a. (IsSymExprBuilder sym, Constrainable a) => sym -> IORef (Heap Untyped) -> IORef [Pred sym] -> ID -> IO (SymExpr sym (What4BaseType a))
 varToSym sym ref ref2 i = do
   h <- readIORef ref
   case findBinding i h of
