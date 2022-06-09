@@ -247,7 +247,24 @@ genInstances originalDataDec liftedDataDec = do
       liftedConArgs = map (replaceMTyVar mvar (ConT ''FL)) $ concatMap conArgs liftedConInfos
       mTy = VarT mvar
 
-  let genHasPrimitiveInfo = do
+  let genShareable = do
+        let genShareArgs = do
+              let genClause liftedConInfo = do
+                    let liftedConArity = conArity liftedConInfo
+                    liftedArgNames <- replicateM liftedConArity (newName "x")
+                    let liftedConName = conName liftedConInfo
+                        liftedPat = ConP liftedConName $ map VarP liftedArgNames
+                    sharedLiftedArgNames <- replicateM liftedConArity (newName "y")
+                    let sharedLiftedArgStmts = zipWith (\sharedLiftedArgName liftedArgName -> BindS (VarP sharedLiftedArgName) (applyExp (VarE 'share) [VarE liftedArgName])) sharedLiftedArgNames liftedArgNames
+                        body = NormalB $ DoE $ sharedLiftedArgStmts ++ [NoBindS $ applyExp (VarE 'return) [applyExp (ConE liftedConName) $ map VarE sharedLiftedArgNames]]
+                    return $ Clause [liftedPat] body []
+              clauses <- mapM genClause liftedConInfos
+              return $ FunD 'shareArgs clauses
+        dec <- genShareArgs
+        let ctxt = map mkShareableConstraint liftedConArgs
+        return $ InstanceD Nothing ctxt (mkShareableConstraint liftedTy) [dec]
+
+      genHasPrimitiveInfo = do
         let body = NormalB $ ConE 'NoPrimitive
             dec = FunD 'primitiveInfo [Clause [] body []]
             ctxt = map mkHasPrimitiveInfoConstraint liftedConArgs
@@ -375,7 +392,7 @@ genInstances originalDataDec liftedDataDec = do
         return $ InstanceD Nothing ctxt (mkInvertibleConstraint originalTy) [] :: Q Dec
 
   (++) <$> genLifted originalTc liftedTc liftedTyVars mTy
-       <*> sequence [genHasPrimitiveInfo, genNarrowable, genTo, genFrom, genMatchable, genUnifiable, genNormalForm, genShowFree, genInvertible]
+       <*> sequence [genShareable, genHasPrimitiveInfo, genNarrowable, genTo, genFrom, genMatchable, genUnifiable, genNormalForm, genShowFree, genInvertible]
 
 replaceMTyVar :: Name -> Type -> Type -> Type
 replaceMTyVar tvar replacement = go
@@ -393,6 +410,9 @@ innerType ty = error $ "Plugin.Effect.TH.innerType: incorrect usage on -> " ++ s
 
 mkLifted :: Type -> Type -> Type
 mkLifted mty ty = applyType (ConT ''Lifted) [mty, ty]
+
+mkShareableConstraint :: Type -> Type
+mkShareableConstraint ty = applyType (ConT ''Shareable) [ConT ''FL, ty]
 
 mkHasPrimitiveInfoConstraint :: Type -> Type
 mkHasPrimitiveInfoConstraint ty = applyType (ConT ''HasPrimitiveInfo) [ty]

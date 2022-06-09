@@ -1,4 +1,5 @@
 {-# LANGUAGE TypeFamilies #-}
+
 module Plugin.BuiltIn.Primitive where
 
 import Plugin.Lifted

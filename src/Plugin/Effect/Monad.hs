@@ -50,6 +50,14 @@ import Unsafe.Coerce (unsafeCoerce)
 
 --------------------------------------------------------------------------------
 
+class Monad m => MonadShare m where
+  share :: Shareable m a => m a -> m (m a)
+
+class MonadShare m => Shareable m a where
+  shareArgs :: a -> m a
+
+--------------------------------------------------------------------------------
+
 type ND s = Codensity (ReaderT s Search)
 
 evalND :: ND s a -> s -> [a]
@@ -323,6 +331,9 @@ instance MonadPlus FL
 
 instance MonadFail FL where
   fail s = FL (fail s)
+
+instance MonadShare FL where
+  share = return --TODO: Fix
 
 free :: HasPrimitiveInfo a => ID -> FL a
 free i = FL (return (Var i))

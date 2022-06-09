@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleInstances        #-}
 {-# LANGUAGE LambdaCase               #-}
 {-# LANGUAGE MagicHash                #-}
+{-# LANGUAGE MultiParamTypeClasses    #-}
 {-# LANGUAGE NoStarIsType             #-}
 {-# LANGUAGE PolyKinds                #-}
 {-# LANGUAGE RankNTypes               #-}
@@ -62,6 +63,9 @@ data SoloFL (m :: Type -> Type) a = SoloFL (m a)
 type instance Lifted m Solo = SoloFL m
 type instance Lifted m (Solo a) = SoloFL m (Lifted m a)
 
+instance (MonadShare m, Shareable m a) => Shareable m (SoloFL m a) where
+  shareArgs (SoloFL x) = SoloFL P.<$> share x
+
 instance HasPrimitiveInfo a => HasPrimitiveInfo (SoloFL FL a) where
   primitiveInfo = NoPrimitive
 
@@ -97,6 +101,9 @@ data Tuple2FL (m :: Type -> Type) a b = Tuple2FL (m a) (m b)
 type instance Lifted m (,) = Tuple2FL m
 type instance Lifted m ((,) a) = Tuple2FL m (Lifted m a)
 type instance Lifted m (a, b) = Tuple2FL m (Lifted m a) (Lifted m b)
+
+instance (MonadShare m, Shareable m a, Shareable m b) => Shareable m (Tuple2FL m a b) where
+  shareArgs (Tuple2FL x y) = Tuple2FL P.<$> share x P.<*> share y
 
 instance (HasPrimitiveInfo a, HasPrimitiveInfo b) => HasPrimitiveInfo (Tuple2FL FL a b) where
   primitiveInfo = NoPrimitive
@@ -138,6 +145,10 @@ type StringFL m = ListFL m (CharFL m)
 
 type instance Lifted m [] = ListFL m
 type instance Lifted m [a] = ListFL m (Lifted m a)
+
+instance (MonadShare m, Shareable m a, Shareable m (ListFL m a)) => Shareable m (ListFL m a) where
+  shareArgs NilFL         = P.return NilFL
+  shareArgs (ConsFL x xs) = ConsFL P.<$> share x P.<*> share xs
 
 instance (HasPrimitiveInfo a, HasPrimitiveInfo (ListFL FL a)) => HasPrimitiveInfo (ListFL FL a) where
   primitiveInfo = NoPrimitive
@@ -204,6 +215,10 @@ data MaybeFL (m :: Type -> Type) a = NothingFL | JustFL (m a)
 type instance Lifted m P.Maybe = MaybeFL m
 type instance Lifted m (P.Maybe a) = MaybeFL m (Lifted m a)
 
+instance (MonadShare m, Shareable m a) => Shareable m (MaybeFL m a) where
+  shareArgs NothingFL  = P.return NothingFL
+  shareArgs (JustFL x) = JustFL P.<$> share x
+
 instance HasPrimitiveInfo a => HasPrimitiveInfo (MaybeFL FL a) where
   primitiveInfo = NoPrimitive
 
@@ -246,6 +261,9 @@ data RatioFL m a = m a :%# m a
 
 type instance Lifted m P.Ratio = RatioFL m
 type instance Lifted m (P.Ratio a) = RatioFL m (Lifted m a)
+
+instance (MonadShare m, Shareable m a) => Shareable m (RatioFL m a) where
+  shareArgs (x :%# y) = (:%#) P.<$> share x P.<*> share y
 
 instance HasPrimitiveInfo a => HasPrimitiveInfo (RatioFL FL a) where
   primitiveInfo = NoPrimitive
@@ -664,6 +682,10 @@ boolFLtoBool TrueFL  = True
 
 type instance Lifted m Bool = BoolFL m
 
+instance MonadShare m => Shareable m (BoolFL m) where
+  shareArgs FalseFL = P.return FalseFL
+  shareArgs TrueFL  = P.return TrueFL
+
 instance HasPrimitiveInfo (BoolFL FL) where
   primitiveInfo = NoPrimitive
 
@@ -701,6 +723,9 @@ data UnitFL (m :: Type -> Type) = UnitFL
 
 type instance Lifted m () = UnitFL m
 
+instance MonadShare m => Shareable m (UnitFL m) where
+  shareArgs UnitFL = P.return UnitFL --TODO: Remove qualification for Prelude
+
 instance HasPrimitiveInfo (UnitFL FL) where
   primitiveInfo = NoPrimitive
 
@@ -730,6 +755,11 @@ instance Invertible ()
 data OrderingFL (m :: Type -> Type) = LTFL | EQFL | GTFL
 
 type instance Lifted m Ordering = OrderingFL m
+
+instance MonadShare m => Shareable m (OrderingFL m) where
+  shareArgs LTFL = P.return LTFL
+  shareArgs EQFL = P.return EQFL
+  shareArgs GTFL = P.return GTFL
 
 instance HasPrimitiveInfo (OrderingFL FL) where
   primitiveInfo = NoPrimitive
@@ -770,6 +800,9 @@ instance ShowFree Ordering where
 
 instance Invertible Ordering
 
+instance MonadShare m => Shareable m (IntegerFL m) where
+  shareArgs !x = P.return x
+
 instance HasPrimitiveInfo (IntegerFL FL) where
   primitiveInfo = Primitive
 
@@ -792,6 +825,9 @@ instance ShowFree Integer where
   showFree' = P.show
 
 instance Invertible Integer
+
+instance MonadShare m => Shareable m (IntFL m) where
+  shareArgs !x = P.return x
 
 instance HasPrimitiveInfo (IntFL FL) where
   primitiveInfo = Primitive
@@ -816,6 +852,9 @@ instance ShowFree Int where
 
 instance Invertible Int
 
+instance MonadShare m => Shareable m (FloatFL m) where
+  shareArgs !x = P.return x
+
 instance HasPrimitiveInfo (FloatFL FL) where
   primitiveInfo = Primitive
 
@@ -839,6 +878,9 @@ instance ShowFree Float where
 
 instance Invertible Float
 
+instance MonadShare m => Shareable m (DoubleFL m) where
+  shareArgs !x = P.return x
+
 instance HasPrimitiveInfo (DoubleFL FL) where
   primitiveInfo = Primitive
 
@@ -861,6 +903,9 @@ instance ShowFree Double where
   showFree' = P.show
 
 instance Invertible Double
+
+instance MonadShare m => Shareable m (CharFL m) where
+  shareArgs !x = P.return x
 
 instance HasPrimitiveInfo (CharFL FL) where
   primitiveInfo = Primitive
