@@ -33,10 +33,6 @@ import qualified Data.Map           as Map
 import           Data.Set                  (Set)
 import qualified Data.Set           as Set
 import           Data.Typeable             (type (:~:)(..))
-#ifdef TYPED
-import           Data.Maybe                (fromMaybe)
-import           Data.Typeable             (Typeable, cast)
-#endif
 
 #ifndef USE_WHAT4
 import Plugin.Effect.SolverLibrary.SBV   ()
@@ -220,11 +216,7 @@ generate i = getModels i . constraints
 data PrimitiveInfo a = Narrowable a => NoPrimitive
                      | Constrainable a => Primitive
 
-#ifdef TYPED
-class Typeable a => HasPrimitiveInfo a where
-#else
 class HasPrimitiveInfo a where
-#endif
   primitiveInfo :: PrimitiveInfo a
 
 --------------------------------------------------------------------------------

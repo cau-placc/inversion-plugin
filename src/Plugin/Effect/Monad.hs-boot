@@ -14,9 +14,6 @@ import Control.Monad.SearchTree (Search)
 import qualified Data.Kind
 import           Data.Map      (Map)
 import           Data.Set      (Set)
-#ifdef TYPED
-import           Data.Typeable (Typeable)
-#endif
 
 import Plugin.Lifted
 
@@ -30,11 +27,7 @@ type ID = Int
 
 --------------------------------------------------------------------------------
 
-#ifdef TYPED
-data Untyped = forall a. Typeable a => Unyped a
-#else
 data Untyped = forall a. Untyped a
-#endif
 
 typed :: Untyped -> a
 
@@ -42,11 +35,7 @@ type Heap a = Map ID a
 
 emptyHeap :: Heap a
 
-#ifdef TYPED
-insertBinding :: Typeable a => ID -> a -> Heap Untyped -> Heap Untyped
-#else
 insertBinding :: ID -> a -> Heap Untyped -> Heap Untyped
-#endif
 
 findBinding :: ID -> Heap Untyped -> Maybe a
 
@@ -118,11 +107,7 @@ data ConstraintStore = ConstraintStore {
 data PrimitiveInfo a = Narrowable a => NoPrimitive
                      | Constrainable a => Primitive
 
-#ifdef TYPED
-class Typeable a => HasPrimitiveInfo a where
-#else
 class HasPrimitiveInfo a where
-#endif
   primitiveInfo :: PrimitiveInfo a
 
 --------------------------------------------------------------------------------
