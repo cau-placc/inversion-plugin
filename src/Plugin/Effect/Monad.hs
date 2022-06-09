@@ -313,7 +313,7 @@ instance Monad FL where
   fl >>= f = FL $ resolveFL fl >>= \case
     Var i        -> instantiate i >>= unFL . f
     Val x        -> unFL (f x)
-    HaskellVal y -> unFL (f (toWith toFL y))
+    HaskellVal y -> unFL (f (to y))
 
 instance Alternative FL where
   empty = FL empty
@@ -417,6 +417,9 @@ showsVarPrec d i = showParen (d > 10) (showString ("var " ++ showsPrec 11 i ""))
 class To a where
   toWith :: (forall b. To b => b -> FL (Lifted FL b)) -> a -> Lifted FL a
 
+to :: To a => a -> Lifted FL a
+to = toWith toFL
+
 toFL :: To a => a -> FL (Lifted FL a)
 toFL x = FL (return (HaskellVal x))
 
@@ -462,7 +465,7 @@ matchFL x fl = FL $ resolveFL fl >>= \case
                         , .. })
             return (Val ())
           else
-            let c = eqConstraint (Var i) (Val (toWith toFL x))
+            let c = eqConstraint (Var i) (Val (to x))
                 constraintStore' = insertConstraint c [i] constraintStore
             in if isConsistent constraintStore'
                  then do
@@ -472,7 +475,7 @@ matchFL x fl = FL $ resolveFL fl >>= \case
                    return (Val ())
                  else empty
   Val y  -> unFL $ match x y
-  HaskellVal y -> unFL $ match x (toWith toFL y)
+  HaskellVal y -> unFL $ match x (to y)
 
 -- linMatchFL :: forall a. (Convertible a, Matchable a) => a -> FL (Lifted a) -> FL ()
 -- linMatchFL x (FL nd) = FL $ nd >>= \case
@@ -563,7 +566,7 @@ lazyUnifyFL fl1 fl2 = FL $ resolveFL fl2 >>= \case
                        return (Val ())
                      else empty
               HaskellVal y ->
-                let x = toWith toFL y in
+                let x = to y in
                 let c = eqConstraint (Var i) (Val x)
                     constraintStore' = insertConstraint c [i] constraintStore
                 in if isConsistent constraintStore'
@@ -576,15 +579,11 @@ lazyUnifyFL fl1 fl2 = FL $ resolveFL fl2 >>= \case
   Val y  -> resolveFL fl1 >>= \case
     Var j -> unFL $ lazyUnifyVar j y
     Val x -> unFL $ lazyUnify x y
-    HaskellVal x -> unFL $ lazyUnify (toWith toFL x) y
+    HaskellVal x -> unFL $ lazyUnify (to x) y
   HaskellVal y -> resolveFL fl1 >>= \case
-    Var j -> unFL $ lazyUnifyVar j (toWith toFL y)
-    Val x -> unFL $ lazyUnify x (toWith toFL y)
-    HaskellVal x -> unFL $ lazyUnify @a (toWith toFL x) (toWith toFL y) --TODO
-
---TODO: move and integrate
---to :: To a => a -> FL (Lifted FL a)
---to x = toWith toFL x
+    Var j -> unFL $ lazyUnifyVar j (to y)
+    Val x -> unFL $ lazyUnify x (to y)
+    HaskellVal x -> unFL $ lazyUnify @a (to x) (to y) --TODO
 
 
 -- "unify (error "bla") (var 1)" zeigt, dass es notwendig ist, dass man wissen muss ob 1 unconstrained ist.
