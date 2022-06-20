@@ -40,17 +40,12 @@ genCodemap :: Eq a => [a] -> Codemap a
 genCodemap input = makeCodemap (makeTree (map (uncurry HLeaf) (frequencies input)))
 
 genCodeword :: Eq a => Codemap a -> [a] -> [Bool]
-genCodeword codemap = concatMap (maybe loop id . flip lookup codemap)
+genCodeword codemap = concatMap (maybe undefined id . flip lookup codemap)
 
 encode :: Eq a => [a] -> (Codemap a, [Bool])
 encode input = (codemap, codeword)
   where codemap = genCodemap input
         codeword = genCodeword codemap input
-
---TODO: Remove
-loop :: a
-loop = loop
---
 
 data Alphabet = A | B | C | D | E | F | G
   deriving (Show, Eq)

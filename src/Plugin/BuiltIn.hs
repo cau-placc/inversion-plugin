@@ -485,12 +485,12 @@ mapFLNoShare = returnFLF $ \f -> returnFLF $ \xs ->
     ConsFL a as -> P.return (ConsFL (f `appFL` a) (mapFLNoShare `appFL` f `appFL` as))
 
 -- | Lifted concat function
-concatFL :: forall t a. (forall x. Shareable FL x => Shareable FL (t x), Shareable FL a, FoldableFL t)
+concatFL :: forall t a. (FoldableFL t, forall x. Shareable FL x => Shareable FL (t x), Shareable FL a)
          => FL (t (ListFL FL a) :--> ListFL FL a)
 concatFL = foldrFL `appFL` (++#) `appFL` P.return NilFL
 
 -- | Lifted concatMap function
-concatMapFL :: forall t a b. (forall x. Shareable FL x => Shareable FL (t x), Shareable FL a, Shareable FL b, FoldableFL t)
+concatMapFL :: forall t a b. (FoldableFL t, forall x. Shareable FL x => Shareable FL (t x), Shareable FL a, Shareable FL b)
             => FL ((a :--> ListFL FL b) :--> t a :--> ListFL FL b)
 concatMapFL = returnFLF $ \f -> foldrFL `appFL` ((.#) `appFL` (++#) `appFL` f) `appFL` P.return NilFL
 
@@ -540,13 +540,13 @@ dropFL = returnFLF $ \n' -> share n' P.>>= \n -> returnFLF $ \xs ->
     TrueFL -> xs
 
 -- | Lifted maybe function
-maybeFL :: forall a b. (Shareable FL a, Shareable FL b) => FL (b :--> (a :--> b) :--> MaybeFL FL a :--> b)
+maybeFL :: forall b a. (Shareable FL b, Shareable FL a) => FL (b :--> (a :--> b) :--> MaybeFL FL a :--> b)
 maybeFL = returnFLF $ \n -> returnFLF $ \j -> returnFLF $ \m -> m P.>>= \case
   NothingFL -> n
   JustFL x -> j `appFL` x
 
 -- | Lifted lookup function
-lookupFL :: forall a b. (Shareable FL a, Shareable FL b, EqFL a)
+lookupFL :: forall a b. (EqFL a, Shareable FL a, Shareable FL b)
          => FL (a :--> ListFL FL (Tuple2FL FL a b) :--> MaybeFL FL b)
 lookupFL = returnFLF $ \k' -> share k' P.>>= \k -> returnFLF $ \xs -> xs P.>>= \case
   NilFL -> P.return NothingFL
@@ -556,7 +556,7 @@ lookupFL = returnFLF $ \k' -> share k' P.>>= \k -> returnFLF $ \xs -> xs P.>>= \
       TrueFL -> P.return (JustFL v)
 
 -- | Lifted notElem function
-notElemFL :: forall t a. (forall x. Shareable FL x => Shareable FL (t x), Shareable FL a, FoldableFL t, EqFL a)
+notElemFL :: forall t a. (FoldableFL t, EqFL a, forall x. Shareable FL x => Shareable FL (t x), Shareable FL a)
            => FL (a :--> t a :--> BoolFL FL)
 notElemFL = returnFLF $ \x -> (.#) `appFL` notFL `appFL` (elemFL `appFL` x)
 
@@ -573,7 +573,7 @@ class Shareable FL a => SemigroupFL a where
     go b (c:cs) = b <> go c cs
     go b []     = b-}
 
-  stimes :: forall b. (Shareable FL b, IntegralFL b) => FL (b :--> a :--> a)
+  stimes :: forall b. (IntegralFL b, Shareable FL b) => FL (b :--> a :--> a)
   --stimes = stimesDefault
 
 instance Shareable FL a => SemigroupFL (ListFL FL a) where
@@ -596,13 +596,13 @@ instance Shareable FL a => MonoidFL (ListFL FL a) where
 
 --TODO: Move to BuiltIn.Foldable
 class (forall x. Shareable FL x => Shareable FL (t x)) => FoldableFL t where
-    foldFL :: (Shareable FL m, MonoidFL m) => FL (t m :--> m)
+    foldFL :: (MonoidFL m, Shareable FL m) => FL (t m :--> m)
     foldFL = foldMapFL `appFL` idFL
 
-    foldMapFL :: forall a m. (Shareable FL a, Shareable FL m, MonoidFL m) => FL ((a :--> m) :--> t a :--> m)
+    foldMapFL :: forall a m. (MonoidFL m, Shareable FL a, Shareable FL m) => FL ((a :--> m) :--> t a :--> m)
     foldMapFL = returnFLF $ \f' -> share f' P.>>= \f -> foldrFL `appFL` ((.#) `appFL` mappendFL `appFL` f) `appFL` memptyFL
 
-    foldMap'FL :: forall a m. (Shareable FL a, Shareable FL m, MonoidFL m) => FL ((a :--> m) :--> t a :--> m)
+    foldMap'FL :: forall a m. (MonoidFL m, Shareable FL a, Shareable FL m) => FL ((a :--> m) :--> t a :--> m)
     foldMap'FL = returnFLF $ \f' -> share f' P.>>= \f -> foldl'FL `appFL` returnFLF (\acc -> returnFLF $ \a -> (<>#) `appFL` acc `appFL` (f `appFL` a)) `appFL` memptyFL
 
     foldrFL :: forall a b. (Shareable FL a, Shareable FL b) => FL ((a :--> b :--> b) :--> b :--> t a :--> b)
@@ -642,24 +642,24 @@ class (forall x. Shareable FL x => Shareable FL (t x)) => FoldableFL t where
     lengthFL :: Shareable FL a => FL (t a :--> IntFL FL)
     --length = foldl' (\c _ -> c+1) 0
 
-    elemFL :: (Shareable FL a, EqFL a) => FL (a :--> t a :--> BoolFL FL)
+    elemFL :: (EqFL a, Shareable FL a) => FL (a :--> t a :--> BoolFL FL)
     --elem = any . (==)
 
 
-    maximumFL :: (Shareable FL a, OrdFL a) => FL (t a :--> a)
+    maximumFL :: (OrdFL a, Shareable FL a) => FL (t a :--> a)
     {-maximum = fromMaybe (errorWithoutStackTrace "maximum: empty structure") .
        getMax . foldMap' (Max #. (Just :: a -> Maybe a))
     {-# INLINEABLE maximum #-}-}
 
-    minimumFL :: (Shareable FL a, OrdFL a) => FL (t a :--> a)
+    minimumFL :: (OrdFL a, Shareable FL a) => FL (t a :--> a)
     {-minimumFL = fromMaybe (errorWithoutStackTrace "minimum: empty structure") .
        getMin . foldMap' (Min #. (Just :: a -> Maybe a))
     {-# INLINEABLE minimum #-}-}
 
-    sumFL :: (Shareable FL a, NumFL a) => FL (t a :--> a)
+    sumFL :: (NumFL a, Shareable FL a) => FL (t a :--> a)
     --sum = getSum #. foldMap' Sum
 
-    productFL :: (Shareable FL a, NumFL a) => FL (t a :--> a)
+    productFL :: (NumFL a, Shareable FL a) => FL (t a :--> a)
     --product = getProduct #. foldMap' Product
 
 instance FoldableFL (ListFL FL) where
@@ -713,19 +713,19 @@ instance FoldableFL (ListFL FL) where
   sum     = List.sum
   toList  = id-}
 
-allFL :: forall t a. (forall x. Shareable FL x => Shareable FL (t x), Shareable FL a, FoldableFL t)
+allFL :: forall t a. (FoldableFL t, forall x. Shareable FL x => Shareable FL (t x), Shareable FL a)
       => FL ((a :--> BoolFL FL) :--> t a :--> BoolFL FL)
 allFL = returnFLF $ \p' -> share p' P.>>= \p -> foldrFL `appFL` returnFLF (\x -> returnFLF $ \acc -> (&&#) `appFL` (p `appFL` x) `appFL` acc) `appFL` P.return TrueFL
 
-anyFL :: forall t a. (forall x. Shareable FL x => Shareable FL (t x), Shareable FL a, FoldableFL t)
+anyFL :: forall t a. (FoldableFL t, forall x. Shareable FL x => Shareable FL (t x), Shareable FL a)
       => FL ((a :--> BoolFL FL) :--> t a :--> BoolFL FL)
 anyFL = returnFLF $ \p' -> share p' P.>>= \p -> foldrFL `appFL` returnFLF (\x -> returnFLF $ \acc -> (||#) `appFL` (p `appFL` x) `appFL` acc) `appFL` P.return FalseFL
 
-andFL :: forall t. (forall x. Shareable FL x => Shareable FL (t x), FoldableFL t)
+andFL :: forall t. (FoldableFL t, forall x. Shareable FL x => Shareable FL (t x))
       => FL (t (BoolFL FL) :--> BoolFL FL)
 andFL = foldrFL `appFL` (&&#) `appFL` P.return TrueFL
 
-orFL :: forall t. (forall x. Shareable FL x => Shareable FL (t x), FoldableFL t)
+orFL :: forall t. (FoldableFL t, forall x. Shareable FL x => Shareable FL (t x))
      => FL (t (BoolFL FL) :--> BoolFL FL)
 orFL = foldrFL `appFL` (||#) `appFL` P.return TrueFL
 
@@ -1021,7 +1021,7 @@ showsList__ = returnFLF $ \showx' -> share showx' P.>>= \showx -> returnFLF $ \l
 shows :: P.Show a => a -> P.ShowS
 shows = P.showsPrec 0
 
-showsFL :: (Shareable FL a, ShowFL a) => FL (a :--> ShowSFL FL)
+showsFL :: (ShowFL a, Shareable FL a) => FL (a :--> ShowSFL FL)
 showsFL = showsPrecFL `appFL` toFL 0
 
 showsFLNoShare :: ShowFL a => FL (a :--> ShowSFL FL)
@@ -1408,7 +1408,7 @@ instance FunctorFL (ListFL FL) where
     NilFL       -> P.return NilFL
     ConsFL x xs -> P.return (ConsFL (f `appFL` x) (apply2FL fmapFL f xs))
 
-(<$>#) :: forall f a b. (forall x. Shareable FL x => Shareable FL (f x), Shareable FL a, Shareable FL b, FunctorFL f)
+(<$>#) :: forall f a b. (FunctorFL f, forall x. Shareable FL x => Shareable FL (f x), Shareable FL a, Shareable FL b)
        => FL ((a :--> b) :--> (f a :--> f b))
 (<$>#) = fmapFL
 

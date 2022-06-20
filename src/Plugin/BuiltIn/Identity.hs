@@ -44,4 +44,7 @@ instance ShowFree a => ShowFree (Identity a) where
   showsFreePrec' d (Identity x) = showParen (d > 10) $
     showString "Identity " . showsFreePrec 11 x
 
+instance (Shareable m a, MonadShare m) => Shareable m (IdentityFL m a) where
+  shareArgs (IdentityFL x) = IdentityFL <$> share x
+
 instance Invertible a => Invertible (Identity a)
