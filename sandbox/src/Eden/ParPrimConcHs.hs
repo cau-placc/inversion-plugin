@@ -37,8 +37,6 @@ module Eden.ParPrimConcHs
          )
    where
 
-import GHC.Base(unsafeCoerce# )
-
 import qualified Data.Map as Map -- collides with prelude functions
 import Data.Map(Map)
 

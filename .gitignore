@@ -12,3 +12,4 @@ test-examples/out/*
 
 # curry files from benchmarking
 sandbox/.curry/
+.vscode/

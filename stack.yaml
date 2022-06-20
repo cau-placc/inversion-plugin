@@ -1,4 +1,4 @@
-resolver: lts-18.21
+resolver: ghc-9.2.2
 packages:
   - .
   - sandbox
@@ -11,11 +11,85 @@ extra-deps:
     commit: c8e6381b9a4c635c70939ac55de1369e9444b77d
     subdirs:
       - what4
-  - bv-sized-1.0.3
-  - config-value-0.8.2
-  - panic-0.4.0.1
-  - parameterized-utils-2.1.4.0
-  - zenc-0.1.2
-  - bitwise-1.0.0.1
+  - git: https://github.com/GaloisInc/parameterized-utils.git
+    commit: b4d14feaa891bde0c27a61bb6d0ecb1ebe1ca8e6
+  - ChasingBottoms-1.3.1.11
+  - QuickCheck-2.14.2
+  - alex-3.2.7.1
+  - async-2.2.4
+  - attoparsec-0.14.4
+  - base-orphans-0.8.6
+  - bifunctors-5.5.12
+  - bimap-0.5.0
+  - concurrent-extra-0.7.0.12
+  - constraints-0.13.3
+  - data-binary-ieee754-0.4.4
+  - deque-0.4.4
+  - deriving-compat-0.6.1
+  - extra-1.7.10
+  - fingertree-0.1.5.0
+  - gitrev-1.3.1
+  - happy-1.20.0
+  - hashtables-1.2.4.2
+  - indexed-traversable-0.1.2
+  - io-streams-1.5.2.1
+  - kan-extensions-5.2.4
+  - lens-5.1.1
+  - parallel-3.2.2.0
+  - prettyprinter-1.7.1
+  - profunctors-5.6.2
+  - random-1.2.1.1
+  - scientific-0.3.7.0
+  - split-0.2.3.4
+  - syb-0.7.2.1
+  - temporary-1.3
+  - th-abstraction-0.4.3.0
+  - th-lift-0.8.2
+  - th-lift-instances-0.1.19
+  - uniplate-1.6.13
+  - unordered-containers-0.2.19.1
+  - utf8-string-1.0.2
+  - vector-0.12.3.1
+  - versions-5.0.3
   - OneTuple-0.3.1
-  - hashable-1.3.5.0
+  - adjunctions-4.4.1
+  - assoc-1.0.2
+  - bv-sized-1.0.4
+  - call-stack-0.4.0
+  - clock-0.8.3
+  - comonad-5.0.8
+  - config-value-0.8.2.1
+  - contravariant-1.5.5
+  - distributive-0.6.2.1
+  - free-5.1.8
+  - hashable-1.4.0.2
+  - indexed-traversable-instances-0.1.1
+  - integer-logarithms-1.0.3.1
+  - invariant-0.5.6
+  - megaparsec-9.2.1
+  - network-3.1.2.7
+  - panic-0.4.0.1
+  - parser-combinators-1.3.0
+  - primitive-0.7.3.0
+  - reflection-2.1.6
+  - semigroupoids-5.3.7
+  - splitmix-0.1.0.4
+  - strict-0.4.0.1
+  - strict-list-0.1.7
+  - tagged-0.8.6.1
+  - these-1.1.1.1
+  - transformers-compat-0.7.1
+  - unbounded-delays-0.1.1.1
+  - zenc-0.1.2
+  - zlib-bindings-0.1.1.5
+  - StateVar-1.2.2
+  - base-compat-0.12.1
+  - bitwise-1.0.0.1
+  - case-insensitive-1.2.1.0
+  - semigroups-0.20
+  - transformers-base-0.4.6
+  - type-equality-1
+  - void-0.7.3
+  - zlib-0.6.3.0
+  - ghc-tcplugin-api-0.7.1.0
+allow-newer: true

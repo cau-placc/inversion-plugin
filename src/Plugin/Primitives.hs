@@ -1,7 +1,9 @@
-{-# LANGUAGE FlexibleContexts  #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE LambdaCase        #-}
-{-# LANGUAGE TemplateHaskell   #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE LambdaCase            #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TemplateHaskell       #-}
+{-# LANGUAGE TypeApplications      #-}
 
 module Plugin.Primitives
   ( Input, Output, inv, To, partialInv, weakInv
@@ -68,7 +70,7 @@ inOutClassInv name gnf inClassExpQs outClassExpQ = do
   funPatExp <- genLiftedApply (VarE liftedName) argExps
   let matchExp = applyExp (VarE 'lazyUnifyFL) [resExp, funPatExp]
       freeNames = map (fst . snd) mapping
-      letExp = DoE [NoBindS matchExp, NoBindS returnExp ]
+      letExp = DoE Nothing [NoBindS matchExp, NoBindS returnExp]
       returnExp = mkLiftedTupleE (map VarE freeNames)
       bodyExp = applyExp (VarE 'map) [VarE (if gnf then 'fromIdentity else 'fromEither), applyExp (VarE 'evalFLWith) [VarE (if gnf then 'groundNormalFormFL else 'normalFormFL), letExp]]
   bNm <- newName "b"
@@ -126,21 +128,12 @@ createFreeMap = mapM (\case
 inClassInv :: Name -> Bool -> [Class] -> ExpQ
 inClassInv f gnf ins = [| let g x = $(inOutClassInv f gnf ins [| x |]) in g |]
 
-funPat :: FunPat p => Name -> p
-funPat f = funPat' f []
-
-class FunPat p where
-   funPat' :: Name -> [PatQ] -> p
-
-instance FunPat p => FunPat (PatQ -> p) where
-   funPat' name ps = \p -> funPat' name (ps ++ [p])
-
-instance FunPat PatQ where
-  funPat' name qps = do
-    ps <- sequence qps
-    vs <- getAllPatVars ps
-    res <- evalStateT (mapM patToExp ps) 0
-    ViewP <$> inClassInv name False (map return res) <*> [p| $(return $ mkTupleP vs):_ |]
+funPat :: Name -> [PatQ] -> PatQ
+funPat name qps = do
+  ps <- sequence qps
+  vs <- getAllPatVars ps
+  res <- evalStateT (mapM patToExp ps) 0
+  ViewP <$> inClassInv name False (map return res) <*> [p| $(return $ mkTupleP vs):_ |]
 
 getAllPatVars :: [Pat] -> Q [Pat]
 getAllPatVars = flip evalStateT [] .
@@ -172,7 +165,7 @@ patToExp :: (MonadFail m, MonadState Int m) => Pat -> m Exp
 patToExp (LitP lit) = return $ LitE lit
 patToExp (VarP _) = createFreshVarCall
 patToExp WildP = createFreshVarCall
-patToExp (ConP nm ps) = applyExp (ConE nm) <$> mapM patToExp ps
+patToExp (ConP nm _ ps) = applyExp (ConE nm) <$> mapM patToExp ps
 patToExp (ParensP pat) = patToExp pat
 patToExp (InfixP p1 n p2) = do
   e1 <- patToExp p1
@@ -183,22 +176,13 @@ patToExp (TupP ps) = TupE <$> mapM (fmap Just . patToExp) ps
 patToExp (ListP ps) = ListE <$> mapM patToExp ps
 patToExp _ = fail "Unsupported syntax in functional pattern"
 
-
-funPatLegacy :: FunPat2 p => Name -> p
-funPatLegacy f = funPat2' f []
-
-class FunPat2 p where
-   funPat2' :: Name -> [PatQ] -> p
-instance FunPat2 p => FunPat2 (PatQ -> p) where
-   funPat2' name ps = \p -> funPat2' name (ps ++ [p])
-
-instance FunPat2 PatQ where
-  funPat2' name qps = do
-    tP <- mkTupleP <$> sequence qps
-    vE <- [| (\a -> [b | b@($(return (anonymizePat tP))) <- $(inv name False) a]) |]
-    _ <- evalStateT (patToExp tP) 0 -- Check for unsupported syntax
-    _ <- getAllPatVars [tP]         -- Check for conflicting variable definitions
-    ViewP vE <$> [p| $(return tP):_ |]
+funPatLegacy :: Name -> [PatQ] -> PatQ
+funPatLegacy name qps = do
+  tP <- mkTupleP <$> sequence qps
+  vE <- [| (\a -> [b | b@($(return (anonymizePat tP))) <- $(inv name False) a]) |]
+  _ <- evalStateT (patToExp tP) 0 -- Check for unsupported syntax
+  _ <- getAllPatVars [tP]         -- Check for conflicting variable definitions
+  ViewP vE <$> [p| $(return tP):_ |]
 
 anonymizePat :: Pat -> Pat
 anonymizePat (LitP l)              = LitP l
@@ -206,7 +190,7 @@ anonymizePat (VarP _)              = WildP
 anonymizePat (TupP ps)             = TupP $ map anonymizePat ps
 anonymizePat (UnboxedTupP ps)      = UnboxedTupP $ map anonymizePat ps
 anonymizePat (UnboxedSumP p a1 a2) = UnboxedSumP (anonymizePat p) a1 a2
-anonymizePat (ConP n ps)           = ConP n $ map anonymizePat ps
+anonymizePat (ConP n tys ps)       = ConP n tys $ map anonymizePat ps
 anonymizePat (InfixP p1 n p2)      = InfixP (anonymizePat p1) n (anonymizePat p2)
 anonymizePat (UInfixP p1 n p2)     = UInfixP (anonymizePat p1) n (anonymizePat p2)
 anonymizePat (ParensP p)           = ParensP $ anonymizePat p

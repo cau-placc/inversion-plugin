@@ -2,4 +2,6 @@
 {-# LANGUAGE TypeFamilyDependencies #-}
 module Plugin.Lifted where
 
-type family Lifted (m :: * -> *) (a :: k) = (b :: k) | b -> m a
+import Data.Kind
+
+type family Lifted (m :: Type -> Type) (a :: k) = (b :: k) | b -> m a

@@ -14,12 +14,16 @@ import Prelude hiding ((<>))
 import Data.Maybe
 import Control.Monad
 
-import GHC.Hs.Extension
+import GHC.Builtin.Names
 import GHC.Hs.Decls
-import TcRnTypes
-import GhcPlugins
-import TcRnMonad
-import PrelNames
+import GHC.Hs.Extension
+import GHC.Plugins
+import GHC.Tc.Types
+import GHC.Tc.Utils.Monad
+import GHC.Unit.External
+import GHC.Unit.Home.ModInfo
+import GHC.Unit.Module.Imported
+import GHC.Unit.Module.ModDetails
 
 import Plugin.Effect.Annotation
 import Plugin.Trans.Util
@@ -44,7 +48,7 @@ checkImports env = do
   external <- readTcRef externalRef
   home <- hsc_HPT <$> getTopEnv
   -- Get the name of the current compilation unit/module.
-  let unit = moduleUnitId (tcg_semantic_mod env)
+  let unit = moduleUnit (tcg_semantic_mod env)
   -- Get the environment of all external annotations.
   let annEnvExt = eps_ann_env external
   -- Get the annotations for each imported module, except Data.Kind.
@@ -59,11 +63,11 @@ checkImports env = do
   failIfErrsM
 
 -- If you add a module here, you need to import its related lifted module in the lifted Prelude.
-supportedBuiltInModules :: [((String, UnitId), String)]
+supportedBuiltInModules :: [((String, Unit), String)]
 supportedBuiltInModules =
-  [ (("Data.Char",              baseUnitId), "Plugin.BuiltIn.Char")
-  , (("GHC.Char",               baseUnitId), "Plugin.BuiltIn.Char")
-  , (("Data.Functor.Identity",  baseUnitId), "Plugin.BuiltIn.Identity")
+  [ (("Data.Char",              baseUnit), "Plugin.BuiltIn.Char")
+  , (("GHC.Char",               baseUnit), "Plugin.BuiltIn.Char")
+  , (("Data.Functor.Identity",  baseUnit), "Plugin.BuiltIn.Identity")
   ]
 {- For documentation:
   [ (("Prelude",                baseUnitId), "Plugin.BuiltIn")
@@ -75,9 +79,10 @@ supportedBuiltInModules =
 -}
 
 lookupSupportedBuiltInModule :: Module -> Maybe String
-lookupSupportedBuiltInModule mdl = case lookup (moduleNameString (moduleName mdl), moduleUnitId mdl) supportedBuiltInModules of
-  Nothing | moduleUnitId mdl `elem` [baseUnitId, primUnitId] -> Just "Plugin.BuiltIn"
-  m -> m
+lookupSupportedBuiltInModule mdl =
+  case lookup (moduleNameString (moduleName mdl), moduleUnit mdl) supportedBuiltInModules of
+    Nothing | moduleUnit mdl `elem` [baseUnit, primUnit] -> Just "Plugin.BuiltIn"
+    m -> m
 
 isSupportedBuiltInModule :: (Module, [ImportedBy]) -> Bool
 isSupportedBuiltInModule (mdl@(Module _ n), _) =
@@ -85,10 +90,10 @@ isSupportedBuiltInModule (mdl@(Module _ n), _) =
 
 -- | Get any 'NondetTag' module annotations for a given module
 -- and the source span of the import declaration, if available.
-getAnnFor :: UnitId -> HomePackageTable -> AnnEnv -> Module -> [ImportedBy]
+getAnnFor :: Unit -> HomePackageTable -> AnnEnv -> Module -> [ImportedBy]
           -> (Module, [InvertTag], Maybe SrcSpan)
 getAnnFor unit modinfo annsExt mdl imps
-  | unit == moduleUnitId mdl = case lookupHpt modinfo (moduleName mdl) of
+  | unit == moduleUnit mdl = case lookupHpt modinfo (moduleName mdl) of
       Nothing   -> panicAnyUnsafe "Cannot find info for module" mdl
       Just info -> (mdl, findAnns' (mkAnnEnv (md_anns (hm_details info))), imp)
   | otherwise = (mdl, findAnns' annsExt, imp)

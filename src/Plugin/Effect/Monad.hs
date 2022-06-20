@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes       #-}
+{-# LANGUAGE BangPatterns              #-}
 {-# LANGUAGE ConstraintKinds           #-}
 {-# LANGUAGE CPP                       #-}
 {-# LANGUAGE ExistentialQuantification #-}
@@ -27,6 +28,7 @@ import Control.Monad.Reader
 import Control.Monad.SearchTree
 import Control.Monad.State
 
+import           Data.Kind                 (Type)
 import qualified Data.Kind
 import           Data.Map                  (Map)
 import qualified Data.Map           as Map
@@ -53,7 +55,8 @@ import Unsafe.Coerce (unsafeCoerce)
 class Monad m => MonadShare m where
   share :: Shareable m a => m a -> m (m a)
 
-class MonadShare m => Shareable m a where
+ -- adding MonadShare here as a context leads to a bug in the plugin when a quantified constraint ocurrs.
+class Shareable m a where
   shareArgs :: a -> m a
 
 --------------------------------------------------------------------------------
@@ -230,7 +233,7 @@ class HasPrimitiveInfo a where
 --------------------------------------------------------------------------------
 
 --data FLVal a = HasPrimitiveInfo a => Var ID | Val a
-data FLVal (a :: *) where
+data FLVal (a :: Type) where
   Var        :: HasPrimitiveInfo a => ID -> FLVal a
   Val        :: a -> FLVal a
   HaskellVal :: To b => b -> FLVal (Lifted FL b)
@@ -340,7 +343,7 @@ free i = FL (return (Var i))
 
 --------------------------------------------------------------------------------
 
-data Result (f :: * -> *) (a :: *) where
+data Result (f :: Type -> Type) (a :: Type) where
   Result :: f a -> Result f a
   HaskellResult :: b -> Result f (Lifted (Result f) b)
 
@@ -625,7 +628,7 @@ class (From a, To a, Matchable a, Unifiable a, NormalForm a, HasPrimitiveInfo (L
 infixr 0 :-->
 type (:-->) = (-->) FL --TODO: move to util. gehört aber eigentlich auch nicht hier hin.
 
-newtype (-->) (m :: * -> *) (a :: *) (b :: *) = Func (m a -> m b)
+newtype (-->) (m :: Type -> Type) (a :: Type) (b :: Type) = Func (m a -> m b)
 
 infixr 0 -->
 
@@ -635,6 +638,9 @@ type instance Lifted m ((->) a b) = (-->) m (Lifted m a) (Lifted m b)
 
 instance (From a, NormalForm a, To b) => To (a -> b) where
   toWith _ f = Func $ \x -> FL $ groundNormalFormFL x >>= (unFL . toFL' . f . fromIdentity)
+
+instance MonadShare m => Shareable m ((-->) m a b) where
+  shareArgs (Func !f) = return (Func f)
 
 appFL :: Monad m => m ((-->) m a b) -> m a -> m b
 mf `appFL` x = mf >>= \ (Func f) -> f x

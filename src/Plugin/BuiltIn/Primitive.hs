@@ -2,24 +2,26 @@
 
 module Plugin.BuiltIn.Primitive where
 
+import Data.Kind
+
 import Plugin.Lifted
 
-newtype IntFL (m :: * -> *) = IntFL Int
+newtype IntFL (m :: Type -> Type) = IntFL Int
 
 type instance Lifted m Int = IntFL m
 
-newtype IntegerFL (m :: * -> *) = IntegerFL Integer
+newtype IntegerFL (m :: Type -> Type) = IntegerFL Integer
 
 type instance Lifted m Integer = IntegerFL m
 
-newtype FloatFL (m :: * -> *) = FloatFL Float
+newtype FloatFL (m :: Type -> Type) = FloatFL Float
 
 type instance Lifted m Float = FloatFL m
 
-newtype DoubleFL (m :: * -> *) = DoubleFL Double
+newtype DoubleFL (m :: Type -> Type) = DoubleFL Double
 
 type instance Lifted m Double = DoubleFL m
 
-newtype CharFL (m :: * -> *) = CharFL Char
+newtype CharFL (m :: Type -> Type) = CharFL Char
 
 type instance Lifted m Char = CharFL m
