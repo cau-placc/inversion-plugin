@@ -17,12 +17,13 @@ module Plugin.Trans.FunWiredIn (lookupWiredInFunc) where
 
 import Data.List
 
-import GhcPlugins
-import TcRnTypes
-import IfaceEnv
-import PrelNames
-import TcRnMonad
-import Finder
+import GHC.Builtin.Names
+import GHC.Iface.Env
+import GHC.Plugins
+import GHC.Tc.Types
+import GHC.Unit.Finder (FindResult(..), findImportedModule)
+import GHC.Tc.Utils.Monad
+import GHC.Types.TyThing
 
 import Plugin.Trans.TysWiredIn
 import Plugin.Trans.Util

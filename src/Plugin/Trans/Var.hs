@@ -13,10 +13,10 @@ import Data.Data (Data)
 import Data.List
 import Data.Generics.Schemes
 
-import OccName hiding (varName)
-import GhcPlugins
-import TcRnTypes
-import TyCoRep
+import GHC.Core.TyCo.Rep
+import GHC.Plugins
+import GHC.Tc.Types
+
 
 -- | Create a fresh type variable of kind 'Type'.
 freshSimpleTVar :: TcM TyVar
@@ -30,21 +30,21 @@ freshMonadTVar :: TcM TyVar
 freshMonadTVar = do
   u <- getUniqueM
   let k = liftedTypeKind
-  return $ mkTyVar (mkSystemName u (mkTyVarOcc "m")) (mkFunTy VisArg k k)
+  return $ mkTyVar (mkSystemName u (mkTyVarOcc "m")) (mkVisFunTyMany k k)
 
 -- | Create a fresh variable of the given type.
-freshVar :: Type -> TcM Var
-freshVar ty = do
+freshVar :: Scaled Type -> TcM Var
+freshVar (Scaled mult ty) = do
   u <- getUniqueM
   let name = mkSystemName u (mkVarOcc "f")
-  return $ mkLocalVar VanillaId name ty vanillaIdInfo
+  return $ mkLocalVar VanillaId name mult ty vanillaIdInfo
 
 -- | Create a fresh dictionary variable of the given type.
 freshDictId :: Type -> TcM Var
 freshDictId ty = do
   u <- getUniqueM
   let name = mkSystemName u (mkVarOcc "d")
-  return $ mkLocalVar (DFunId True) name ty vanillaIdInfo
+  return $ mkLocalVar (DFunId True) name Many ty vanillaIdInfo
 
 -- | Count the number of occurrences of the variable in the given term.
 countVarOcc :: Data a => Var -> a -> Int

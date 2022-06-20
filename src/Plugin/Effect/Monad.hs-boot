@@ -81,11 +81,11 @@ class SolverLibrary where
 
 --------------------------------------------------------------------------------
 
-class HasPrimitiveInfo (a :: *)
+class HasPrimitiveInfo (a :: Data.Kind.Type)
 
 --------------------------------------------------------------------------------
 
-data FLVal (a :: *) where
+data FLVal (a :: Data.Kind.Type) where
   Var        :: HasPrimitiveInfo a => ID -> FLVal a
   Val        :: a -> FLVal a
   HaskellVal :: To b => b -> FLVal (Lifted FL b)
@@ -94,11 +94,11 @@ data FLVal (a :: *) where
 
 type role FL nominal
 
-data FL (a :: *)
+data FL (a :: Data.Kind.Type)
 
 --------------------------------------------------------------------------------
 
-class To (a :: *)
+class To (a :: Data.Kind.Type)
 
 to :: To a => a -> Lifted FL a
 

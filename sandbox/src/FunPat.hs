@@ -8,9 +8,9 @@ import FunPatSrc
 
 import Plugin.InversionPlugin
 
-lastTH $(funPat '(++) [p| _ |] [p| [x] |]) = x
+lastTH $(funPat '(++) [[p| _ |], [p| [x] |]]) = x
 
---lastTH2 $(funPatLegacy '(++) [p| _ |] [p| [x] |]) = x
+--lastTH2 $(funPatLegacy '(++) [[p| _ |], [p| [x] |]]) = x
 
 {-
 --lazyUnifyFL (x, empty) (y,y)

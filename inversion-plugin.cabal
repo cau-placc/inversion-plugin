@@ -46,27 +46,29 @@ flag parallel-search {
 common deps
   hs-source-dirs: src
   build-depends:
-    base                ^>= 4.14.0.0,
-    ghc                 ^>= 8.10.1,
-    ghc-prim            ^>= 0.6.1,
-    template-haskell    ^>= 2.16.0,
-    bytestring          ^>= 0.10.10.0,
-    containers          ^>= 0.6.0,
+    base                ^>= 4.16.1.0,
+    ghc                 ^>= 9.2.2,
+    ghc-prim            -any,
+    template-haskell    -any,
+    bytestring          -any,
+    containers          -any,
     deque               ^>= 0.4.3,
-    transformers        ^>= 0.5.6,
-    mtl                 ^>= 2.2.2,
-    syb                 ^>= 0.7.1,
-    extra               ^>= 1.7.3,
-    tree-monad          ^>= 0.3.1,
-    ChasingBottoms      ^>= 1.3.1.11,
-    kan-extensions      ^>= 5.2.2,
-    sbv                 ^>= 8.17,
-    what4               ^>= 1.2.1,
-    parameterized-utils ^>= 2.1.4.0,
-    libBF               ^>= 0.6.2,
-    text                ^>= 1.2.4.1,
-    bv-sized            ^>= 1.0.3,
-    OneTuple            ^>= 0.3.1
+    transformers        -any,
+    ghc-tcplugin-api    -any,
+    mtl                 -any,
+    syb                 -any,
+    extra               -any,
+    split               -any,
+    tree-monad          -any,
+    ChasingBottoms      -any,
+    kan-extensions      -any,
+    sbv                 -any,
+    what4               -any,
+    parameterized-utils -any,
+    libBF               -any,
+    text                -any,
+    bv-sized            -any,
+    OneTuple            -any
   ghc-options: -Wall -Wincomplete-uni-patterns
   if flag(use-sbv)
     cpp-options: -DUSE_SBV
@@ -119,10 +121,12 @@ common deps
     Plugin.Trans.Expr
     Plugin.Trans.FunWiredIn
     Plugin.Trans.Import
+    Plugin.Trans.LExprEQ
     Plugin.Trans.Pat
     Plugin.Trans.PatternMatching
     Plugin.Trans.Preprocess
     Plugin.Trans.Record
+    Plugin.Trans.Solver
     Plugin.Trans.TyCon
     Plugin.Trans.Type
     Plugin.Trans.Util

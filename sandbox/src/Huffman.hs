@@ -40,7 +40,7 @@ genCodemap :: Eq a => [a] -> Codemap a
 genCodemap input = makeCodemap (makeTree (map (uncurry HLeaf) (frequencies input)))
 
 genCodeword :: Eq a => Codemap a -> [a] -> [Bool]
-genCodeword codemap input = concatMap (maybe loop id . flip lookup codemap) input
+genCodeword codemap = concatMap (maybe loop id . flip lookup codemap)
 
 encode :: Eq a => [a] -> (Codemap a, [Bool])
 encode input = (codemap, codeword)
@@ -48,8 +48,8 @@ encode input = (codemap, codeword)
         codeword = genCodeword codemap input
 
 --TODO: Remove
+loop :: a
 loop = loop
-
 --
 
 data Alphabet = A | B | C | D | E | F | G

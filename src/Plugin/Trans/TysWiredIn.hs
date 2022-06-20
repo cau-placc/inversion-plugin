@@ -13,21 +13,20 @@ module Plugin.Trans.TysWiredIn (loadDefaultTyConMap, builtInModule, maxTupleArit
 import Data.IORef
 import Data.Tuple
 
-import GhcPlugins hiding (int)
-import TcRnTypes
-import TysPrim
-import UniqMap
-import Finder
-import IfaceEnv
-import TcRnMonad
-import PrelNames
+import GHC.Builtin.Names
+import GHC.Builtin.Types.Prim
+import GHC.Iface.Env
+import GHC.Plugins
+import GHC.Tc.Utils.Monad
+import GHC.Types.TyThing
+import GHC.Unit.Finder (FindResult(..), findImportedModule)
 
 import Plugin.Trans.Type
 
 -- | Load the mapping between lifted and unlifted
 -- for all built-in type constructors.
-loadDefaultTyConMap :: TcM (IORef (UniqMap TyCon TyCon,
-                                   UniqMap TyCon TyCon,
+loadDefaultTyConMap :: TcM (IORef (UniqFM TyCon TyCon,
+                                   UniqFM TyCon TyCon,
                                    UniqSet TyCon,
                                    UniqSet TyCon))
 loadDefaultTyConMap = do
@@ -39,8 +38,8 @@ loadDefaultTyConMap = do
   let allLoaded  = others ++ loaded
   let allSwap    = map swap allLoaded
   let (old, new) = unzip allLoaded
-  liftIO (newIORef (listToUniqMap allLoaded,
-                    listToUniqMap allSwap,
+  liftIO (newIORef (listToUFM allLoaded,
+                    listToUFM allSwap,
                     mkUniqSet old,
                     mkUniqSet new))
 
@@ -65,8 +64,11 @@ loadAdditional = do
   altS <- lookupTyCon =<< lookupOrig bse ( mkTcOcc "String" )
   newS <- getTyCon builtInModule "StringFL"
 
-  let altF = funTyCon
-  newF <- getFunTycon
+  let altF = unrestrictedFunTyCon
+  newF <- getTyCon builtInModule ":--->#"
+
+  let altFR = funTyCon
+  newFR <- getTyCon builtInModule ":--->"
 
   -- And again for ShowS.
   Found _ shw  <- liftIO $
@@ -80,9 +82,12 @@ loadAdditional = do
   altR <- lookupTyCon =<< lookupOrig real ( mkTcOcc "Real" )
   newR <- getTyCon builtInModule "RealFL"
 
-  return [ (altH, newH), (altR, newR), (altA, newA)
-         , (altS, newS), (altF, newF)
-         , (intPrimTyCon, intTyCon)]
+  return [ (altH, newH), (altR, newR), (altA, newA), (altS, newS)
+         , (altF, newF), (altFR, newFR)
+         , (intPrimTyCon, intTyCon)
+         , (manyDataConTyCon, manyDataConTyCon)
+         , (oneDataConTyCon, oneDataConTyCon)
+         , (liftedRepTyCon, liftedRepTyCon)]
 
 
 -- | A list of GHC's built-in type constructor names and the names of

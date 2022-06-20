@@ -9,10 +9,10 @@ import Control.Monad
 
 import Data.Tuple.Solo
 
-import FastString
-import GHC (mkModule, mkModuleName)
-import GhcPlugins (DefUnitId(DefUnitId), UnitId (DefiniteUnitId), InstalledUnitId (InstalledUnitId))
-import Lexeme
+import GHC.Data.FastString
+import GHC (mkModuleName)
+import GHC.Unit.Types
+import GHC.Utils.Lexeme
 
 import Generics.SYB
 
@@ -47,7 +47,7 @@ liftTHName (Name (OccName str) flav) = Name withSuffix flav'
       NameU n -> NameU n
       NameL n -> NameL n
       NameG ns (PkgName pn) (ModName mn) ->
-        let ghcModule = mkModule (DefiniteUnitId (DefUnitId (InstalledUnitId (mkFastString pn)))) (mkModuleName mn)
+        let ghcModule = mkModule (RealUnit (Definite (UnitId (mkFastString pn)))) (mkModuleName mn)
             (pkgNm', mdlNm') = maybe (pn, mn) (thisPkgName,) $
                                lookupSupportedBuiltInModule ghcModule
         in NameG ns (PkgName pkgNm') (ModName mdlNm')
@@ -96,15 +96,15 @@ mkLiftedTupleE xs  = AppE (VarE 'return) (applyExp liftedTupleConE xs)
                  | length xs == 1 = "SoloFL"
                  | otherwise      = "Tuple" ++ show (length xs) ++ "FL"
 
-decomposeForallT :: Type -> ([TyVarBndr], [Type], Type)
+decomposeForallT :: Type -> ([TyVarBndr Specificity], [Type], Type)
 decomposeForallT (ForallT bndrs ctxt ty) =
   let (bndrs', ctxt', ty') = decomposeForallT ty
   in (bndrs ++ bndrs', ctxt ++ ctxt', ty')
 decomposeForallT ty                      = ([], [], ty)
 
-getTyVarBndrName :: TyVarBndr -> Name
-getTyVarBndrName (PlainTV  name  ) = name
-getTyVarBndrName (KindedTV name _) = name
+getTyVarBndrName :: TyVarBndr a -> Name
+getTyVarBndrName (PlainTV  name _  ) = name
+getTyVarBndrName (KindedTV name _ _) = name
 
 mkFreeP :: Exp -> Exp
 mkFreeP = AppE (VarE 'Plugin.Effect.Monad.free)
@@ -123,7 +123,7 @@ unapplyExp (AppE e1 e2) = let (e, es) = unapplyExp e1 in (e, es ++ [e2])
 unapplyExp e            = (e, [])
 
 genLiftedApply :: Exp -> [Exp] -> ExpQ
-genLiftedApply = foldM (\f arg -> newName "v" >>= \vName -> return $ applyExp (VarE '(>>=)) [f, LamE [ConP 'Func [VarP vName]] $ AppE (VarE vName) arg])
+genLiftedApply = foldM (\f arg -> newName "v" >>= \vName -> return $ applyExp (VarE '(>>=)) [f, LamE [ConP 'Func [] [VarP vName]] $ AppE (VarE vName) arg])
 
 mkTupleE :: [Exp] -> Exp
 mkTupleE [e] = AppE (ConE 'Solo) e
@@ -134,7 +134,7 @@ mkTupleT [ty] = AppT (ConT ''Solo) ty
 mkTupleT tys  = applyType (TupleT (length tys)) tys
 
 mkTupleP :: [Pat] -> Pat
-mkTupleP [p] = ConP 'Solo [p]
+mkTupleP [p] = ConP 'Solo [] [p]
 mkTupleP ps' = TupP ps'
 
 mkArrowT :: Type -> Type -> Type
@@ -145,6 +145,8 @@ applyType = foldl AppT
 
 arrowUnapply :: Type -> ([Type], Type)
 arrowUnapply (AppT (AppT ArrowT ty1) ty2) = (ty1 : tys, ty)
+  where (tys, ty) = arrowUnapply ty2
+arrowUnapply (AppT (AppT (AppT MulArrowT _) ty1) ty2) = (ty1 : tys, ty)
   where (tys, ty) = arrowUnapply ty2
 arrowUnapply ty                           = ([], ty)
 
@@ -159,7 +161,7 @@ genLiftedTupleDataDecl ar = do
   mVar <- newName "m"
   tyVarNames <- replicateM ar (newName "a")
   let con = NormalC name $ map (\tyVarName -> (Bang NoSourceUnpackedness NoSourceStrictness, AppT (VarT mVar) (VarT tyVarName))) tyVarNames
-  let da = DataD [] name (KindedTV mVar (AppT (AppT ArrowT StarT) StarT) : map PlainTV tyVarNames) Nothing [con] []
+  let da = DataD [] name (KindedTV mVar () (AppT (AppT ArrowT StarT) StarT) : map (`PlainTV` ()) tyVarNames) Nothing [con] []
   let ki = KiSigD name ((StarT `mkArrowT` StarT) `mkArrowT` foldr mkArrowT StarT (replicate ar StarT))
   return (da, ki)
 
@@ -178,7 +180,8 @@ conArity :: ConInfo -> Int
 conArity = length . conArgs
 
 extractConInfo :: (Type -> Type) -> Con -> ConInfo
-extractConInfo f (NormalC n btys) = ConInfo n (map (f . snd) btys)
+extractConInfo f (NormalC n btys) = ConInfo sanitized (map (f . snd) btys)
+  where sanitized = mkName (nameBase n)
 extractConInfo _ _ = error "mkConInfo: unsupported"
 --TODO: missing constructors
 
@@ -253,10 +256,10 @@ genInstances originalDataDec liftedDataDec = do
                     let liftedConArity = conArity liftedConInfo
                     liftedArgNames <- replicateM liftedConArity (newName "x")
                     let liftedConName = conName liftedConInfo
-                        liftedPat = ConP liftedConName $ map VarP liftedArgNames
+                        liftedPat = ConP liftedConName [] $ map VarP liftedArgNames
                     sharedLiftedArgNames <- replicateM liftedConArity (newName "y")
                     let sharedLiftedArgStmts = zipWith (\sharedLiftedArgName liftedArgName -> BindS (VarP sharedLiftedArgName) (applyExp (VarE 'share) [VarE liftedArgName])) sharedLiftedArgNames liftedArgNames
-                        body = NormalB $ DoE $ sharedLiftedArgStmts ++ [NoBindS $ applyExp (VarE 'return) [applyExp (ConE liftedConName) $ map VarE sharedLiftedArgNames]]
+                        body = NormalB $ DoE Nothing $ sharedLiftedArgStmts ++ [NoBindS $ applyExp (VarE 'return) [applyExp (ConE liftedConName) $ map VarE sharedLiftedArgNames]]
                     return $ Clause [liftedPat] body []
               clauses <- mapM genClause liftedConInfos
               return $ FunD 'shareArgs clauses
@@ -283,7 +286,7 @@ genInstances originalDataDec liftedDataDec = do
               tf <- newName "tf"
               let genMatch originalConInfo liftedConInfo = do
                     argNames <- replicateM (conArity originalConInfo) (newName "x")
-                    let pat = ConP (conName originalConInfo) $ map VarP argNames
+                    let pat = ConP (conName originalConInfo) [] $ map VarP argNames
                         body = NormalB $ applyExp (ConE $ conName liftedConInfo) $ map (AppE (VarE tf) . VarE) argNames
                     return $ Match pat body []
               matches <- zipWithM genMatch originalConInfos liftedConInfos
@@ -298,7 +301,7 @@ genInstances originalDataDec liftedDataDec = do
               ff <- newName "ff"
               let genMatch liftedConInfo originalConInfo = do
                     argNames <- replicateM (conArity liftedConInfo) (newName "x")
-                    let pat = ConP (conName liftedConInfo) $ map VarP argNames
+                    let pat = ConP (conName liftedConInfo) [] $ map VarP argNames
                         body = NormalB $ applyExp (ConE $ conName originalConInfo) $ map (AppE (VarE ff) . VarE) argNames
                     return $ Match pat body []
               arg <- newName "arg"
@@ -313,8 +316,8 @@ genInstances originalDataDec liftedDataDec = do
               let genClause originalConInfo liftedConInfo = do
                     originalArgNames <- replicateM (conArity originalConInfo) (newName "x")
                     liftedArgNames <- replicateM (conArity liftedConInfo) (newName "y")
-                    let originalPat = ConP (conName originalConInfo) $ map VarP originalArgNames
-                        liftedPat = ConP (conName liftedConInfo) $ map VarP liftedArgNames
+                    let originalPat = ConP (conName originalConInfo) [] $ map VarP originalArgNames
+                        liftedPat = ConP (conName liftedConInfo) [] $ map VarP liftedArgNames
                         body = NormalB $ foldr (\e1 e2 -> applyExp (VarE '(>>)) [e1, e2]) (AppE (VarE 'return) (ConE '())) $ zipWith (\originalArgName liftedArgName -> applyExp (VarE 'matchFL) [VarE originalArgName, VarE liftedArgName]) originalArgNames liftedArgNames
                     return $ Clause [originalPat, liftedPat] body []
               clauses <- zipWithM genClause originalConInfos liftedConInfos
@@ -332,8 +335,8 @@ genInstances originalDataDec liftedDataDec = do
                         liftedConName = conName liftedConInfo
                     liftedArgNames1 <- replicateM liftedConArity (newName "x")
                     liftedArgNames2 <- replicateM liftedConArity (newName "y")
-                    let liftedPat1 = ConP liftedConName $ map VarP liftedArgNames1
-                        liftedPat2 = ConP liftedConName $ map VarP liftedArgNames2
+                    let liftedPat1 = ConP liftedConName [] $ map VarP liftedArgNames1
+                        liftedPat2 = ConP liftedConName [] $ map VarP liftedArgNames2
                         body = NormalB $ foldr (\e1 e2 -> applyExp (VarE '(>>)) [e1, e2]) (AppE (VarE 'return) (ConE '())) $ zipWith (\liftedArgName1 liftedArgName2 -> applyExp (VarE 'lazyUnifyFL) [VarE liftedArgName1, VarE liftedArgName2]) liftedArgNames1 liftedArgNames2
                     return $ Clause [liftedPat1, liftedPat2] body []
               clauses <- mapM genClause liftedConInfos
@@ -350,7 +353,7 @@ genInstances originalDataDec liftedDataDec = do
                   liftedConArity = conArity liftedConInfo
               liftedArgNames <- replicateM liftedConArity (newName "x")
               freshLiftedArgNames <- replicateM liftedConArity (newName "y")
-              let pat = ConP liftedConName $ map VarP liftedArgNames
+              let pat = ConP liftedConName [] $ map VarP liftedArgNames
                   body = NormalB $ foldr (\ (liftedArgName, freshLiftedArgName) e -> applyExp (VarE '(>>=)) [AppE (VarE nfName) (VarE liftedArgName), LamE [VarP freshLiftedArgName] e]) (AppE (VarE 'return) $ AppE (ConE 'Result) $ AppE (VarE 'pure) $ applyExp (ConE liftedConName) $ map VarE freshLiftedArgNames) $ zip liftedArgNames freshLiftedArgNames
               return $ Match pat body []
         matches <- mapM genMatch liftedConInfos
@@ -367,7 +370,7 @@ genInstances originalDataDec liftedDataDec = do
                     let originalConArity = conArity originalConInfo
                         originalConName@(Name (OccName originalConOccString) _) = conName originalConInfo
                     originalArgNames <- replicateM originalConArity (newName "x")
-                    let originalPat = ConP (conName originalConInfo) $ map VarP originalArgNames
+                    let originalPat = ConP (conName originalConInfo) [] $ map VarP originalArgNames
                     let isTuple = originalConName == tupleDataName originalConArity
                         isInfix = head originalConOccString == ':'
                     body <- NormalB <$> if isTuple

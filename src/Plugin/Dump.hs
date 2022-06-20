@@ -12,8 +12,8 @@ module Plugin.Dump where
 
 import Control.Monad ( foldM, when )
 
-import GhcPlugins
-import TcRnTypes
+import GHC.Plugins
+import GHC.Tc.Types
 
 -- | A data type for a collection of options to dump intermediate results.
 newtype DumpOpts = DOpts { d_phases :: [DumpPhase] }

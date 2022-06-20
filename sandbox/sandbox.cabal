@@ -14,9 +14,12 @@ common deps
   default-extensions:  TemplateHaskell
   other-extensions:    NoImplicitPrelude
   build-depends:
-    base             ^>=4.14.0.0,
+    base             ^>=4.16.1.0,
     inversion-plugin -any,
-    template-haskell -any
+    template-haskell -any,
+    containers       -any,
+    deepseq          -any,
+    parallel         -any
 
 library
   import: deps
@@ -37,10 +40,6 @@ library
 executable main
   import:        deps
   main-is:       Main.hs
-  build-depends:
-    containers,
-    deepseq,
-    parallel
   other-modules:
     Conquer
     Divide

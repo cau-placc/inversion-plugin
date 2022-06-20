@@ -3,7 +3,6 @@
 {-# LANGUAGE RecursiveDo       #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE MultiWayIf        #-}
-{-# LANGUAGE LambdaCase        #-}
 {-|
 Module      : Plugin.InversionPlugin
 Description : A GHC plugin to transform GHC into a Curry-Compiler.
@@ -19,33 +18,33 @@ import Data.List
 import Data.IORef
 import Data.Either
 import Data.Maybe
-import Data.Map.Strict (elems)
+import Data.Map.Strict as Map (elems, fromList)
 import Data.Tuple.Extra (second)
 import Data.Tuple.Solo
 import Control.Monad.State
 import Control.Exception
-import Language.Haskell.TH.Syntax
-import Language.Haskell.TH  as TH (Type, Kind, Name)
+import Language.Haskell.TH.Syntax as TH
 
-import GHC.Hs
-import Plugins
-import TcRnTypes
-import GhcPlugins
-import Bag
-import TcSimplify
-import TcHsSyn
-import TcRnMonad
-import UniqMap
-import InstEnv
-import ErrUtils
-import TyCoRep
-import IfaceEnv
-import PrelNames
-import GHC.ThToHs (convertToHsDecls)
-import TcRnDriver (tcTopSrcDecls, rnTopSrcDecls)
-import Class
-import FamInst
-import TcTypeable
+import GHC
+import GHC.Core.InstEnv
+import GHC.Core.Class
+import GHC.Core.TyCo.Rep
+import GHC.Data.Bag
+import GHC.Plugins as GhcPlugins
+import GHC.Tc.Instance.Family
+import GHC.Tc.Solver
+import GHC.Tc.Types
+import GHC.Tc.Utils.Zonk
+import GHC.Types.Error
+import GHC.Types.SourceText
+import GHC.Types.TypeEnv
+import GHC.Iface.Env
+import GHC.TcPlugin.API (mkTcPlugin)
+import GHC.Tc.Utils.Monad as TcRnMonad
+import GHC.Tc.Module
+import GHC.ThToHs
+import GHC.Tc.Instance.Typeable
+import GHC.Builtin.Names
 
 import Plugin.Dump
 import Plugin.Trans.Expr
@@ -53,16 +52,18 @@ import Plugin.Trans.Type
 import Plugin.Trans.Util
 import Plugin.Trans.ClsInst
 import Plugin.Trans.TyCon
-import Plugin.Trans.Record
 import Plugin.Trans.Import
 import Plugin.Trans.TysWiredIn
 import Plugin.Trans.Preprocess
 import Plugin.Trans.Class
 import Plugin.Trans.Constr
+import Plugin.Trans.Record
+import Plugin.Trans.Solver
 import Plugin.Effect.Annotation
 import Plugin.Effect.TH
 import Plugin.Primitives
 import Plugin.Prelude ()
+
 
 -- | This GHC plugin turns GHC into a "compiler" for
 -- the functional-logic programming language Curry.
@@ -76,9 +77,9 @@ plugin = defaultPlugin
   where
     addBuiltinImp _ _ mdl@HsParsedModule { hpm_module = L l m } = do
       let impName = mkModuleName "Plugin.BuiltIn"
-      let imp = noLoc (ImportDecl noExtField NoSourceText (noLoc impName)
-                          Nothing False False NotQualified False
-                          Nothing (Just (False, noLoc [])))
+      let imp = noLocA (ImportDecl EpAnnNotUsed NoSourceText (noLocA impName)
+                          Nothing NotBoot False NotQualified False
+                          Nothing (Just (False, noLocA [])))
       let m' = m { hsmodImports = imp : hsmodImports m}
       return (mdl { hpm_module = L l m'})
 
@@ -104,30 +105,31 @@ liftMonadPlugin mdopts env = do
   -- lift datatypes, we need the result for the lifting of datatypes itself
   s <- getUniqueSupplyM
   mtycon <- getMonadTycon
+  stycon <- getShareClassTycon
   ftycon <- getFunTycon
   flags <- getDynFlags
   instEnvs <- tcGetFamInstEnvs
   res <- liftIO ((mdo
     liftedTycns <- snd <$>
-      mapAccumM (\s' t -> liftTycon flags instEnvs ftycon mtycon s' tnsM tyconsMap t)
+      mapAccumM (\s' t -> liftTycon flags instEnvs stycon ftycon mtycon s' tnsM tyconsMap t)
         s (tcg_tcs env)
     let tycns = mapMaybe (\(a,b) -> fmap (a,) b) liftedTycns
-    let tnsM = listToUniqMap tycns
+    let tnsM = listToUFM tycns
     return (Right (tycns, liftedTycns)))
     `catch` (return . Left))
 
-  -- extrect results or analyze any thrown IO errors
+  -- extract results or analyze any thrown IO errors
   (tycons, liftedTycons) <- case res of
     Left e | Just (ClassLiftingException cls reason) <- fromException e
             -> do
               let l = srcLocSpan (nameSrcLoc (getName cls))
-              TcRnMonad.reportError (mkErrMsg flags l neverQualify (text reason))
+              TcRnMonad.reportError (mkMsgEnvelope l neverQualify (text reason))
               failIfErrsM
               return ([], [])
            | Just (RecordLiftingException _ p reason) <- fromException e
             -> do
               let l = srcLocSpan (nameSrcLoc (getName p))
-              TcRnMonad.reportError (mkErrMsg flags l neverQualify (text reason))
+              TcRnMonad.reportError (mkMsgEnvelope l neverQualify (text reason))
               failIfErrsM
               return ([], [])
            | otherwise
@@ -159,16 +161,17 @@ liftMonadPlugin mdopts env = do
 
   -- update environment and remove tc plugins temporarily
   let aenv = tcg_ann_env env
-  let anns = tcg_anns env
   let aenv' = extendAnnEnvList aenv [a]
-  let anns' = a : anns
-  let tenv = plusTypeEnv (tcg_type_env env) (typeEnvFromEntities [] tcg_tcs' [])
+  let anns' = a : tcg_anns env
+  let tenv = plusTypeEnv (tcg_type_env env) (typeEnvFromEntities [] tcg_tcs' [] [])
   writeTcRef (tcg_type_env_var env) tenv
 
   let notTypeableBind :: LHsBindLR GhcTc GhcTc -> Bool
-      notTypeableBind (L _ (VarBind _ nm _ _)) = let str = occNameString (occName nm)
-                                                 in not ("$tc" `isPrefixOf` str || "$trModule" `isPrefixOf` str)
-      notTypeableBind _                        = True
+      notTypeableBind (L _ (VarBind _ nm _)) = let str = occNameString (occName nm)
+                                               in not ("$tc" `isPrefixOf` str ||
+                                                       "$trModule" `isPrefixOf` str ||
+                                                       "$krep" `isPrefixOf` str)
+      notTypeableBind _                      = True
   let env0 = env { tcg_tcs        = tcg_tcs'
                  , tcg_type_env   = tenv
                  , tcg_ann_env    = aenv'
@@ -182,7 +185,7 @@ liftMonadPlugin mdopts env = do
   -- (enable some language extentions and disable all warnings)
   setDynFlags (flip (foldl wopt_unset) [toEnum 0 ..] $
                 foldl xopt_set
-                (flags { cachedPlugins = [], staticPlugins = [] }) requiredExtensions) $
+                (flags { pluginModNames = [] }) requiredExtensions) $
     setGblEnv env1 $ do
 
     invs <- mapM (\(t1, t2) -> do
@@ -192,7 +195,7 @@ liftMonadPlugin mdopts env = do
 
     ps <- case convertToHsDecls Generated noSrcSpan (concat invs) of
       Right x -> return x
-      Left mg -> addErrsTc [mg] >> failIfErrsM >> return []
+      Left mg -> addErrs [(noSrcSpan, mg)] >> failIfErrsM >> return []
 
     dumpWith DumpGenInstances dopts ps
 
@@ -209,10 +212,19 @@ liftMonadPlugin mdopts env = do
 
       let env3 = env7 { tcg_ev_binds = evbinds7 `unionBags` tcg_ev_binds env7 }
       setGblEnv env3 $ setLclEnv lcl7 $ do
+        -- for pattern match compilation, we need the rename mapping for default methods from the class lifting
+        let extractDef (oldT, newT) = do
+              oc <- tyConClass_maybe oldT
+              nc <- tyConClass_maybe newT
+              let defaultsO = mapMaybe (\(_, mb) -> fst <$> mb) (classOpItems oc)
+              let defaultsN = mapMaybe (\(_, mb) -> fst <$> mb) (classOpItems nc)
+              return (zipWith ((,) . nameUnique) defaultsO defaultsN)
+        let defMethMap = Map.fromList $ concat $ mapMaybe extractDef tycons
+
         -- compile pattern matching
         (prep, um) <- runStateT
-          (listToBag <$> concatMapM (\(L l bind) -> Prelude.map (L l) <$> preprocessBinding True bind) (bagToList (tcg_binds env1)))
-          mempty
+          (listToBag <$> concatMapM (\(L l bind) -> Prelude.map (L l) <$> preprocessBinding False bind) (bagToList (tcg_binds env1)))
+          defMethMap
         dumpWith DumpPatternMatched dopts (bagToList prep)
 
         -- lift instance information
@@ -248,57 +260,61 @@ liftMonadPlugin mdopts env = do
         -- Remove all instances that were defined in this module
         -- from all instances that were created during compilation,
         -- and replace them with the new instances.
-        let allInsts = tcg_insts env3 ++ newInsts
+        let allInsts = tcg_insts env3 ++ newInsts -- env3 contains also derived insts
         -- For the environment, we have to keep all external instances,
         -- while replacing all local instances with the new ones.
         -- So we do the same as above,
         -- but use tcg_inst_env instead of tcg_insts.
         let newInstEnv = extendInstEnvList (tcg_inst_env env3) newInsts
         dumpWith DumpInstEnv dopts newInstEnv
-        let env4 = env3 { tcg_insts = allInsts
-                        , tcg_inst_env = newInstEnv}
-        setGblEnv env4 $ do
+        case mkTcPlugin solveShareableAnyPlugin of
+          TcPlugin { tcPluginInit = initSolve, tcPluginSolve = solve} -> do
+            solverState <- runTcPluginM initSolve (error "plugin init should not use this")
+            let env4 = env3 { tcg_insts = allInsts
+                            , tcg_inst_env = newInstEnv
+                            , tcg_tc_plugins = [solve solverState]}
+            setGblEnv env4 $ do
 
-          -- finally do the monadic lifting for functions and dicts
-          tcg_binds' <- liftBindings tyconsMap (zip newInsts origInsts) (bagToList prep)
-          let tcg_bag = listToBag $ filter (`keepWithName` umSorted) tcg_binds'
+              -- finally do the monadic lifting for functions and dicts
+              tcg_binds' <- liftBindings tyconsMap (zip newInsts origInsts) (bagToList prep)
+              let tcg_bag = listToBag $ filter (`keepWithName` umSorted) tcg_binds'
 
-          let rdr' = mkGlobalRdrEnv (map (\n -> GRE n NoParent True []) umSorted) `plusGlobalRdrEnv` tcg_rdr_env env4
+              let rdr' = mkGlobalRdrEnv (map (\n -> GRE (NormalGreName n) NoParent True []) umSorted) `plusGlobalRdrEnv` tcg_rdr_env env4
 
-          let liftedBinds = tcg_binds env4    `unionBags`
-                            tcg_bag           `unionBags`
-                            listToBag recSelAdd
+              let liftedBinds = tcg_binds env4    `unionBags`
+                                tcg_bag           `unionBags`
+                                listToBag recSelAdd
 
-          tenv3 <- readTcRef (tcg_type_env_var env4)
+              tenv3 <- readTcRef (tcg_type_env_var env4)
 
-          let env10 = env4 { tcg_binds = liftedBinds, tcg_rdr_env = rdr', tcg_type_env = tenv3 }
-          (tenvfinal, evbindsfinal, bindsfinal, _, _, _) <- zonkTopDecls (tcg_ev_binds env10) (tcg_binds env10) [] [] []
+              let env10 = env4 { tcg_binds = liftedBinds, tcg_rdr_env = rdr', tcg_type_env = tenv3 }
+              (tenvfinal, evbindsfinal, bindsfinal, _, _, _) <- zonkTopDecls (tcg_ev_binds env10) (tcg_binds env10) [] [] []
 
-          -- create the final environment with restored plugin field
-          let finalEnv = env4 { tcg_binds      = bindsfinal
-                              , tcg_tc_plugins = tcg_tc_plugins env
-                              , tcg_ev_binds   = evbindsfinal
-                              , tcg_exports    = tcg_exports env
-                              , tcg_type_env   = tenvfinal
-                              }
+              -- create the final environment with restored plugin field
+              let finalEnv = env4 { tcg_binds      = bindsfinal
+                                  , tcg_tc_plugins = tcg_tc_plugins env
+                                  , tcg_ev_binds   = evbindsfinal
+                                  , tcg_exports    = tcg_exports env
+                                  , tcg_type_env   = tenvfinal
+                                  }
 
-          let keepNames = filter (not . isDictFun) umSorted
-          nms <- mapM (externaliseName (tcg_mod env)) keepNames
-          liftIO $ modifyIORef (tcg_keep finalEnv)
-                      (`extendNameSetList` nms)
+              let keepNames = filter (not . isDictFun) umSorted
+              nms <- mapM (externaliseName (tcg_mod env)) keepNames
+              liftIO $ modifyIORef (tcg_keep finalEnv)
+                          (`extendNameSetList` nms)
 
-          return finalEnv
+              return finalEnv
   where
     liftBindings :: TyConMap -> [(ClsInst, ClsInst)] -> [LHsBindLR GhcTc GhcTc]
                  -> TcM [LHsBindLR GhcTc GhcTc]
-    liftBindings y z = fmap (map noLoc) .
+    liftBindings y z = fmap (map noLocA) .
       concatMapM (fmap fst . liftMonadicBinding False False [] y z . unLoc)
 
 toTH :: TyCon -> TcM Dec
 toTH tc = do
   m <- tcg_mod <$> getGblEnv
   let tcName' = mkName (occNameString (occName (tyConName tc)))
-      bndrs = map (PlainTV . toTHName m . varName) (tyConTyVars tc)
+      bndrs = map (flip PlainTV () . toTHName m . varName) (tyConTyVars tc)
       cons = map (toTHCons m) (tyConDataCons tc)
       synty = toTHType m $ fromJust $ synTyConRhs_maybe tc
   if | isClassTyCon tc -> return $ ClassD [] tcName' bndrs [] []
@@ -309,7 +325,7 @@ toTH tc = do
 
 toTHCons :: GhcPlugins.Module -> DataCon -> Con
 toTHCons m dc = NormalC (mkName (occNameString (occName (dataConName dc))))
-  [(b, toTHType m t) | t <- dataConOrigArgTys dc]
+  [(b, toTHType m t) | Scaled _ t <- dataConOrigArgTys dc]
   where
     b = Bang NoSourceUnpackedness NoSourceStrictness
 
@@ -325,20 +341,20 @@ toTHType m (TyConApp tc tys)
               =applyType (ConT (toTHName m (tyConName tc))) [toTHType m (last tys)]
   | otherwise = applyType (ConT (toTHName m (tyConName tc))) (map (toTHType m) tys)
 toTHType m ty@(ForAllTy _ _) = ForallT bndrs' cxt $ toTHType m ty'
-  where (bndrs, ty') = splitPiTysInvisible ty
+  where (bndrs, ty') = splitInvisPiTys ty
         (cxt, bndrs') = partitionEithers $ map categorize bndrs
         categorize (Named bndr) = Right (toTHTyVar m (binderVar bndr))
-        categorize (Anon _ pty) = Left (toTHType m pty)
-toTHType m (FunTy InvisArg ty1 ty2) = case toTHType m ty2 of
+        categorize (Anon _ (Scaled _ pty)) = Left (toTHType m pty)
+toTHType m (FunTy InvisArg _ ty1 ty2) = case toTHType m ty2 of
   ForallT vs bs ty -> ForallT vs (toTHType m ty1:bs) ty
   ty               -> ForallT [] [toTHType m ty1] ty
-toTHType m (FunTy _ ty1 ty2) = mkArrowT (toTHType m ty1) (toTHType m ty2)
+toTHType m (FunTy _ _ ty1 ty2) = mkArrowT (toTHType m ty1) (toTHType m ty2)
 toTHType _ (LitTy _) = error "type literals are not supported"
 toTHType _ (CastTy _ _) = error "kind casts are not supported"
 toTHType _ (CoercionTy _) = error "coercions are not supported"
 
-toTHTyVar :: GhcPlugins.Module -> TyVar -> TyVarBndr
-toTHTyVar m tv = KindedTV (toTHName m (varName tv)) (toTHKind m (varType tv))
+toTHTyVar :: GhcPlugins.Module -> TyVar -> TyVarBndr TH.Specificity
+toTHTyVar m tv = KindedTV (toTHName m (varName tv)) TH.SpecifiedSpec (toTHKind m (varType tv))
 
 toTHName :: GhcPlugins.Module -> GhcPlugins.Name -> TH.Name
 --toTHName n = mkNameU --mkNameG_tc  (occNameString (occName n)) (NameG ns (mkPkgName pkg) (mkModName modu))
@@ -352,7 +368,7 @@ toTHName m' n = case nameModule_maybe n of
         ns | ns == tcClsName -> TcClsName
            | ns == dataName  -> DataName
            | otherwise       -> VarName
-      pkg = unitIdString (moduleUnitId m)
+      pkg = unitString (moduleUnit m)
       mdl = moduleNameString (moduleName m)
 
 keepWithName :: LHsBind GhcTc -> [GhcPlugins.Name] -> Bool
@@ -371,27 +387,27 @@ createRdrEnv = mkGlobalRdrEnv . concatMap createEntries
     createEntries tc = p : concatMap conEntries (tyConDataCons tc)
       where
         n = tyConName tc
-        p = GRE n NoParent True []
-        conEntries c = GRE (dataConName c) (ParentIs n) True [] :
+        p = GRE (NormalGreName n) NoParent True []
+        conEntries c = GRE (NormalGreName (dataConName c)) (ParentIs n) True [] :
                        map fieldEntry (dataConFieldLabels c)
-        fieldEntry f = GRE (flSelector f) (FldParent n (Just (flLabel f)))
+        fieldEntry f = GRE (FieldGreName f) (ParentIs n)
                          True []
 
 -- | Insert the given list of type constructors into the TyConMap.
 insertNewTycons :: [(TyCon, Maybe TyCon)]
-                -> ( UniqMap TyCon TyCon
-                   , UniqMap TyCon TyCon
+                -> ( UniqFM TyCon TyCon
+                   , UniqFM TyCon TyCon
                    , UniqSet TyCon
                    , UniqSet TyCon )
-                -> ( UniqMap TyCon TyCon
-                   , UniqMap TyCon TyCon
+                -> ( UniqFM TyCon TyCon
+                   , UniqFM TyCon TyCon
                    , UniqSet TyCon
                    , UniqSet TyCon )
 insertNewTycons = flip (foldr insertNew)
   where
     insertNew (tc, mbtc) (m1, m2, s1, s2) =
-      (maybe m1 (addToUniqMap m1 tc) mbtc,
-       maybe m2 (flip (addToUniqMap m2) tc) mbtc,
+      (maybe m1 (addToUFM m1 tc) mbtc,
+       maybe m2 (flip (addToUFM m2) tc) mbtc,
        addOneToUniqSet s1 tc,
        maybe s2 (addOneToUniqSet s2) mbtc)
 
