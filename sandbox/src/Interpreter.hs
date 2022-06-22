@@ -271,7 +271,7 @@ factorial :: Integer -> Maybe Integer
 factorial x | Just (Int y) <- run [("x", Int x)] factorialProgram >>= lookup "y" = Just y
             | otherwise                                                          = Nothing
 
--- Test with: head $ $(inv 'test) (Just 3628800)
+-- Test with: head $ $(inv 'factorial True) (Just 3628800)
 
 factorialRef :: Integer -> Maybe Integer
 factorialRef x = if x < 0 then Nothing else Just (factorial' x)
