@@ -74,11 +74,11 @@ type instance Lifted m (Solo a) = SoloFL m (Lifted m a)
 instance (MonadShare m, Shareable m a) => Shareable m (SoloFL m a) where
   shareArgs (SoloFL x) = SoloFL P.<$> share x
 
-instance HasPrimitiveInfo a => HasPrimitiveInfo (SoloFL FL a) where
+instance (HasPrimitiveInfo a, Shareable FL (SoloFL FL a)) => HasPrimitiveInfo (SoloFL FL a) where
   primitiveInfo = NoPrimitive
 
-instance HasPrimitiveInfo a => Narrowable (SoloFL FL a) where
-  narrow j = [(SoloFL (free j), 1)]
+instance (HasPrimitiveInfo a, Shareable FL (SoloFL FL a)) => Narrowable (SoloFL FL a) where
+  narrow = [SoloFL free]
 
 instance To a => To (Solo a) where
   toWith tf (Solo x) = SoloFL (tf x)
@@ -113,11 +113,11 @@ type instance Lifted m (a, b) = Tuple2FL m (Lifted m a) (Lifted m b)
 instance (MonadShare m, Shareable m a, Shareable m b) => Shareable m (Tuple2FL m a b) where
   shareArgs (Tuple2FL x y) = Tuple2FL P.<$> share x P.<*> share y
 
-instance (HasPrimitiveInfo a, HasPrimitiveInfo b) => HasPrimitiveInfo (Tuple2FL FL a b) where
+instance (HasPrimitiveInfo a, HasPrimitiveInfo b, Shareable FL (Tuple2FL FL a b)) => HasPrimitiveInfo (Tuple2FL FL a b) where
   primitiveInfo = NoPrimitive
 
-instance (HasPrimitiveInfo a, HasPrimitiveInfo b) => Narrowable (Tuple2FL FL a b) where
-  narrow j = [(Tuple2FL (free j) (free (j P.- 1)), 2)]
+instance (HasPrimitiveInfo a, HasPrimitiveInfo b, Shareable FL (Tuple2FL FL a b)) => Narrowable (Tuple2FL FL a b) where
+  narrow = [Tuple2FL free free]
 
 instance (To a, To b) => To (a, b) where
   toWith tf (x1, x2) = Tuple2FL (tf x1) (tf x2)
@@ -158,11 +158,11 @@ instance (MonadShare m, Shareable m a, Shareable m (ListFL m a)) => Shareable m 
   shareArgs NilFL         = P.return NilFL
   shareArgs (ConsFL x xs) = ConsFL P.<$> share x P.<*> share xs
 
-instance (HasPrimitiveInfo a, HasPrimitiveInfo (ListFL FL a)) => HasPrimitiveInfo (ListFL FL a) where
+instance (HasPrimitiveInfo a, HasPrimitiveInfo (ListFL FL a), Shareable FL (ListFL FL a)) => HasPrimitiveInfo (ListFL FL a) where
   primitiveInfo = NoPrimitive
 
-instance (HasPrimitiveInfo a, HasPrimitiveInfo (ListFL FL a)) => Narrowable (ListFL FL a) where
-  narrow j = [(NilFL, 0), (ConsFL (free j) (free (j P.- 1)), 2)]
+instance (HasPrimitiveInfo a, HasPrimitiveInfo (ListFL FL a), Shareable FL (ListFL FL a)) => Narrowable (ListFL FL a) where
+  narrow = [NilFL, ConsFL free free]
 
 instance (To a, To [a]) => To [a] where
   toWith _  [] = NilFL
@@ -227,11 +227,11 @@ instance (MonadShare m, Shareable m a) => Shareable m (MaybeFL m a) where
   shareArgs NothingFL  = P.return NothingFL
   shareArgs (JustFL x) = JustFL P.<$> share x
 
-instance HasPrimitiveInfo a => HasPrimitiveInfo (MaybeFL FL a) where
+instance (HasPrimitiveInfo a, Shareable FL (MaybeFL FL a)) => HasPrimitiveInfo (MaybeFL FL a) where
   primitiveInfo = NoPrimitive
 
-instance HasPrimitiveInfo a => Narrowable (MaybeFL FL a) where
-  narrow j = [(NothingFL, 0), (JustFL (free j), 1)]
+instance (HasPrimitiveInfo a, Shareable FL (MaybeFL FL a)) => Narrowable (MaybeFL FL a) where
+  narrow = [NothingFL, JustFL free]
 
 instance To a => To (P.Maybe a) where
   toWith _  P.Nothing = NothingFL
@@ -273,11 +273,11 @@ type instance Lifted m (P.Ratio a) = RatioFL m (Lifted m a)
 instance (MonadShare m, Shareable m a) => Shareable m (RatioFL m a) where
   shareArgs (x :%# y) = (:%#) P.<$> share x P.<*> share y
 
-instance HasPrimitiveInfo a => HasPrimitiveInfo (RatioFL FL a) where
+instance (HasPrimitiveInfo a, Shareable FL (RatioFL FL a)) => HasPrimitiveInfo (RatioFL FL a) where
   primitiveInfo = NoPrimitive
 
-instance HasPrimitiveInfo a => Narrowable (RatioFL FL a) where
-  narrow j = [(free j :%# free (j P.- 1), 2)]
+instance (HasPrimitiveInfo a, Shareable FL (RatioFL FL a)) => Narrowable (RatioFL FL a) where
+  narrow = [free :%# free]
 
 instance To a => To (P.Ratio a) where
   toWith tf (a P.:% b) = tf a :%# tf b
@@ -745,7 +745,7 @@ instance HasPrimitiveInfo (BoolFL FL) where
   primitiveInfo = NoPrimitive
 
 instance Narrowable (BoolFL FL) where
-  narrow _ = [(FalseFL, 0), (TrueFL, 0)]
+  narrow = [FalseFL, TrueFL]
 
 instance To Bool where
   toWith _ False = FalseFL
@@ -785,7 +785,7 @@ instance HasPrimitiveInfo (UnitFL FL) where
   primitiveInfo = NoPrimitive
 
 instance Narrowable (UnitFL FL) where
-  narrow _ = [(UnitFL, 0)]
+  narrow = [UnitFL]
 
 instance To () where
   toWith _ () = UnitFL
@@ -820,7 +820,7 @@ instance HasPrimitiveInfo (OrderingFL FL) where
   primitiveInfo = NoPrimitive
 
 instance Narrowable (OrderingFL FL) where
-  narrow _ = [(LTFL , 0), (EQFL, 0), (GTFL, 0)]
+  narrow = [LTFL, EQFL, GTFL]
 
 instance To Ordering where
   toWith _ LT = LTFL
@@ -1093,6 +1093,10 @@ class Shareable FL a => EqFL a where
   (/=#) = returnFLF $ \a1 -> returnFLF $ \a2 -> notFL `appFL` apply2FL (==#) a1 a2
 
 instance EqFL (BoolFL FL) where
+  (==#) = liftFL2Convert (P.==)
+  (/=#) = liftFL2Convert (P./=)
+
+instance EqFL (OrderingFL FL) where
   (==#) = liftFL2Convert (P.==)
   (/=#) = liftFL2Convert (P./=)
 
@@ -1690,7 +1694,7 @@ primitive2Pair op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
             -- j <- 1
             -- matchFL 9 x
             -- matchFL 0 y
-            P.return (Val (Tuple2FL (free j) (free k)))
+            P.return (Val (Tuple2FL (FL $ P.return $ Var j) (FL $ P.return $ Var k)))
             where
               varsOf x'' y'' = varOf x'' P.++ varOf y''
               varOf (Var i) = [i]

@@ -108,16 +108,6 @@ lookupHeap = Map.lookup
 
 --------------------------------------------------------------------------------
 
---TODO: Check in GHC 9.0
-
-{-type Untyped = forall a. a
-
-insertBinding :: ID -> a -> Heap Untyped -> Heap Untyped
-insertBinding = insertHeap
-
-findBinding :: ID -> Heap Untyped -> Maybe a
-findBinding i = unsafeCoerce . lookupHeap i-}
-
 data Untyped = forall a. Untyped a
 
 typed :: Untyped -> a
@@ -129,12 +119,11 @@ insertBinding i = insertHeap i . Untyped
 findBinding :: ID -> Heap Untyped -> Maybe a
 findBinding i = fmap typed . lookupHeap i
 
-
 --------------------------------------------------------------------------------
 
 class Narrowable a where
-  narrow :: ID -> [(a, ID)]
-  --TODO: narrowSameConstr :: ID -> a -> (a, Integer)
+  narrow :: [a]
+  --TODO: narrowSameConstr :: a -> a
 
 --------------------------------------------------------------------------------
 
@@ -224,7 +213,7 @@ generate i = getModels i . constraints
 
 --------------------------------------------------------------------------------
 
-data PrimitiveInfo a = Narrowable a => NoPrimitive
+data PrimitiveInfo a = (Narrowable a, Shareable FL a) => NoPrimitive
                      | Constrainable a => Primitive
 
 class HasPrimitiveInfo a where
@@ -247,6 +236,7 @@ data FLState = FLState {
     heap            :: Heap Untyped,
     constraintStore :: ConstraintStore
   }
+--TODO: getrennter heap?
 
 initFLState :: FLState
 initFLState = FLState {
@@ -254,6 +244,12 @@ initFLState = FLState {
     heap            = emptyHeap,
     constraintStore = initConstraintStore
   }
+
+freshID :: ND FLState ID
+freshID = do
+  FLState { .. } <- get
+  put (FLState { nextID = nextID - 1, .. })
+  return nextID
 
 --------------------------------------------------------------------------------
 
@@ -285,18 +281,23 @@ resolveFL = resolveFL' []
                                                                Just x  -> resolveFL' (i : is) x
           HaskellVal y -> return (HaskellVal y)
 
-instantiate :: forall a. HasPrimitiveInfo a => ID -> ND FLState a
-instantiate i = get >>= \ FLState { .. } ->
-  case primitiveInfo @a of
-    NoPrimitive -> msum (map update (narrow nextID))
-      where update (x, o) = do
-              put (FLState { nextID = nextID - o, heap = insertBinding i (return @FL x) heap, .. })
-              return x
-    Primitive   -> msum (map update (generate i constraintStore))
-      where update x = do
-              let c = eqConstraint (Var i) (Val x)
-              put (FLState { heap =  insertBinding i (return @FL x) heap, constraintStore = insertConstraint c [i] constraintStore, .. })
-              return x
+instantiate :: forall a. HasPrimitiveInfo a => ID -> FL a
+instantiate i = case primitiveInfo @a of
+  NoPrimitive -> msum (map update narrow)
+    where update x = do
+            x' <- share (return x) --TODO: share necessary because argument might be free calls that need to be shared
+            FL $ do
+             modify $ \ FLState { .. } -> FLState { heap = insertBinding i x' heap, .. }
+             unFL x'
+  Primitive   -> FL $ get >>= \ FLState { .. } -> unFL $ msum (map update (generate i constraintStore))
+    where update x = do
+            let c = eqConstraint (Var i) (Val x)
+            let x' = return x --TODO: no share necessary because primitive types do not have arguments (that would be free otherwise)
+            FL $ do
+              modify $ \ FLState { .. } -> FLState { heap = insertBinding i x' heap
+                                                   , constraintStore = insertConstraint c [i] constraintStore
+                                                   , .. }
+              unFL x'
 
 {-
 resolveFL :: FL a -> ND FLState (FLVal a)
@@ -321,10 +322,10 @@ instantiate i = get >>= \ FLState { .. } ->
 -}
 
 instance Monad FL where
-  fl >>= f = FL $ resolveFL fl >>= \case
-    Var i        -> instantiate i >>= unFL . f
-    Val x        -> unFL (f x)
-    HaskellVal y -> unFL (f (to y))
+  fl >>= f = FL $ resolveFL fl >>= unFL . \case
+    Var i        -> instantiate i >>= f
+    Val x        -> f x
+    HaskellVal y -> f (to y)
 
 instance Alternative FL where
   empty = FL empty
@@ -336,10 +337,24 @@ instance MonadFail FL where
   fail s = FL (fail s)
 
 instance MonadShare FL where
-  share = return --TODO: Fix
+  share mx = memo (mx >>= shareArgs)
 
-free :: HasPrimitiveInfo a => ID -> FL a
-free i = FL (return (Var i))
+memo :: FL a -> FL (FL a)
+memo fl = FL $ do
+  i <- freshID
+  unFL $ return $ FL $ do
+    FLState { heap = heap1 } <- get --TODO: Perhaps use NamedFieldPuns?
+    case findBinding i heap1 of
+      Nothing -> unFL $ fl >>= \x -> FL $ do
+        modify $ \ FLState { heap = heap2, .. } -> FLState { heap = insertBinding i x heap2, .. }
+        return (Val x)
+      Just x  -> return (Val x)
+
+free :: HasPrimitiveInfo a => FL a
+free = FL $ freshID >>= return . Var
+
+free' :: HasPrimitiveInfo a => ID -> FL a
+free' i = FL $ return $ Var i
 
 --------------------------------------------------------------------------------
 
@@ -358,7 +373,7 @@ decomposeInjectivity = unsafeCoerce Refl
 groundNormalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> ND FLState (Result Identity (Lifted (Result Identity) a))
 groundNormalFormFL fl = resolveFL fl >>= \case
   Val x -> normalFormWith groundNormalFormFL x
-  Var i -> instantiate i >>= normalFormWith groundNormalFormFL
+  Var i -> groundNormalFormFL (instantiate i)
   HaskellVal (y :: b) -> case decomposeInjectivity @FL @a @b of
     Refl -> return (HaskellResult y)
 
@@ -370,7 +385,7 @@ normalFormFL fl = resolveFL fl >>= \case
       NoPrimitive -> return (Result (Left i))
       Primitive   -> if isUnconstrained i constraintStore
                        then return (Result (Left i))
-                       else instantiate i >>= normalFormWith normalFormFL
+                       else normalFormFL (instantiate i)
   HaskellVal (y :: b) -> case decomposeInjectivity @FL @a @b of
     Refl -> return (HaskellResult y)
 
@@ -476,7 +491,7 @@ matchFL x fl = FL $ resolveFL fl >>= \case
         if isUnconstrained i constraintStore
           then do --TODO: fallunterscheidung tauschen. da nur variablen primitiven typs constrained sein können, kann man die unterscheidung von primitive und noprimitive eigentlich weglassen. @Kai: wie siehst du das? andererseits braucht man die primitiveinfo um den kontext zur verfügung zu haben....
             put (FLState { heap = insertBinding i (toFL x) heap
-                        , .. })
+                         , .. })
             return (Val ())
           else
             let c = eqConstraint (Var i) (Val (to x))
@@ -509,10 +524,14 @@ type Output a = (Unifiable a, From a, NormalForm a)
 
 type Input a = (To a, HasPrimitiveInfo (Lifted FL a))-}
 
---TODO: eigentlich nur narrowable notwendig
+--TODO: eigentlich nur narrowable notwendig --TODO: instantiateSameConstructor
 narrowSameConstr :: (HasPrimitiveInfo (Lifted FL a), Unifiable a) => ID -> Lifted FL a -> FL ()
-narrowSameConstr i x = FL $
-  instantiate i >>= unFL . flip lazyUnify x --TODO: discuss why this is inefficient
+narrowSameConstr i x = instantiate i >>= flip lazyUnify x --TODO: discuss why this is inefficient
+
+{-
+narrowSame NilFL = NilFL
+narrowSame (ConsFL _ _) = ConsFL free free
+-}
 
 lazyUnifyVar :: forall a. (Unifiable a, HasPrimitiveInfo (Lifted FL a)) => ID -> Lifted FL a -> FL ()
 lazyUnifyVar i x = FL $ get >>= \ FLState { .. } ->
@@ -520,11 +539,18 @@ lazyUnifyVar i x = FL $ get >>= \ FLState { .. } ->
     NoPrimitive -> do
       --TODO: just narrow a single constructor
       unFL $ narrowSameConstr i x
-      {-let (y, o) = undefined
-      put (FLState { nextID = nextID - o, heap = insertBinding i (return @FL y) heap, .. })-}
+      {-
+      x' <- share (return (narrowSame x) --TODO: share necessary because argument might be free calls that need to be shared
+      FL $ do
+        modify $ \ FLState { .. } -> FLState { heap = insertBinding i x' heap, .. }
+        unFL x'
+
+      update (narrowSame x)
+      -}
     Primitive -> do
       let c = eqConstraint (Var i) (Val x)
-      put (FLState { heap =  insertBinding i (return @FL x) heap, constraintStore = insertConstraint c [i] constraintStore, .. })
+      put (FLState { heap = insertBinding i (return @FL x) heap
+                   , constraintStore = insertConstraint c [i] constraintStore, .. })
       return (Val ())
 
 {-instance Unifiable a => Unifiable [a] where
@@ -564,7 +590,7 @@ lazyUnifyFL fl1 fl2 = FL $ resolveFL fl2 >>= \case
                     constraintStore' = insertConstraint c [i, j] constraintStore
                 in if isConsistent constraintStore'
                      then do
-                       put (FLState { heap = insertBinding i (free @(Lifted FL a) j) heap
+                       put (FLState { heap = insertBinding i (FL (return (Var @(Lifted FL a) j))) heap
                                     , constraintStore = constraintStore'
                                     , .. })
                        return (Val ())
@@ -620,7 +646,7 @@ lazyUnifyFL fl1 fl2 = FL $ resolveFL fl2 >>= \case
 --------------------------------------------------------------------------------
 
 --TODO: no longer needed, just for sanity checking if all necessary instances are defined for built-in types
-class (From a, To a, Matchable a, Unifiable a, NormalForm a, HasPrimitiveInfo (Lifted FL a), ShowFree a) => Invertible a
+class (From a, To a, Matchable a, Unifiable a, NormalForm a, Shareable FL (Lifted FL a), HasPrimitiveInfo (Lifted FL a), ShowFree a) => Invertible a
 
 --------------------------------------------------------------------------------
 

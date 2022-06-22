@@ -60,7 +60,7 @@ liftTHNameQ name = do
     then return liftedName
     else fail $ "No inverse for " ++ show name
 
-var :: Integer -> a
+var :: Integer -> a --TODO: Use Int
 var _ = error "var is undefined outside of input and output classes"
 
 getFunArity :: Name -> Q Int
@@ -203,10 +203,6 @@ renameTcInfo suffix (TcInfo tcNm vs cis) = TcInfo tcNm (map rename vs) (map rena
         renameVar ty = ty
         rename (Name (OccName str) nf) = Name (OccName (str ++ suffix)) nf
 
-mkNarrowEntry :: Name -> ConInfo -> Exp
-mkNarrowEntry idName conInfo = mkTupleE [conExp, mkIntExp (conArity conInfo)]
-  where conExp = foldl (\conExp' idOffset -> AppE conExp' (mkFreeP (mkMinus (VarE idName) (mkIntExp idOffset)))) (ConE $ conName conInfo) [0 .. conArity conInfo - 1]
-
 mkPlus :: Exp -> Exp -> Exp
 mkPlus e1 e2 = applyExp (VarE '(+)) [e1, e2]
 
@@ -270,15 +266,14 @@ genInstances originalDataDec liftedDataDec = do
       genHasPrimitiveInfo = do
         let body = NormalB $ ConE 'NoPrimitive
             dec = FunD 'primitiveInfo [Clause [] body []]
-            ctxt = map mkHasPrimitiveInfoConstraint liftedConArgs
+            ctxt = map mkHasPrimitiveInfoConstraint liftedConArgs ++ [mkShareableConstraint liftedTy]
         return $ InstanceD Nothing ctxt (mkHasPrimitiveInfoConstraint liftedTy) [dec]
 
       genNarrowable = do
-        jName <- newName "j"
-        let entries = map (mkNarrowEntry jName) liftedConInfos
+        let entries = map (\liftedConInfo -> applyExp (ConE $ conName liftedConInfo) (replicate (conArity liftedConInfo) (VarE 'free))) liftedConInfos
             body = NormalB $ ListE entries
-            dec = FunD 'narrow [Clause [VarP jName] body []]
-            ctxt = map mkHasPrimitiveInfoConstraint liftedConArgs
+            dec = FunD 'narrow [Clause [] body []]
+            ctxt = map mkHasPrimitiveInfoConstraint liftedConArgs ++ [mkShareableConstraint liftedTy]
         return $ InstanceD Nothing ctxt (mkNarrowableConstraint liftedTy) [dec]
 
       genTo = do

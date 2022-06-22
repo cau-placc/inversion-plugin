@@ -1,8 +1,10 @@
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeFamilies          #-}
+{-# LANGUAGE UndecidableInstances  #-}
+
 {-# OPTIONS_GHC -Wno-orphans #-}
 module Plugin.BuiltIn.Identity where
 
@@ -16,11 +18,11 @@ newtype IdentityFL m a = IdentityFL (m a)
 type instance Lifted m Identity = IdentityFL m
 type instance Lifted m (Identity a) = IdentityFL m (Lifted m a)
 
-instance HasPrimitiveInfo a => HasPrimitiveInfo (IdentityFL FL a) where
+instance (HasPrimitiveInfo a, Shareable FL (IdentityFL FL a)) => HasPrimitiveInfo (IdentityFL FL a) where
   primitiveInfo = NoPrimitive
 
-instance HasPrimitiveInfo a => Narrowable (IdentityFL FL a) where
-  narrow j = [(IdentityFL (free j), 1)]
+instance (HasPrimitiveInfo a, Shareable FL (IdentityFL FL a)) => Narrowable (IdentityFL FL a) where
+  narrow = [IdentityFL free]
 
 instance To a => To (Identity a) where
   toWith tf (Identity x) = IdentityFL (tf x)
