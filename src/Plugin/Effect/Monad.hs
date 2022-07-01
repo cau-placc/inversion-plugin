@@ -22,10 +22,10 @@ module Plugin.Effect.Monad where
 
 import Control.Exception
 import Control.Applicative     (Alternative(..))
-import Control.Monad.Codensity (Codensity(..))
+import Control.Monad.Codensity
 import Control.Monad.Identity
 import Control.Monad.Reader
-import Control.Monad.SearchTree
+import Control.Monad.SearchTree hiding (Search)
 import Control.Monad.State
 
 import           Data.Kind                 (Type)
@@ -50,21 +50,29 @@ import Test.ChasingBottoms.IsBottom (isBottom)
 
 import Unsafe.Coerce (unsafeCoerce)
 
+import Debug.Trace
+
 --------------------------------------------------------------------------------
 
 class Monad m => MonadShare m where
   share :: Shareable m a => m a -> m (m a)
 
+class Monad m => MonadShare2 m where
+  share2 :: Shareable2 m a => m a -> m (m a)
+
  -- adding MonadShare here as a context leads to a bug in the plugin when a quantified constraint ocurrs.
 class Shareable m a where
   shareArgs :: a -> m a
 
+class MonadShare2 m => Shareable2 m a where
+  shareArgs2 :: a -> m a
+
 --------------------------------------------------------------------------------
 
-type ND s = Codensity (ReaderT s Search)
+type ND s = StateT s Search
 
 evalND :: ND s a -> s -> [a]
-evalND nd = search . runReaderT (runCodensity nd return)
+evalND nd = search . evalStateT nd
   where
 #ifdef DEPTH_FIRST
     search = dfs
@@ -231,6 +239,14 @@ data FLVal (a :: Type) where
 
 --------------------------------------------------------------------------------
 
+-- data FLState2 = FLState2 {
+--     nextID2          :: ID,
+--     heap2            :: Heap Untyped,
+--     nextVarID        :: ID,
+--     varHeap          :: Heap Untyped,
+--     constraintStore2 :: ConstraintStore
+--   }
+
 data FLState = FLState {
     nextID          :: ID,
     heap            :: Heap Untyped,
@@ -336,6 +352,14 @@ instance MonadPlus FL
 instance MonadFail FL where
   fail s = FL (fail s)
 
+instance MonadFix FL where
+  mfix f = FL $ mfix (unFL . f . unVal)
+    where
+      unVal (Val x) = x
+      unVal _ = error "Not a Val in mfix"
+
+--TODO: MonadState etc. auf FL definieren (convinient)
+
 instance MonadShare FL where
   share mx = memo (mx >>= shareArgs)
 
@@ -343,12 +367,12 @@ memo :: FL a -> FL (FL a)
 memo fl = FL $ do
   i <- freshID
   unFL $ return $ FL $ do
-    FLState { heap = heap1 } <- get --TODO: Perhaps use NamedFieldPuns?
+    FLState { heap = heap1 } <- get
     case findBinding i heap1 of
-      Nothing -> unFL $ fl >>= \x -> FL $ do
-        modify $ \ FLState { heap = heap2, .. } -> FLState { heap = insertBinding i x heap2, .. }
-        return (Val x)
-      Just x  -> return (Val x)
+      Nothing -> trace ("nothing" ++ show i) $ unFL fl >>= \x -> do
+        modify $ \ ~(FLState { heap = heap2, .. }) -> FLState { heap = insertBinding i x heap2, .. }
+        return x
+      Just x  -> trace ("just" ++ show i) $ return x
 
 free :: HasPrimitiveInfo a => FL a
 free = FL $ freshID >>= return . Var
@@ -369,6 +393,26 @@ class NormalForm a where
 -- Thus, we create the proof manually using unsafeCoerce
 decomposeInjectivity :: Lifted m a ~ Lifted m b => a :~: b
 decomposeInjectivity = unsafeCoerce Refl
+
+--groundNormalFormFL :: FL a -> FL a
+
+-- groundNormalFormFL :: FL a -> ND FLState (Identity (TODO Identity a))
+--TODO m (BoolM FL) = BoolM m
+--TODO m (ListM FL) = ListM m
+--TODO m (ListM FL a) = ListM m (TODO m a)
+-- groundNormalFormFL :: FL (Lifted FL a) -> ND FLState (Identity (Lifted Identity a))
+
+--evalFL' :: FL a -> ND FLState a
+--evalND :: ND s a -> s -> [a]
+
+--evalFL :: FL a -> [a]
+--evalFL ... = evalND
+
+-- evalFL :: FL (Lifted FL a) -> [Lifted FL a]
+
+-- from :: Lifted FL a -> a
+--
+
 
 groundNormalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> ND FLState (Result Identity (Lifted (Result Identity) a))
 groundNormalFormFL fl = resolveFL fl >>= \case

@@ -1,10 +1,13 @@
 module Plugin.Effect.Tree
  ( module Control.Monad.SearchTree
+ , Search, searchTree
  , dfs, bfs, ps )
  where
 
 import Control.Concurrent
-import Control.Monad.SearchTree
+import Control.Monad.Codensity
+import Control.Monad.Fix
+import Control.Monad.SearchTree hiding (Search, searchTree)
 
 import           Data.Maybe
 
@@ -12,6 +15,27 @@ import qualified Data.Sequence as Seq
 
 import System.IO.Unsafe
 import System.Mem.Weak
+
+type Search = Codensity SearchTree
+
+instance MonadFix m => MonadFix (Codensity m) where
+    mfix f = Codensity $ \k -> mfix (lowerCodensity . f) >>= k
+
+instance MonadFix SearchTree where
+  mfix f = case fix (f . unOne) of
+    None -> None
+    One x -> One x
+    Choice _ _ -> Choice (mfix (lT . f)) (mfix (rT . f))
+    where
+      unOne (One x) = x
+      unOne _ = error "Not a Leaf in mfix"
+      lT (Choice x _) = x
+      lT _ = error "Not a Node in mfix"
+      rT (Choice _ x) = x
+      rT _ = error "Not a Node in mfix"
+
+searchTree :: Search a -> SearchTree a
+searchTree = lowerCodensity
 
 dfs :: Search a -> [a]
 dfs t' = dfs' [searchTree t']

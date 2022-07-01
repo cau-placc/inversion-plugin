@@ -42,6 +42,8 @@
 module Plugin.BuiltIn where
 
 import qualified Control.Monad as P
+import           Control.Monad.Codensity (Codensity(..))
+import           Control.Monad.Fix
 import qualified GHC.Base      as P hiding (mapM)
 import qualified GHC.Real      as P
 import qualified GHC.Exts      as P
@@ -157,6 +159,10 @@ type instance Lifted m [a] = ListFL m (Lifted m a)
 instance (MonadShare m, Shareable m a, Shareable m (ListFL m a)) => Shareable m (ListFL m a) where
   shareArgs NilFL         = P.return NilFL
   shareArgs (ConsFL x xs) = ConsFL P.<$> share x P.<*> share xs
+
+instance (Shareable2 m a, Shareable2 m (ListFL m a)) => Shareable2 m (ListFL m a) where
+  shareArgs2 NilFL         = P.return NilFL
+  shareArgs2 (ConsFL x xs) = ConsFL P.<$> share2 x P.<*> share2 xs
 
 instance (HasPrimitiveInfo a, HasPrimitiveInfo (ListFL FL a), Shareable FL (ListFL FL a)) => HasPrimitiveInfo (ListFL FL a) where
   primitiveInfo = NoPrimitive
@@ -1705,3 +1711,49 @@ data Anything
 
 instance Shareable FL Anything where
   shareArgs = P.return
+
+test3 :: FL (ListFL FL (ListFL FL (BoolFL FL)))
+test3 = do
+  x <- mfix (\x -> share (P.return (ConsFL (P.return (ConsFL (P.return FalseFL P.<|> P.return TrueFL) (P.return NilFL))) x)))
+  x
+
+test5 :: FL (ListFL FL (BoolFL FL))
+test5 = do
+  x <- share (P.return (ConsFL (P.return FalseFL P.<|> P.return TrueFL) (P.return NilFL)))
+  x
+
+test5' :: FL (ListFL FL (BoolFL FL))
+test5' = do
+  x <- mfix (\x -> share (P.return (ConsFL (P.return FalseFL P.<|> P.return TrueFL) (P.return NilFL))))
+  x
+
+test4 :: FL (ListFL FL (BoolFL FL))
+test4 = do
+  x <- mfix (\x -> share (P.return (ConsFL (P.return FalseFL P.<|> P.return TrueFL) x)))
+  x
+
+test2 :: FL (ListFL FL (BoolFL FL))
+test2 = do
+  x <- mfix (\x -> share (P.return (ConsFL (free) x)))
+  x
+
+test :: FL (ListFL FL (BoolFL FL))
+test = do
+  (x, _) <- mfix (\(~(x', y')) -> (,) P.<$> share (P.return (ConsFL (P.return FalseFL P.<|> P.return TrueFL) y'))
+                                      P.<*> share (P.return (ConsFL (P.return FalseFL P.<|> P.return TrueFL) x')))
+  x
+
+testTake :: FL (ListFL FL a :--> Tuple3FL FL a a a)
+testTake = P.return $ Func $ \xs -> xs P.>>= \case
+  ConsFL y ys -> ys P.>>= \case
+    ConsFL z zs -> zs P.>>= \case
+      ConsFL a as -> P.return (Tuple3FL y z a)
+
+testExpr = P.map fromIdentity $ evalFLWith groundNormalFormFL (testTake `appFL` test)
+testExpr2 = P.map fromIdentity $ evalFLWith groundNormalFormFL (testTake `appFL` test2)
+testExpr3 = P.map fromIdentity $ evalFLWith groundNormalFormFL (testTake `appFL` test3)
+
+testExpr4 = P.map fromIdentity $ evalFLWith groundNormalFormFL (testTake `appFL` test4)
+testExpr5 = P.map fromIdentity $ evalFLWith groundNormalFormFL (test5)
+
+testExpr5' = P.map fromIdentity $ evalFLWith groundNormalFormFL (test5')

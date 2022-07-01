@@ -133,6 +133,7 @@ common deps
     Plugin.Trans.Var
     SBVTest
     What4Test
+    Plugin.TestShare
 
 library
   import: deps
