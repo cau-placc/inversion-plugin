@@ -99,6 +99,11 @@ instance NormalForm a => NormalForm (Solo a) where
     SoloFL x ->
       nf x P.>>= \y ->
         P.return (Result (P.pure (SoloFL y)))
+-- instance NormalForm a => NormalForm (SoloFL FL a) where
+--   normalFormWith nf = \case
+--     SoloFL x ->
+--       nf x P.>>= \y ->
+--         P.return (SoloFL (P.return y))
 
 instance ShowFree a => ShowFree (Solo a) where
   showsFreePrec' d (Solo x) = P.showParen (d P.> 10) $
@@ -139,6 +144,12 @@ instance (NormalForm a, NormalForm b) => NormalForm (a, b) where
       nf x1 P.>>= \y1 ->
         nf x2 P.>>= \y2 ->
         P.return (Result (P.pure (Tuple2FL y1 y2)))
+-- instance (NormalForm a, NormalForm b) => NormalForm (Tuple2FL FL a b) where
+--   normalFormWith nf = \case
+--     Tuple2FL x1 x2 ->
+--       nf x1 P.>>= \y1 ->
+--         nf x2 P.>>= \y2 ->
+--           P.return (Tuple2FL (P.return y1) (P.return y2))
 
 instance (ShowFree a, ShowFree b) => ShowFree (a, b) where
   showsFreePrec' _ (x1, x2) = P.showString "(" P.. showsFree x1 P.. P.showString "," P.. showsFree x2 P.. P.showString ")"
@@ -160,7 +171,7 @@ instance (MonadShare m, Shareable m a, Shareable m (ListFL m a)) => Shareable m 
   shareArgs NilFL         = P.return NilFL
   shareArgs (ConsFL x xs) = ConsFL P.<$> share x P.<*> share xs
 
-instance (Shareable2 m a, Shareable2 m (ListFL m a)) => Shareable2 m (ListFL m a) where
+instance (MonadShare2 m, Shareable2 m a, Shareable2 m (ListFL m a)) => Shareable2 m (ListFL m a) where
   shareArgs2 NilFL         = P.return NilFL
   shareArgs2 (ConsFL x xs) = ConsFL P.<$> share2 x P.<*> share2 xs
 
@@ -195,6 +206,13 @@ instance (NormalForm a, NormalForm [a]) => NormalForm [a] where
         nf x P.>>= \y ->
           nf xs P.>>= \ys ->
             P.return (Result (P.pure (ConsFL y ys)))
+-- instance (NormalForm a, NormalForm (ListFL FL a)) => NormalForm (ListFL FL a) where
+--   normalFormWith nf = \case
+--       NilFL -> P.return NilFL
+--       ConsFL x xs -> FL $
+--         unFL (nf x) P.>>= \y ->
+--           unFL (nf xs) P.>>= \ys ->
+--             unFL (P.return (ConsFL (FL (P.return y)) (FL (P.return ys))))
 
 instance (ShowFree a, ShowFree [a]) => ShowFree [a] where
   showsFreePrec' _ []     = P.showString "[]"

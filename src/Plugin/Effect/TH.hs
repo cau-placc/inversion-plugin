@@ -356,6 +356,21 @@ genInstances originalDataDec liftedDataDec = do
             dec = FunD 'normalFormWith [Clause [VarP nfName] body []]
             ctxt = map mkNormalFormConstraint originalConArgs
         return $ InstanceD Nothing ctxt (mkNormalFormConstraint originalTy) [dec]
+      -- genNormalForm = do
+      --   nfName <- newName "nf"
+      --   let genMatch liftedConInfo = do
+      --         let liftedConName = conName liftedConInfo
+      --             liftedConArity = conArity liftedConInfo
+      --         liftedArgNames <- replicateM liftedConArity (newName "x")
+      --         freshLiftedArgNames <- replicateM liftedConArity (newName "y")
+      --         let pat = ConP liftedConName [] $ map VarP liftedArgNames
+      --             body = NormalB $ foldr (\ (liftedArgName, freshLiftedArgName) e -> applyExp (VarE '(>>=)) [AppE (VarE nfName) (VarE liftedArgName), LamE [VarP freshLiftedArgName] e]) (AppE (VarE 'return) $ applyExp (ConE liftedConName) $ map VarE freshLiftedArgNames) $ zip liftedArgNames freshLiftedArgNames
+      --         return $ Match pat body []
+      --   matches <- mapM genMatch liftedConInfos
+      --   let body = NormalB (LamCaseE matches)
+      --       dec = FunD 'normalFormWith [Clause [VarP nfName] body []]
+      --       ctxt = map mkNormalFormConstraint liftedConArgs
+      --   return $ InstanceD Nothing ctxt (mkNormalFormConstraint liftedTy) [dec]
 
       genShowFree = do
         --TODO: improve for infix declarations
@@ -384,6 +399,7 @@ genInstances originalDataDec liftedDataDec = do
                    , mkMatchableConstraint originalTy
                    , mkUnifiableConstraint originalTy
                    , mkNormalFormConstraint originalTy
+                   --, mkNormalFormConstraint (mkLifted (ConT ''FL) originalTy)
                    , mkHasPrimitiveInfoConstraint (mkLifted (ConT ''FL) originalTy)
                    , mkShowFreeConstraint originalTy
                    ] ++ map mkInvertibleConstraint originalConArgs

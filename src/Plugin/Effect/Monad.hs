@@ -8,6 +8,7 @@
 {-# LANGUAGE GADTs                     #-}
 {-# LANGUAGE LambdaCase                #-}
 {-# LANGUAGE MultiParamTypeClasses     #-}
+{-# LANGUAGE QuantifiedConstraints     #-}
 {-# LANGUAGE RankNTypes                #-}
 {-# LANGUAGE RecordWildCards           #-}
 {-# LANGUAGE ScopedTypeVariables       #-}
@@ -57,15 +58,9 @@ import Debug.Trace
 class Monad m => MonadShare m where
   share :: Shareable m a => m a -> m (m a)
 
-class Monad m => MonadShare2 m where
-  share2 :: Shareable2 m a => m a -> m (m a)
-
  -- adding MonadShare here as a context leads to a bug in the plugin when a quantified constraint ocurrs.
 class Shareable m a where
   shareArgs :: a -> m a
-
-class MonadShare2 m => Shareable2 m a where
-  shareArgs2 :: a -> m a
 
 --------------------------------------------------------------------------------
 
@@ -103,7 +98,16 @@ type ID = Int --TODO: Enum voraussetzen, damit man mit pred den vrogänger berec
 
 --------------------------------------------------------------------------------
 
+--TODO: Rename heap to Dict, store, map
 type Heap a = Map ID a --TODO: intmap oder gar intmap von maja r.
+
+
+{-class
+  type ID
+  type
+  emptyMap -}
+
+-- type Heap a
 
 emptyHeap :: Heap a
 emptyHeap = Map.empty
@@ -247,27 +251,127 @@ data FLVal (a :: Type) where
 --     constraintStore2 :: ConstraintStore
 --   }
 
+--TODO: Rename heap to store
+
+{-
+varHeap:
+match-Setting:
+ID -> a (mit a FL-gelifted HNF)
+unify-Setting:
+ID -> FL a (also ganze monadische berechnungen, die lazy gebindet werden können)
+
+memoHeap:
+ID -> FLVal a
+
+lookupHeap :: ID -> Heap -> a
+lookupHeap :: ID -> Heap -> Maybe (FLVal a)
+insertHeap :: ID -> FLVal a -> Heap -> Heap
+-}
+
+--nextID :: ID -> ID
+--nextID = pred
+
 data FLState = FLState {
-    nextID          :: ID,
-    heap            :: Heap Untyped,
+    {-memoID          :: ID,
+    memoMap         :: Heap Untyped
+    varID           :: ID
+    varMap          :: Heap Untyped,-}
+    nextID :: ID,
+    heap :: Heap Untyped,
     constraintStore :: ConstraintStore
   }
 --TODO: getrennter heap?
 
 initFLState :: FLState
 initFLState = FLState {
-    nextID          = -1,
-    heap            = emptyHeap,
+    {-memoID          = -1,
+    memoMap         = emptyHeap,
+    varID           = -1,
+    varMap          = emptyHeap-}
+    nextID = -1,
+    heap = emptyHeap,
     constraintStore = initConstraintStore
   }
 
 freshID :: ND FLState ID
 freshID = do
   FLState { .. } <- get
-  put (FLState { nextID = nextID - 1, .. })
+  put (FLState { nextID = pred nextID, .. })
   return nextID
 
 --------------------------------------------------------------------------------
+
+
+class NDState s where
+  memoID :: s -> ID
+  setMemoID :: ID -> s -> s
+  memoMap :: s -> Map ID Untyped
+  setMemoMap :: Map ID Untyped -> s -> s
+
+type ND2 s = StateT s Search
+
+evalND2 :: NDState s => ND2 s a -> s -> [a]
+evalND2 nd = bfs . evalStateT nd
+
+instance NDState s => MonadShare (ND2 s) where
+  --share :: ND2 s a -> ND2 s (ND2 s a)
+  share nd = do
+    i <- gets memoID
+    modify $ setMemoID (succ i)
+    return $ do
+      map1 <- gets memoMap
+      case findBinding i map1 of
+        Nothing -> nd >>= \x -> do
+          modify $ \s -> setMemoMap (insertBinding i x (memoMap s)) s
+          return x
+        Just x  -> return x
+
+data FLState2 = FLState2 {
+    _memoID         :: ID,
+    _memoMap        :: Heap Untyped,
+    varID           :: ID,
+    varMap          :: Heap Untyped
+  }
+
+instance NDState FLState2 where
+  memoID = _memoID
+  memoMap = _memoMap
+  setMemoID i s = s { _memoID = i }
+  setMemoMap m s = s { _memoMap = m } --TODO: fix
+  --setMemoMap m ~(FLState2 { .. }) = FLState2 { _memoMap = m, .. }
+
+newtype FL2 a = FL2 { unFL2 :: ND2 FLState2 (FLVal a) }
+
+class Monad m => MonadShare2 m where
+  share2 :: Shareable2 m a => m a -> m (m a)
+  --share2 :: forall a. (forall m2. MonadShare m2 => Shareable2 m2 a) => m a -> m (m a)
+
+class MonadShare2 m => Shareable2 m a where
+  shareArgs2 :: a -> m a
+
+instance (MonadShare2 m, Shareable2 m a) => Shareable2 m (FLVal a) where
+  shareArgs2 (Var i) = return (Var i)
+  shareArgs2 (Val x) = fmap Val (shareArgs2 x)
+
+instance Functor FL2
+  fmap = liftM
+
+instance Applicative FL2
+  pure x = FL2 (pure (Val x))
+  (<*>) = ap
+
+instance Monad FL2
+
+instance (forall a. Shareable2 (ND2 FLState2) a) => MonadShare2 FL2 where
+  --share :: FL a -> FL (FL a)
+  --share :: ND (FLVal a) -> ND (ND (FLVal a))
+  --share :: FL a -> ND (FL a)
+  share2 fl = FL2 (fmap (Val . FL2) (share2 (unFL2 fl)))
+
+-- Damit die instanz funktioniert, muss die typklasse monadshare aus kpaitel sowieso einen etwas generalisierten typ haben, der wie folgt lautet:
+--class Monad m => MonadShare2 m where
+  --share2 :: Shareable2 m a => m a -> m (m a)
+  --share2 :: forall a. (forall m2. MonadShare m2 => Shareable2 m2 a) => m a -> m (m a)
 
 newtype FL a = FL { unFL :: ND FLState (FLVal a) }
 
@@ -369,10 +473,10 @@ memo fl = FL $ do
   unFL $ return $ FL $ do
     FLState { heap = heap1 } <- get
     case findBinding i heap1 of
-      Nothing -> trace ("nothing" ++ show i) $ unFL fl >>= \x -> do
+      Nothing -> unFL fl >>= \x -> do
         modify $ \ ~(FLState { heap = heap2, .. }) -> FLState { heap = insertBinding i x heap2, .. }
         return x
-      Just x  -> trace ("just" ++ show i) $ return x
+      Just x  -> return x
 
 free :: HasPrimitiveInfo a => FL a
 free = FL $ freshID >>= return . Var
@@ -385,9 +489,14 @@ free' i = FL $ return $ Var i
 data Result (f :: Type -> Type) (a :: Type) where
   Result :: f a -> Result f a
   HaskellResult :: b -> Result f (Lifted (Result f) b)
+-- {-data Result (f :: Type -> Type) (a :: Type) where
+--   Result :: f a -> Result f a
+--   HaskellResult :: b -> Result f (Lifted (Result f) b)-}
 
 class NormalForm a where
   normalFormWith :: Applicative m => (forall b. NormalForm b => FL (Lifted FL b) -> ND FLState (Result m (Lifted (Result m) b))) -> Lifted FL a -> ND FLState (Result m (Lifted (Result m) a))
+-- class NormalForm a where
+--   normalFormWith :: (forall b. NormalForm b => FL b -> FL b) -> a -> FL a
 
 -- TODO: GHC injectivity check cannot do decomposition, https://gitlab.haskell.org/ghc/ghc/-/issues/10833
 -- Thus, we create the proof manually using unsafeCoerce
@@ -432,6 +541,31 @@ normalFormFL fl = resolveFL fl >>= \case
                        else normalFormFL (instantiate i)
   HaskellVal (y :: b) -> case decomposeInjectivity @FL @a @b of
     Refl -> return (HaskellResult y)
+{-
+FL $ nd >>= \case
+  Val x -> unFL $ nf normalFormFL x
+  Var i -> get >>= \FLState { .. } -> case findBinding i heap of
+    Nothing -> return (Var i)
+    Just x  -> unFL $ nf normalFormFL x
+    -}
+
+-- TODO: we could just use >>= here, but this would be more strict on haskellvals than needed.
+-- groundNormalFormFL :: NormalForm a => FL a -> FL a
+-- groundNormalFormFL fl = FL $ resolveFL fl >>= \case
+--   Val x        -> unFL $ normalFormWith groundNormalFormFL x
+--   Var i        -> unFL $ groundNormalFormFL (instantiate i)
+--   HaskellVal y -> return (HaskellVal y)
+
+-- normalFormFL :: forall a. NormalForm a => FL a -> FL a
+-- normalFormFL fl = FL $ resolveFL fl >>= \case
+--   Val x -> unFL $ normalFormWith normalFormFL x
+--   Var i -> get >>= \ FLState { .. } ->
+--     case primitiveInfo @a of --TODO: eigentlich nicht notwendig, da nicht primitive typen immer unconstrained sind, aber so spart man sich ggf. das nachschlagen und die unterscheidung wird auch hier konsequent umgesetzt.
+--       NoPrimitive -> return (Var i)
+--       Primitive   -> if isUnconstrained i constraintStore
+--                        then return (Var i)
+--                        else unFL $ normalFormFL (instantiate i)
+--   HaskellVal y -> return (HaskellVal y)
 
 {-groundNormalFormFL :: NormalForm a => FL (Lifted FL a) -> ND FLState (Identity (Lifted Identity a))
 groundNormalFormFL fl = resolveFL fl >>= \case
@@ -456,6 +590,10 @@ normalFormFL fl = resolveFL fl >>= \case
 
 evalFLWith :: NormalForm a => (forall b. NormalForm b => FL (Lifted FL b) -> ND FLState (m (Lifted m b))) -> FL (Lifted FL a) -> [m (Lifted m a)]
 evalFLWith nf fl = evalND (nf fl) initFLState
+--map fromFLVal $ evalFL (groundNormalFormFL ...)
+
+-- evalFL :: FL a -> [FLVal a]
+-- evalFL fl = evalND (unFL fl) initFLState
 
 --TODO: mit dre run equality stimmt nicht ganz, da das nur für die grundnormalform gilt. für die normalform ist trotzdem noch evalFL x /= evalFL (x >>= return)
 
@@ -489,31 +627,55 @@ showsVarPrec d i = showParen (d > 10) (showString ("var " ++ showsPrec 11 i ""))
 
 class To a where
   toWith :: (forall b. To b => b -> FL (Lifted FL b)) -> a -> Lifted FL a
+-- class To a where
+--   toWith :: (forall b. To b => b -> FL (Lifted FL b)) -> a -> Lifted FL a
+
+-- to :: To a => a -> Lifted FL a
+-- to = toWith toFL
+
+-- toFL :: To a => a -> FL (Lifted FL a)
+-- toFL x = FL (return (HaskellVal x))
 
 to :: To a => a -> Lifted FL a
 to = toWith toFL
+-- data FreeVariableException = FreeVariableException ID
 
 toFL :: To a => a -> FL (Lifted FL a)
 toFL x = FL (return (HaskellVal x))
+-- instance Show FreeVariableException where
+--   show (FreeVariableException _) = "free variable occured"
 
 class From a where
   fromWith :: (forall b. From b => m (Lifted m b) -> b) -> Lifted m a -> a
+-- instance Exception FreeVariableException
 
 fromM :: forall m a. From a => (forall b. m b -> b) -> Result m (Lifted (Result m) a) -> a
 fromM unM = \case
   HaskellResult (y :: b) -> case decomposeInjectivity @(Result m) @a @b of
     Refl -> y -- unsafeCoerce y
   Result x -> (fromWith (fromM unM) . unM) x
+-- class From a where
+--   fromWith :: (forall b. From b => FL (Lifted FL b) -> b) -> Lifted FL a -> a
 
 fromIdentity :: From a => Result Identity (Lifted (Result Identity) a) -> a
 fromIdentity = fromM runIdentity
+-- fromFLVal :: forall a. From a => FLVal (Lifted FL a) -> a
+-- fromFLVal = \case
+--   Val x -> fromWith fromFL x
+--   Var i -> throw (FreeVariableException i)
+--   HaskellVal (y :: b) -> case decomposeInjectivity @FL @a @b of
+--     Refl -> y
 
 data FreeVariableException = FreeVariableException ID
+-- fromFL :: From a => FL (Lifted FL a) -> a
+-- fromFL fl = fromFLVal (head (evalFL fl))
 
 instance Show FreeVariableException where
   show (FreeVariableException _) = "free variable occured"
+-- --from2 :: Lifted FL a -> FL a
 
 instance Exception FreeVariableException
+-- --fromFL2 :: FL (Lifted FL a) -> FL a
 
 fromEither :: From a => Result (Either ID) (Lifted (Result (Either ID)) a) -> a
 fromEither = fromM (either (throw . FreeVariableException) id)
@@ -708,6 +870,8 @@ type instance Lifted m ((->) a b) = (-->) m (Lifted m a) (Lifted m b)
 
 instance (From a, NormalForm a, To b) => To (a -> b) where
   toWith _ f = Func $ \x -> FL $ groundNormalFormFL x >>= (unFL . toFL' . f . fromIdentity)
+--instance (From a, NormalForm (Lifted FL a), To b) => To (a -> b) where
+  --toWith _ f = Func $ \x -> toFL' (f (fromFL (groundNormalFormFL x)))
 
 instance MonadShare m => Shareable m ((-->) m a b) where
   shareArgs (Func !f) = return (Func f)

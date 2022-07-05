@@ -18,9 +18,11 @@ import System.Mem.Weak
 
 type Search = Codensity SearchTree
 
+-- TODO: Fix orphan instance
 instance MonadFix m => MonadFix (Codensity m) where
     mfix f = Codensity $ \k -> mfix (lowerCodensity . f) >>= k
 
+-- TODO: Fix orphan instance
 instance MonadFix SearchTree where
   mfix f = case fix (f . unOne) of
     None -> None
