@@ -40,7 +40,7 @@
 -- This module is not supposed to be imported by users, please import
 -- 'Plugin.InversionPlugin.Prelude' instead.
 module Plugin.BuiltIn where
-
+import Debug.Trace as P
 import qualified Control.Monad as P
 import           Control.Monad.Codensity (Codensity(..))
 import           Control.Monad.Fix
@@ -171,10 +171,6 @@ instance (MonadShare m, Shareable m a, Shareable m (ListFL m a)) => Shareable m 
   shareArgs NilFL         = P.return NilFL
   shareArgs (ConsFL x xs) = ConsFL P.<$> share x P.<*> share xs
 
-instance (MonadShare2 m, Shareable2 m a, Shareable2 m (ListFL m a)) => Shareable2 m (ListFL m a) where
-  shareArgs2 NilFL         = P.return NilFL
-  shareArgs2 (ConsFL x xs) = ConsFL P.<$> share2 x P.<*> share2 xs
-
 instance (HasPrimitiveInfo a, HasPrimitiveInfo (ListFL FL a), Shareable FL (ListFL FL a)) => HasPrimitiveInfo (ListFL FL a) where
   primitiveInfo = NoPrimitive
 
@@ -213,6 +209,17 @@ instance (NormalForm a, NormalForm [a]) => NormalForm [a] where
 --         unFL (nf x) P.>>= \y ->
 --           unFL (nf xs) P.>>= \ys ->
 --             unFL (P.return (ConsFL (FL (P.return y)) (FL (P.return ys))))
+{-
+groundNormalFormFL :: FL a -> FL a
+groundNormalFormFL
+nfWith nf = \case
+  NilFL -> return NilFL
+  ConsFL x xs -> return ConsFL
+-}
+{-
+narrowSameConstr NilFL = NilFL
+narrowSameConstr (ConsFL _ _) = ConsFL free free
+-}
 
 instance (ShowFree a, ShowFree [a]) => ShowFree [a] where
   showsFreePrec' _ []     = P.showString "[]"
@@ -1750,10 +1757,26 @@ test4 = do
   x <- mfix (\x -> share (P.return (ConsFL (P.return FalseFL P.<|> P.return TrueFL) x)))
   x
 
+test4ND :: ND FLState (ListFL (ND FLState) (BoolFL (ND FLState)))
+test4ND = do
+  x <- mfix (\x -> share (P.return (ConsFL (P.return FalseFL P.<|> P.return TrueFL) x)))
+  x
+
 test2 :: FL (ListFL FL (BoolFL FL))
 test2 = do
   x <- mfix (\x -> share (P.return (ConsFL (free) x)))
   x
+
+test1 :: FL (ListFL FL (Tuple2FL FL (BoolFL FL) (BoolFL FL)))
+test1 = do
+  x <- share (P.return FalseFL P.<|> P.return TrueFL)
+  y <- P.return (P.return (Tuple2FL x x))
+  P.return (ConsFL y (P.return (ConsFL y (P.return NilFL))))
+
+test11 :: FL (ListFL FL (ListFL FL (BoolFL FL)))
+test11 = do
+  x <- share (P.return (ConsFL (P.return FalseFL P.<|> P.return TrueFL) (P.return NilFL)))
+  P.return (ConsFL x (P.return (ConsFL x (P.return NilFL))))
 
 test :: FL (ListFL FL (BoolFL FL))
 test = do
@@ -1767,11 +1790,24 @@ testTake = P.return $ Func $ \xs -> xs P.>>= \case
     ConsFL z zs -> zs P.>>= \case
       ConsFL a as -> P.return (Tuple3FL y z a)
 
+{-testTakeND :: ND FLState (ListFL (ND FLState) a :--> Tuple3FL (ND FLState) a a a)
+testTakeND = P.return $ Func $ \xs -> xs P.>>= \case
+  ConsFL y ys -> ys P.>>= \case
+    ConsFL z zs -> zs P.>>= \case
+      ConsFL a as -> P.return (Tuple3FL y z a)-}
+
+testExpr1 = P.map fromIdentity $ evalFLWith groundNormalFormFL test1
+testExpr11 = P.map fromIdentity $ evalFLWith groundNormalFormFL test11
 testExpr = P.map fromIdentity $ evalFLWith groundNormalFormFL (testTake `appFL` test)
 testExpr2 = P.map fromIdentity $ evalFLWith groundNormalFormFL (testTake `appFL` test2)
 testExpr3 = P.map fromIdentity $ evalFLWith groundNormalFormFL (testTake `appFL` test3)
 
 testExpr4 = P.map fromIdentity $ evalFLWith groundNormalFormFL (testTake `appFL` test4)
+
+{-evalND' = map (\(Val x) -> x) $ evalNDWith nd initFLState
+fromND :: ND (Lifted (ND FLState) a) -> a
+fromND nd = head . map (\(Val x) -> x) $ evalNDWith nd initFLState
+testExpr4ND = P.map fromIdentity $ evalFLWith groundNormalFormFL (testTakeND `appFL` test4ND)-}
 testExpr5 = P.map fromIdentity $ evalFLWith groundNormalFormFL (test5)
 
 testExpr5' = P.map fromIdentity $ evalFLWith groundNormalFormFL (test5')

@@ -115,7 +115,7 @@ createFreeMap :: [Exp] -> Q [(Integer, (Name, Exp))]
 createFreeMap = mapM (\case
     AppE _ (LitE (IntegerL i)) -> do
       nm <- newName $ "free" ++ (if i < 0 then "m" else "") ++ show (abs i)
-      return (i, (nm, AppE (VarE 'free') (LitE (IntegerL i)))) --TODO: Use FL $ return $ Var
+      return (i, (nm, AppE (ConE 'FL) (AppE (VarE 'return) (AppE (VarE 'Var) (LitE (IntegerL i))))))
     _ -> error "Internal error: createFreeMap") .
   nub .
   listify (\case

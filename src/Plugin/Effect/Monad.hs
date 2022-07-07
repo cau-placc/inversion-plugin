@@ -21,8 +21,8 @@
 
 module Plugin.Effect.Monad where
 
+import Control.Applicative             (Alternative(..))
 import Control.Exception
-import Control.Applicative     (Alternative(..))
 import Control.Monad.Codensity
 import Control.Monad.Identity
 import Control.Monad.Reader
@@ -51,14 +51,12 @@ import Test.ChasingBottoms.IsBottom (isBottom)
 
 import Unsafe.Coerce (unsafeCoerce)
 
-import Debug.Trace
-
 --------------------------------------------------------------------------------
 
 class Monad m => MonadShare m where
   share :: Shareable m a => m a -> m (m a)
 
- -- adding MonadShare here as a context leads to a bug in the plugin when a quantified constraint ocurrs.
+ -- Note: Adding MonadShare m here as a constraint leads to a bug in the plugin when a quantified constraint occurs.
 class Shareable m a where
   shareArgs :: a -> m a
 
@@ -66,7 +64,31 @@ class Shareable m a where
 
 type ND s = StateT s Search
 
-evalND :: ND s a -> s -> [a]
+class NDState s where
+  memoID :: s -> ID
+  setMemoID :: ID -> s -> s
+  memoMap :: s -> Map ID Untyped
+  setMemoMap :: Map ID Untyped -> s -> s
+
+freshMemoID :: NDState s => ND s ID
+freshMemoID = do
+  i <- gets memoID
+  modify (setMemoID (pred i))
+  return i
+
+-- Note: This requires the TypeSynonymInstances language extension.
+instance NDState s => MonadShare (ND s) where
+  share nd = do
+    i <- freshMemoID
+    return $ do
+      map1 <- gets memoMap
+      case findBinding i map1 of
+        Nothing -> nd >>= shareArgs >>= \x -> do
+          modify (\s -> setMemoMap (insertBinding i x (memoMap s)) s)
+          return x
+        Just x  -> return x
+
+evalND :: NDState s => ND s a -> s -> [a]
 evalND nd = search . evalStateT nd
   where
 #ifdef DEPTH_FIRST
@@ -77,20 +99,17 @@ evalND nd = search . evalStateT nd
     search = bfs
 #endif
 
-{-type ND1 s a = StateT s SearchTree a
+{-
+type ND1 s = StateT s SearchTree
 
-evalND1 :: ND1 s a -> s -> SearchTree a
+evalND1 :: NDState s => ND1 s a -> s -> SearchTree a
 evalND1 = evalStateT
 
-type ND2 s a = Codensity (ReaderT s SearchTree) a
+type ND2 s = StateT s (Codensity SearchTree)
 
-evalND2 :: ND2 s a -> s -> SearchTree a
-evalND2 nd = runReaderT (runCodensity nd return)
-
-type ND3 s a = Codensity (ReaderT s (Codensity SearchTree)) a
-
-evalND3 :: ND3 s a -> s -> SearchTree a
-evalND3 nd s = runCodensity (runReaderT (runCodensity nd return) s) return-}
+evalND2 :: NDState s => ND3 s a -> s -> SearchTree a
+evalND2 nd s = runCodensity (evalStateT nd) s) return
+-}
 
 --------------------------------------------------------------------------------
 
@@ -233,7 +252,10 @@ class HasPrimitiveInfo a where
 
 --------------------------------------------------------------------------------
 
---data FLVal a = HasPrimitiveInfo a => Var ID | Val a
+{-
+data FLVal a = HasPrimitiveInfo a => Var ID | Val a
+-}
+
 data FLVal (a :: Type) where
   Var        :: HasPrimitiveInfo a => ID -> FLVal a
   Val        :: a -> FLVal a
@@ -282,6 +304,12 @@ data FLState = FLState {
   }
 --TODO: getrennter heap?
 
+instance NDState FLState where
+  memoID = nextID
+  memoMap = heap
+  setMemoID i s = s { nextID = i }
+  setMemoMap m s = s { heap = m }
+
 initFLState :: FLState
 initFLState = FLState {
     {-memoID          = -1,
@@ -294,84 +322,15 @@ initFLState = FLState {
   }
 
 freshID :: ND FLState ID
-freshID = do
-  FLState { .. } <- get
-  put (FLState { nextID = pred nextID, .. })
-  return nextID
+freshID = freshMemoID
 
 --------------------------------------------------------------------------------
 
-
-class NDState s where
-  memoID :: s -> ID
-  setMemoID :: ID -> s -> s
-  memoMap :: s -> Map ID Untyped
-  setMemoMap :: Map ID Untyped -> s -> s
-
-type ND2 s = StateT s Search
-
-evalND2 :: NDState s => ND2 s a -> s -> [a]
-evalND2 nd = bfs . evalStateT nd
-
-instance NDState s => MonadShare (ND2 s) where
-  --share :: ND2 s a -> ND2 s (ND2 s a)
-  share nd = do
-    i <- gets memoID
-    modify $ setMemoID (succ i)
-    return $ do
-      map1 <- gets memoMap
-      case findBinding i map1 of
-        Nothing -> nd >>= \x -> do
-          modify $ \s -> setMemoMap (insertBinding i x (memoMap s)) s
-          return x
-        Just x  -> return x
-
-data FLState2 = FLState2 {
-    _memoID         :: ID,
-    _memoMap        :: Heap Untyped,
-    varID           :: ID,
-    varMap          :: Heap Untyped
-  }
-
-instance NDState FLState2 where
-  memoID = _memoID
-  memoMap = _memoMap
-  setMemoID i s = s { _memoID = i }
-  setMemoMap m s = s { _memoMap = m } --TODO: fix
-  --setMemoMap m ~(FLState2 { .. }) = FLState2 { _memoMap = m, .. }
-
-newtype FL2 a = FL2 { unFL2 :: ND2 FLState2 (FLVal a) }
-
-class Monad m => MonadShare2 m where
-  share2 :: Shareable2 m a => m a -> m (m a)
-  --share2 :: forall a. (forall m2. MonadShare m2 => Shareable2 m2 a) => m a -> m (m a)
-
-class MonadShare2 m => Shareable2 m a where
-  shareArgs2 :: a -> m a
-
-instance (MonadShare2 m, Shareable2 m a) => Shareable2 m (FLVal a) where
-  shareArgs2 (Var i) = return (Var i)
-  shareArgs2 (Val x) = fmap Val (shareArgs2 x)
-
-instance Functor FL2
-  fmap = liftM
-
-instance Applicative FL2
-  pure x = FL2 (pure (Val x))
-  (<*>) = ap
-
-instance Monad FL2
-
-instance (forall a. Shareable2 (ND2 FLState2) a) => MonadShare2 FL2 where
-  --share :: FL a -> FL (FL a)
-  --share :: ND (FLVal a) -> ND (ND (FLVal a))
-  --share :: FL a -> ND (FL a)
-  share2 fl = FL2 (fmap (Val . FL2) (share2 (unFL2 fl)))
-
--- Damit die instanz funktioniert, muss die typklasse monadshare aus kpaitel sowieso einen etwas generalisierten typ haben, der wie folgt lautet:
---class Monad m => MonadShare2 m where
-  --share2 :: Shareable2 m a => m a -> m (m a)
-  --share2 :: forall a. (forall m2. MonadShare m2 => Shareable2 m2 a) => m a -> m (m a)
+--TODO: begründung: wenn ich shareable fl habe, kann ich daraus das shareable auf nd ebene konstruieren. das brauche ich, weil für die komponenten, der werte, die ich auf nd ebene share und die in fl sind (wofür ich shareabgle habe), in der nd monade sharen möchte (weil ich die share von der nd-instanz verwende).
+instance Shareable FL a => Shareable (ND FLState) (FLVal a) where
+  shareArgs (Var i)        = return (Var i)
+  shareArgs (Val x)        = unFL (shareArgs x)
+  shareArgs (HaskellVal y) = return (HaskellVal y)
 
 newtype FL a = FL { unFL :: ND FLState (FLVal a) }
 
@@ -462,27 +421,11 @@ instance MonadFix FL where
       unVal (Val x) = x
       unVal _ = error "Not a Val in mfix"
 
---TODO: MonadState etc. auf FL definieren (convinient)
-
 instance MonadShare FL where
-  share mx = memo (mx >>= shareArgs)
-
-memo :: FL a -> FL (FL a)
-memo fl = FL $ do
-  i <- freshID
-  unFL $ return $ FL $ do
-    FLState { heap = heap1 } <- get
-    case findBinding i heap1 of
-      Nothing -> unFL fl >>= \x -> do
-        modify $ \ ~(FLState { heap = heap2, .. }) -> FLState { heap = insertBinding i x heap2, .. }
-        return x
-      Just x  -> return x
+  share fl = FL (fmap (Val . FL) (share (unFL fl)))
 
 free :: HasPrimitiveInfo a => FL a
 free = FL $ freshID >>= return . Var
-
-free' :: HasPrimitiveInfo a => ID -> FL a
-free' i = FL $ return $ Var i
 
 --------------------------------------------------------------------------------
 
@@ -594,6 +537,30 @@ evalFLWith nf fl = evalND (nf fl) initFLState
 
 -- evalFL :: FL a -> [FLVal a]
 -- evalFL fl = evalND (unFL fl) initFLState
+
+{-
+groundNormalFormFL :: FL (a :--> a)
+groundNormalFormFL = return $ Func $ gnfFL :: FL a -> FL a
+
+($###) :: FL ((a :--> b) :--> a :--> b)
+($###) = return $ Func $ \f -> return $ Func $ \x -> groundNormalForm x >>= \x' -> f `appFL` return x'
+
+(=:<=#) :: FL (a :--> a :--> BoolFL FL)
+(=:<=#) = return $ Func $ \x -> return $ Func $ \y -> flip unifyFL x y >> return TrueFL
+
+gnf :: Lifted FL a -> FL a
+
+gnf :: FL (Lifted FL a) -> ND _ a
+
+
+gnf :: Lifted FL a -> FL (Lifted (Either ID) a)
+gnf NilFL = return NilFL
+gnf (ConsFL x xs) = unFL (gnfFL x) ...
+
+gnfFL :: FL (Lifted FL a) -> FL (Lifted (Result (Either ID)) a)
+gnfFL fl = unFL fl >>= \case
+  HaskellVal y -> --TODO: geht nicht ohne result
+-}
 
 --TODO: mit dre run equality stimmt nicht ganz, da das nur für die grundnormalform gilt. für die normalform ist trotzdem noch evalFL x /= evalFL (x >>= return)
 
@@ -874,7 +841,7 @@ instance (From a, NormalForm a, To b) => To (a -> b) where
   --toWith _ f = Func $ \x -> toFL' (f (fromFL (groundNormalFormFL x)))
 
 instance MonadShare m => Shareable m ((-->) m a b) where
-  shareArgs (Func !f) = return (Func f)
+  shareArgs = return
 
 appFL :: Monad m => m ((-->) m a b) -> m a -> m b
 mf `appFL` x = mf >>= \ (Func f) -> f x
