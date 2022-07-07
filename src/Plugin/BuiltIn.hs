@@ -89,7 +89,7 @@ instance From a => From (Solo a) where
   fromWith ff (SoloFL x) = Solo (ff x)
 
 instance (To a, Matchable a) => Matchable (Solo a) where
-  match (Solo x) (SoloFL y) = matchFL x y
+  match (SoloFL x) (Solo y) = matchFL x y
 
 instance Unifiable a => Unifiable (Solo a) where
   lazyUnify (SoloFL x) (SoloFL y) = lazyUnifyFL x y
@@ -133,7 +133,7 @@ instance (From a, From b) => From (a, b) where
   fromWith ff (Tuple2FL x1 x2) = (ff x1, ff x2)
 
 instance (To a, To b, Matchable a, Matchable b) => Matchable (a, b) where
-  match (x1, x2) (Tuple2FL y1 y2) = matchFL x1 y1 P.>> matchFL x2 y2
+  match (Tuple2FL x1 x2) (y1, y2) = matchFL x1 y1 P.>> matchFL x2 y2
 
 instance (Unifiable a, Unifiable b) => Unifiable (a, b) where
   lazyUnify (Tuple2FL x1 x2) (Tuple2FL y1 y2) = lazyUnifyFL x1 y1 P.>> lazyUnifyFL x2 y2
@@ -186,8 +186,8 @@ instance (From a, From [a]) => From [a] where
   fromWith ff (ConsFL x xs) = ff x : ff xs
 
 instance (To a, Matchable a, Matchable [a], To [a]) => Matchable [a] where
-  match [] NilFL = P.return ()
-  match (x : xs) (ConsFL y ys) = matchFL x y P.>> matchFL xs ys
+  match NilFL [] = P.return ()
+  match (ConsFL x xs) (y:ys) = matchFL x y P.>> matchFL xs ys
   match _ _ = P.empty
 
 instance (Unifiable a, Unifiable [a]) => Unifiable [a] where
@@ -273,8 +273,8 @@ instance From a => From (P.Maybe a) where
   fromWith ff (JustFL x) = P.Just (ff x)
 
 instance (To a, Matchable a) => Matchable (P.Maybe a) where
-  match P.Nothing NothingFL = P.return ()
-  match (P.Just x) (JustFL y) = matchFL x y
+  match NothingFL P.Nothing = P.return ()
+  match (JustFL x) (P.Just y) = matchFL x y
   match _ _ = P.empty
 
 instance Unifiable a => Unifiable (P.Maybe a) where
@@ -317,7 +317,7 @@ instance From a => From (P.Ratio a) where
   fromWith ff (a :%# b) = ff a P.:% ff b
 
 instance (To a, Matchable a) => Matchable (P.Ratio a) where
-  match (a P.:% b) (x :%# y) = matchFL a x P.>> matchFL b y
+  match (a :%# b) (x P.:% y) = matchFL a x P.>> matchFL b y
 
 instance Unifiable a => Unifiable (P.Ratio a) where
   lazyUnify (a :%# b) (x :%# y) = lazyUnifyFL a x P.>> lazyUnifyFL b y
@@ -787,9 +787,9 @@ instance From Bool where
   fromWith _ TrueFL = True
 
 instance Matchable Bool where
-  match False FalseFL = P.return ()
-  match True  TrueFL  = P.return ()
-  match _     _       = P.empty
+  match FalseFL False = P.return ()
+  match TrueFL  True  = P.return ()
+  match _       _     = P.empty
 
 instance Unifiable Bool where
   lazyUnify FalseFL FalseFL = P.return ()
@@ -825,7 +825,7 @@ instance From () where
   fromWith _ UnitFL = ()
 
 instance Matchable () where
-  match () UnitFL = P.return ()
+  match UnitFL () = P.return ()
 
 instance Unifiable () where
   lazyUnify UnitFL UnitFL = P.return ()
@@ -865,10 +865,10 @@ instance From Ordering where
     GTFL -> GT
 
 instance Matchable Ordering where
-  match LT LTFL = P.return ()
-  match EQ EQFL = P.return ()
-  match GT GTFL = P.return ()
-  match _  _    = P.empty
+  match LTFL LT = P.return ()
+  match EQFL EQ = P.return ()
+  match GTFL GT = P.return ()
+  match _    _  = P.empty
 
 instance Unifiable Ordering where
   lazyUnify LTFL LTFL = P.return ()
@@ -899,7 +899,7 @@ instance From Integer where
   fromWith _ = P.coerce
 
 instance Matchable Integer where
-  match x y = P.guard (x P.== P.coerce y)
+  match (IntegerFL x) y = P.guard (x P.== y)
 
 instance Unifiable Integer where
   lazyUnify (IntegerFL x) (IntegerFL y) = P.guard (x P.== y)
@@ -925,7 +925,7 @@ instance From Int where
   fromWith _ = P.coerce
 
 instance Matchable Int where
-  match i1 (IntFL i2) = P.guard (i1 P.== i2)
+  match (IntFL x) y = P.guard (x P.== y)
 
 instance Unifiable Int where
   lazyUnify (IntFL x) (IntFL y) = P.guard (x P.== y)
@@ -951,7 +951,7 @@ instance From Float where
   fromWith _ = P.coerce
 
 instance Matchable Float where
-  match x y = P.guard (x P.== P.coerce y)
+  match (FloatFL x) y = P.guard (x P.== y)
 
 instance Unifiable Float where
   lazyUnify (FloatFL x) (FloatFL y) = P.guard (x P.== y)
@@ -977,7 +977,7 @@ instance From Double where
   fromWith _ = P.coerce
 
 instance Matchable Double where
-  match x y = P.guard (x P.== P.coerce y)
+  match (DoubleFL x) y = P.guard (x P.== y)
 
 instance Unifiable Double where
   lazyUnify (DoubleFL x) (DoubleFL y) = P.guard (x P.== y)
@@ -1003,7 +1003,7 @@ instance From P.Char where
   fromWith _ = P.coerce
 
 instance Matchable P.Char where
-  match x y = P.guard (x P.== P.coerce y)
+  match (CharFL x) y = P.guard (x P.== y)
 
 instance Unifiable P.Char where
   lazyUnify (CharFL x) (CharFL y) = P.guard (x P.== y)

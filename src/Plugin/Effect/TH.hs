@@ -308,14 +308,14 @@ genInstances originalDataDec liftedDataDec = do
 
       genMatchable = do
         let genMatch = do
-              let genClause originalConInfo liftedConInfo = do
-                    originalArgNames <- replicateM (conArity originalConInfo) (newName "x")
-                    liftedArgNames <- replicateM (conArity liftedConInfo) (newName "y")
-                    let originalPat = ConP (conName originalConInfo) [] $ map VarP originalArgNames
-                        liftedPat = ConP (conName liftedConInfo) [] $ map VarP liftedArgNames
-                        body = NormalB $ foldr (\e1 e2 -> applyExp (VarE '(>>)) [e1, e2]) (AppE (VarE 'return) (ConE '())) $ zipWith (\originalArgName liftedArgName -> applyExp (VarE 'matchFL) [VarE originalArgName, VarE liftedArgName]) originalArgNames liftedArgNames
-                    return $ Clause [originalPat, liftedPat] body []
-              clauses <- zipWithM genClause originalConInfos liftedConInfos
+              let genClause liftedConInfo originalConInfo = do
+                    liftedArgNames <- replicateM (conArity liftedConInfo) (newName "x")
+                    originalArgNames <- replicateM (conArity originalConInfo) (newName "y")
+                    let liftedPat = ConP (conName liftedConInfo) [] $ map VarP liftedArgNames
+                        originalPat = ConP (conName originalConInfo) [] $ map VarP originalArgNames
+                        body = NormalB $ foldr (\e1 e2 -> applyExp (VarE '(>>)) [e1, e2]) (AppE (VarE 'return) (ConE '())) $ zipWith (\liftedArgName originalArgName -> applyExp (VarE 'matchFL) [VarE liftedArgName, VarE originalArgName]) liftedArgNames originalArgNames
+                    return $ Clause [liftedPat, originalPat] body []
+              clauses <- zipWithM genClause liftedConInfos originalConInfos
               let failClause = Clause [WildP, WildP] (NormalB $ VarE 'Control.Applicative.empty) []
               return $ FunD 'match (clauses ++ [failClause])
         dec <- genMatch
@@ -399,7 +399,6 @@ genInstances originalDataDec liftedDataDec = do
                    , mkMatchableConstraint originalTy
                    , mkUnifiableConstraint originalTy
                    , mkNormalFormConstraint originalTy
-                   --, mkNormalFormConstraint (mkLifted (ConT ''FL) originalTy)
                    , mkHasPrimitiveInfoConstraint (mkLifted (ConT ''FL) originalTy)
                    , mkShowFreeConstraint originalTy
                    ] ++ map mkInvertibleConstraint originalConArgs

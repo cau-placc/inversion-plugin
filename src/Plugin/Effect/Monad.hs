@@ -650,34 +650,34 @@ fromEither = fromM (either (throw . FreeVariableException) id)
 --------------------------------------------------------------------------------
 
 class Matchable a where
-  match :: a -> Lifted FL a -> FL ()
+  match :: Lifted FL a -> a -> FL ()
 
-matchFL :: forall a. (To a, Matchable a) => a -> FL (Lifted FL a) -> FL ()
-matchFL x fl = FL $ resolveFL fl >>= \case
+matchFL :: forall a. (To a, Matchable a) => FL (Lifted FL a) -> a -> FL ()
+matchFL fl y = FL $ resolveFL fl >>= \case
   Var i -> get >>= \ FLState { .. } ->
     case primitiveInfo @(Lifted FL a) of
       NoPrimitive -> do
-        put (FLState { heap = insertBinding i (toFL x) heap
+        put (FLState { heap = insertBinding i (toFL y) heap
                      , .. })
         return (Val ())
       Primitive   ->
         if isUnconstrained i constraintStore
           then do --TODO: fallunterscheidung tauschen. da nur variablen primitiven typs constrained sein können, kann man die unterscheidung von primitive und noprimitive eigentlich weglassen. @Kai: wie siehst du das? andererseits braucht man die primitiveinfo um den kontext zur verfügung zu haben....
-            put (FLState { heap = insertBinding i (toFL x) heap
+            put (FLState { heap = insertBinding i (toFL y) heap
                          , .. })
             return (Val ())
           else
-            let c = eqConstraint (Var i) (Val (to x))
+            let c = eqConstraint (Var i) (Val (to y))
                 constraintStore' = insertConstraint c [i] constraintStore
             in if isConsistent constraintStore'
                  then do
-                   put (FLState { heap = insertBinding i (toFL x) heap
+                   put (FLState { heap = insertBinding i (toFL y) heap
                                , constraintStore = constraintStore'
                                , .. })
                    return (Val ())
                  else empty
-  Val y  -> unFL $ match x y
-  HaskellVal y -> unFL $ match x (to y)
+  Val x  -> unFL $ match x y
+  HaskellVal x -> unFL $ match (to x) y
 
 -- linMatchFL :: forall a. (Convertible a, Matchable a) => a -> FL (Lifted a) -> FL ()
 -- linMatchFL x (FL nd) = FL $ nd >>= \case
@@ -698,20 +698,20 @@ type Output a = (Unifiable a, From a, NormalForm a)
 type Input a = (To a, HasPrimitiveInfo (Lifted FL a))-}
 
 --TODO: eigentlich nur narrowable notwendig --TODO: instantiateSameConstructor
-narrowSameConstr :: (HasPrimitiveInfo (Lifted FL a), Unifiable a) => ID -> Lifted FL a -> FL ()
-narrowSameConstr i x = instantiate i >>= flip lazyUnify x --TODO: discuss why this is inefficient
+instantiateSameConstructor :: (HasPrimitiveInfo (Lifted FL a), Unifiable a) => Lifted FL a -> ID -> FL ()
+instantiateSameConstructor x i = instantiate i >>= lazyUnify x --TODO: discuss why this is inefficient
 
 {-
 narrowSame NilFL = NilFL
 narrowSame (ConsFL _ _) = ConsFL free free
 -}
 
-lazyUnifyVar :: forall a. (Unifiable a, HasPrimitiveInfo (Lifted FL a)) => ID -> Lifted FL a -> FL ()
-lazyUnifyVar i x = FL $ get >>= \ FLState { .. } ->
+lazyUnifyVar :: forall a. (Unifiable a, HasPrimitiveInfo (Lifted FL a)) => Lifted FL a -> ID -> FL ()
+lazyUnifyVar x i = FL $ get >>= \ FLState { .. } ->
   case primitiveInfo @(Lifted FL a) of
     NoPrimitive -> do
       --TODO: just narrow a single constructor
-      unFL $ narrowSameConstr i x
+      unFL $ instantiateSameConstructor x i
       {-
       x' <- share (return (narrowSame x) --TODO: share necessary because argument might be free calls that need to be shared
       FL $ do
@@ -743,21 +743,21 @@ lazyUnifyVar i x = FL $ get >>= \ FLState { .. } ->
 --TODO: flip, rename fl1 to flx etc.
 --TODO: check lazyUnifyFL (x, failed) (y,y)
 lazyUnifyFL :: forall a. Unifiable a => FL (Lifted FL a) -> FL (Lifted FL a) -> FL ()
-lazyUnifyFL fl1 fl2 = FL $ resolveFL fl2 >>= \case
+lazyUnifyFL fl1 fl2 = FL $ resolveFL fl1 >>= \case
   Var i -> get >>= \ FLState { .. } ->
     case primitiveInfo @(Lifted FL a) of
       NoPrimitive -> do
-        put (FLState { heap = insertBinding i fl1 heap
+        put (FLState { heap = insertBinding i fl2 heap
                      , .. })
         return (Val ())
       Primitive   ->
         if isUnconstrained i constraintStore
           then do
-            put (FLState { heap = insertBinding i fl1 heap
+            put (FLState { heap = insertBinding i fl2 heap
                          , .. })
             return (Val ())
           else --TODO: i ist constrained, also müssen wir uns den anderen wert anschauen, um zu checken, ob er einem bereits bestehenden constraint widerspricht
-            resolveFL fl1 >>= \case
+            resolveFL fl2 >>= \case
               Var j ->
                 let c = eqConstraint @(Lifted FL a) (Var i) (Var j)
                     constraintStore' = insertConstraint c [i, j] constraintStore
@@ -789,14 +789,14 @@ lazyUnifyFL fl1 fl2 = FL $ resolveFL fl2 >>= \case
                                     , .. })
                        return (Val ())
                      else empty
-  Val y  -> resolveFL fl1 >>= \case
-    Var j -> unFL $ lazyUnifyVar j y
-    Val x -> unFL $ lazyUnify x y
-    HaskellVal x -> unFL $ lazyUnify (to x) y
-  HaskellVal y -> resolveFL fl1 >>= \case
-    Var j -> unFL $ lazyUnifyVar j (to y)
-    Val x -> unFL $ lazyUnify x (to y)
-    HaskellVal x -> unFL $ lazyUnify @a (to x) (to y) --TODO
+  Val x  -> resolveFL fl2 >>= \case
+    Var j        -> unFL $ lazyUnifyVar x j
+    Val y        -> unFL $ lazyUnify x y
+    HaskellVal y -> unFL $ lazyUnify x (to y)
+  HaskellVal x -> resolveFL fl2 >>= \case
+    Var j        -> unFL $ lazyUnifyVar (to x) j
+    Val y        -> unFL $ lazyUnify (to x) y
+    HaskellVal y -> unFL $ lazyUnify @a (to x) (to y) --TODO: das wäre im prinzip gleichheit...
 
 
 -- "unify (error "bla") (var 1)" zeigt, dass es notwendig ist, dass man wissen muss ob 1 unconstrained ist.

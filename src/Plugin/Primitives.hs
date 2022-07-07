@@ -68,9 +68,9 @@ inOutClassInv name gnf inClassExpQs outClassExpQ = do
   liftedName <- liftTHNameQ name
   resExp : argExps <- mapM (convertExp (map (second fst) mapping)) (outClassExp:inClassExps)
   funPatExp <- genLiftedApply (VarE liftedName) argExps
-  let matchExp = applyExp (VarE 'lazyUnifyFL) [resExp, funPatExp]
+  let lazyUnifyExp = applyExp (VarE 'lazyUnifyFL) [funPatExp, resExp]
       freeNames = map (fst . snd) mapping
-      letExp = DoE Nothing [NoBindS matchExp, NoBindS returnExp]
+      letExp = DoE Nothing [NoBindS lazyUnifyExp, NoBindS returnExp]
       returnExp = mkLiftedTupleE (map VarE freeNames)
       bodyExp = applyExp (VarE 'map) [VarE (if gnf then 'fromIdentity else 'fromEither), applyExp (VarE 'evalFLWith) [VarE (if gnf then 'groundNormalFormFL else 'normalFormFL), letExp]]
   bNm <- newName "b"

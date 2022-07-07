@@ -31,7 +31,7 @@ instance From a => From (Identity a) where
   fromWith ff (IdentityFL x) = Identity (ff x)
 
 instance (To a, Matchable a) => Matchable (Identity a) where
-  match (Identity x) (IdentityFL y) = matchFL x y
+  match (IdentityFL x) (Identity y) = matchFL x y
 
 instance Unifiable a => Unifiable (Identity a) where
   lazyUnify (IdentityFL x) (IdentityFL y) = lazyUnifyFL x y
