@@ -28,7 +28,7 @@ instance To a => To (Identity a) where
   toWith tf (Identity x) = IdentityFL (tf x)
 
 instance From a => From (Identity a) where
-  fromWith ff (IdentityFL x) = Identity (ff x)
+  from (IdentityFL x) = Identity (fromFL x)
 
 instance (To a, Matchable a) => Matchable (Identity a) where
   match (IdentityFL x) (Identity y) = matchFL x y
@@ -38,9 +38,9 @@ instance Unifiable a => Unifiable (Identity a) where
 
 instance NormalForm a => NormalForm (Identity a) where
   normalFormWith nf = \case
-    IdentityFL x ->
-      nf x >>= \y ->
-        return (Result (pure (IdentityFL y)))
+    IdentityFL x -> FL $
+      unFL (nf x) >>= \y ->
+        unFL (return (IdentityFL (FL (return y))))
 
 instance ShowFree a => ShowFree (Identity a) where
   showsFreePrec' d (Identity x) = showParen (d > 10) $

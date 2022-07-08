@@ -293,15 +293,14 @@ genInstances originalDataDec liftedDataDec = do
 
       genFrom = do
         let genFrom' = do
-              ff <- newName "ff"
               let genMatch liftedConInfo originalConInfo = do
                     argNames <- replicateM (conArity liftedConInfo) (newName "x")
                     let pat = ConP (conName liftedConInfo) [] $ map VarP argNames
-                        body = NormalB $ applyExp (ConE $ conName originalConInfo) $ map (AppE (VarE ff) . VarE) argNames
+                        body = NormalB $ applyExp (ConE $ conName originalConInfo) $ map (AppE (VarE 'fromFL) . VarE) argNames
                     return $ Match pat body []
               arg <- newName "arg"
               matches <- zipWithM genMatch liftedConInfos originalConInfos
-              return $ FunD 'fromWith [Clause [VarP ff, VarP arg] (NormalB (CaseE (VarE arg) matches)) []]
+              return $ FunD 'from [Clause [VarP arg] (NormalB (CaseE (VarE arg) matches)) []]
         let ctxt = map mkFromConstraint originalConArgs
         InstanceD Nothing ctxt (mkFromConstraint originalTy) <$>
           sequence [genFrom']
@@ -349,7 +348,7 @@ genInstances originalDataDec liftedDataDec = do
               liftedArgNames <- replicateM liftedConArity (newName "x")
               freshLiftedArgNames <- replicateM liftedConArity (newName "y")
               let pat = ConP liftedConName [] $ map VarP liftedArgNames
-                  body = NormalB $ foldr (\ (liftedArgName, freshLiftedArgName) e -> applyExp (VarE '(>>=)) [AppE (VarE nfName) (VarE liftedArgName), LamE [VarP freshLiftedArgName] e]) (AppE (VarE 'return) $ AppE (ConE 'Result) $ AppE (VarE 'pure) $ applyExp (ConE liftedConName) $ map VarE freshLiftedArgNames) $ zip liftedArgNames freshLiftedArgNames
+                  body = NormalB $ AppE (ConE 'FL) $ foldr (\ (liftedArgName, freshLiftedArgName) e -> applyExp (VarE '(>>=)) [AppE (VarE 'unFL) (AppE (VarE nfName) (VarE liftedArgName)), LamE [VarP freshLiftedArgName] e]) (AppE (VarE 'unFL) $ AppE (VarE 'return) $ applyExp (ConE liftedConName) $ map (AppE (ConE 'FL) . AppE (VarE 'return) . VarE) freshLiftedArgNames) $ zip liftedArgNames freshLiftedArgNames
               return $ Match pat body []
         matches <- mapM genMatch liftedConInfos
         let body = NormalB (LamCaseE matches)

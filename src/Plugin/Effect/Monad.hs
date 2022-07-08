@@ -23,10 +23,7 @@ module Plugin.Effect.Monad where
 
 import Control.Applicative             (Alternative(..))
 import Control.Exception
-import Control.Monad.Codensity
 import Control.Monad.Identity
-import Control.Monad.Reader
-import Control.Monad.SearchTree hiding (Search)
 import Control.Monad.State
 
 import           Data.Kind                 (Type)
@@ -61,6 +58,8 @@ class Shareable m a where
   shareArgs :: a -> m a
 
 --------------------------------------------------------------------------------
+
+
 
 type ND s = StateT s Search
 
@@ -436,8 +435,8 @@ data Result (f :: Type -> Type) (a :: Type) where
 --   Result :: f a -> Result f a
 --   HaskellResult :: b -> Result f (Lifted (Result f) b)-}
 
-class NormalForm a where
-  normalFormWith :: Applicative m => (forall b. NormalForm b => FL (Lifted FL b) -> ND FLState (Result m (Lifted (Result m) b))) -> Lifted FL a -> ND FLState (Result m (Lifted (Result m) a))
+class NormalForm1 a where
+  normalFormWith1 :: Applicative m => (forall b. NormalForm b => FL (Lifted FL b) -> ND FLState (Result m (Lifted (Result m) b))) -> Lifted FL a -> ND FLState (Result m (Lifted (Result m) a))
 -- class NormalForm a where
 --   normalFormWith :: (forall b. NormalForm b => FL b -> FL b) -> a -> FL a
 
@@ -465,15 +464,41 @@ decomposeInjectivity = unsafeCoerce Refl
 -- from :: Lifted FL a -> a
 --
 
+class NormalForm2 a where
+  normalForm2 :: Lifted FL a -> ND FLState (FLVal (Lifted FL a))
+class NormalForm a where
+  normalFormWith :: (forall b. NormalForm b => FL (Lifted FL b) -> FL (Lifted FL b)) -> Lifted FL a -> FL (Lifted FL a)
 
-groundNormalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> ND FLState (Result Identity (Lifted (Result Identity) a))
+--TODO: rename haskellval y to haskellval x overall
+groundNormalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> FL (Lifted FL a)
+groundNormalFormFL fl = FL $ resolveFL fl >>= \case
+  Var i -> unFL $ groundNormalFormFL (instantiate i)
+  Val x -> unFL $ normalFormWith groundNormalFormFL x
+  HaskellVal (x :: b) -> case decomposeInjectivity @FL @a @b of
+    Refl -> return (HaskellVal x)
+--TODO: Alternatively:
+groundNormalFormFL fl = fl >>= normalFormWith groundNormalFormFL
+
+normalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> FL (Lifted FL a)
+normalFormFL fl = FL $ resolveFL fl >>= \case
+  Var i -> get >>= \ FLState { .. } ->
+    case primitiveInfo @(Lifted FL a) of --TODO: eigentlich nicht notwendig, da nicht primitive typen immer unconstrained sind, aber so spart man sich ggf. das nachschlagen und die unterscheidung wird auch hier konsequent umgesetzt.
+      NoPrimitive -> return (Var i)
+      Primitive   -> if isUnconstrained i constraintStore
+                       then return (Var i)
+                       else unFL $ normalFormFL (instantiate i)
+  Val x -> unFL $ normalFormWith normalFormFL x
+  HaskellVal (x :: b) -> case decomposeInjectivity @FL @a @b of
+    Refl -> return (HaskellVal x)
+
+{-groundNormalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> ND FLState (Result Identity (Lifted (Result Identity) a))
 groundNormalFormFL fl = resolveFL fl >>= \case
   Val x -> normalFormWith groundNormalFormFL x
   Var i -> groundNormalFormFL (instantiate i)
   HaskellVal (y :: b) -> case decomposeInjectivity @FL @a @b of
-    Refl -> return (HaskellResult y)
+    Refl -> return (HaskellResult y)-}
 
-normalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> ND FLState (Result (Either ID) (Lifted (Result (Either ID)) a))
+{-normalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> ND FLState (Result (Either ID) (Lifted (Result (Either ID)) a))
 normalFormFL fl = resolveFL fl >>= \case
   Val x -> normalFormWith normalFormFL x
   Var i -> get >>= \ FLState { .. } ->
@@ -483,7 +508,7 @@ normalFormFL fl = resolveFL fl >>= \case
                        then return (Result (Left i))
                        else normalFormFL (instantiate i)
   HaskellVal (y :: b) -> case decomposeInjectivity @FL @a @b of
-    Refl -> return (HaskellResult y)
+    Refl -> return (HaskellResult y)-}
 {-
 FL $ nd >>= \case
   Val x -> unFL $ nf normalFormFL x
@@ -531,12 +556,12 @@ normalFormFL fl = resolveFL fl >>= \case
                        then return (Left i)
                        else instantiate i >>= normalFormWith normalFormFL-}
 
-evalFLWith :: NormalForm a => (forall b. NormalForm b => FL (Lifted FL b) -> ND FLState (m (Lifted m b))) -> FL (Lifted FL a) -> [m (Lifted m a)]
-evalFLWith nf fl = evalND (nf fl) initFLState
+--evalFLWith :: NormalForm a => (forall b. NormalForm b => FL (Lifted FL b) -> ND FLState (m (Lifted m b))) -> FL (Lifted FL a) -> [m (Lifted m a)]
+--evalFLWith nf fl = evalND (nf fl) initFLState
 --map fromFLVal $ evalFL (groundNormalFormFL ...)
 
--- evalFL :: FL a -> [FLVal a]
--- evalFL fl = evalND (unFL fl) initFLState
+evalFL :: FL a -> [FLVal a]
+evalFL fl = evalND (unFL fl) initFLState
 
 {-
 groundNormalFormFL :: FL (a :--> a)
@@ -594,58 +619,65 @@ showsVarPrec d i = showParen (d > 10) (showString ("var " ++ showsPrec 11 i ""))
 
 class To a where
   toWith :: (forall b. To b => b -> FL (Lifted FL b)) -> a -> Lifted FL a
--- class To a where
---   toWith :: (forall b. To b => b -> FL (Lifted FL b)) -> a -> Lifted FL a
-
--- to :: To a => a -> Lifted FL a
--- to = toWith toFL
-
--- toFL :: To a => a -> FL (Lifted FL a)
--- toFL x = FL (return (HaskellVal x))
 
 to :: To a => a -> Lifted FL a
 to = toWith toFL
--- data FreeVariableException = FreeVariableException ID
 
 toFL :: To a => a -> FL (Lifted FL a)
 toFL x = FL (return (HaskellVal x))
--- instance Show FreeVariableException where
---   show (FreeVariableException _) = "free variable occured"
+--TODO: Alternatively: toFL x = return (to x)
 
 class From a where
+  from :: Lifted FL a -> a
+
+data FreeVariableException = FreeVariableException ID
+
+instance Show FreeVariableException where
+  show (FreeVariableException _) = "free variable occured"
+
+instance Exception FreeVariableException
+
+fromFLVal :: forall a. From a => FLVal (Lifted FL a) -> a
+fromFLVal = \case
+   Val x -> from x
+   Var i -> throw (FreeVariableException i)
+   HaskellVal (y :: b) -> case decomposeInjectivity @FL @a @b of
+     Refl -> y
+
+fromFL :: From a => FL (Lifted FL a) -> a
+fromFL fl = fromFLVal (head (evalFL fl))
+
+{-class From a where
   fromWith :: (forall b. From b => m (Lifted m b) -> b) -> Lifted m a -> a
--- instance Exception FreeVariableException
 
 fromM :: forall m a. From a => (forall b. m b -> b) -> Result m (Lifted (Result m) a) -> a
 fromM unM = \case
   HaskellResult (y :: b) -> case decomposeInjectivity @(Result m) @a @b of
     Refl -> y -- unsafeCoerce y
   Result x -> (fromWith (fromM unM) . unM) x
--- class From a where
---   fromWith :: (forall b. From b => FL (Lifted FL b) -> b) -> Lifted FL a -> a
 
 fromIdentity :: From a => Result Identity (Lifted (Result Identity) a) -> a
 fromIdentity = fromM runIdentity
+
+fromEither :: From a => Result (Either ID) (Lifted (Result (Either ID)) a) -> a
+fromEither = fromM (either (throw . FreeVariableException) id)-}
+
+
+-- class From a where
+--   fromWith :: (forall b. From b => FL (Lifted FL b) -> b) -> Lifted FL a -> a
+-- --fromFL2 :: FL (Lifted FL a) -> FL a
+-- --from2 :: Lifted FL a -> FL a
+
 -- fromFLVal :: forall a. From a => FLVal (Lifted FL a) -> a
 -- fromFLVal = \case
 --   Val x -> fromWith fromFL x
 --   Var i -> throw (FreeVariableException i)
 --   HaskellVal (y :: b) -> case decomposeInjectivity @FL @a @b of
 --     Refl -> y
-
-data FreeVariableException = FreeVariableException ID
--- fromFL :: From a => FL (Lifted FL a) -> a
--- fromFL fl = fromFLVal (head (evalFL fl))
-
-instance Show FreeVariableException where
-  show (FreeVariableException _) = "free variable occured"
--- --from2 :: Lifted FL a -> FL a
-
-instance Exception FreeVariableException
--- --fromFL2 :: FL (Lifted FL a) -> FL a
-
-fromEither :: From a => Result (Either ID) (Lifted (Result (Either ID)) a) -> a
-fromEither = fromM (either (throw . FreeVariableException) id)
+{-
+narrowSameConstr NilFL = NilFL
+narrowSameConstr (ConsFL _ _) = ConsFL free free
+-}
 
 --------------------------------------------------------------------------------
 
@@ -836,7 +868,8 @@ type instance Lifted m ((->) a) = (-->) m (Lifted m a)
 type instance Lifted m ((->) a b) = (-->) m (Lifted m a) (Lifted m b)
 
 instance (From a, NormalForm a, To b) => To (a -> b) where
-  toWith _ f = Func $ \x -> FL $ groundNormalFormFL x >>= (unFL . toFL' . f . fromIdentity)
+  toWith _ f = Func $ \x -> toFL' (f (fromFL (groundNormalFormFL x)))
+  --toWith _ f = Func $ \x -> FL $ groundNormalFormFL x >>= (unFL . toFL' . f . fromIdentity)
 --instance (From a, NormalForm (Lifted FL a), To b) => To (a -> b) where
   --toWith _ f = Func $ \x -> toFL' (f (fromFL (groundNormalFormFL x)))
 

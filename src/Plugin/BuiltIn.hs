@@ -86,7 +86,7 @@ instance To a => To (Solo a) where
   toWith tf (Solo x) = SoloFL (tf x)
 
 instance From a => From (Solo a) where
-  fromWith ff (SoloFL x) = Solo (ff x)
+  from (SoloFL x) = Solo (fromFL x)
 
 instance (To a, Matchable a) => Matchable (Solo a) where
   match (SoloFL x) (Solo y) = matchFL x y
@@ -96,9 +96,9 @@ instance Unifiable a => Unifiable (Solo a) where
 
 instance NormalForm a => NormalForm (Solo a) where
   normalFormWith nf = \case
-    SoloFL x ->
-      nf x P.>>= \y ->
-        P.return (Result (P.pure (SoloFL y)))
+    SoloFL x -> FL $
+      unFL (nf x) P.>>= \y ->
+        unFL (P.return (SoloFL (FL (P.return y))))
 -- instance NormalForm a => NormalForm (SoloFL FL a) where
 --   normalFormWith nf = \case
 --     SoloFL x ->
@@ -130,7 +130,7 @@ instance (To a, To b) => To (a, b) where
   toWith tf (x1, x2) = Tuple2FL (tf x1) (tf x2)
 
 instance (From a, From b) => From (a, b) where
-  fromWith ff (Tuple2FL x1 x2) = (ff x1, ff x2)
+  from (Tuple2FL x1 x2) = (fromFL x1, fromFL x2)
 
 instance (To a, To b, Matchable a, Matchable b) => Matchable (a, b) where
   match (Tuple2FL x1 x2) (y1, y2) = matchFL x1 y1 P.>> matchFL x2 y2
@@ -138,12 +138,18 @@ instance (To a, To b, Matchable a, Matchable b) => Matchable (a, b) where
 instance (Unifiable a, Unifiable b) => Unifiable (a, b) where
   lazyUnify (Tuple2FL x1 x2) (Tuple2FL y1 y2) = lazyUnifyFL x1 y1 P.>> lazyUnifyFL x2 y2
 
-instance (NormalForm a, NormalForm b) => NormalForm (a, b) where
+{-instance (NormalForm a, NormalForm b) => NormalForm (a, b) where
   normalFormWith nf = \case
     Tuple2FL x1 x2 ->
       nf x1 P.>>= \y1 ->
         nf x2 P.>>= \y2 ->
-        P.return (Result (P.pure (Tuple2FL y1 y2)))
+        P.return (Result (P.pure (Tuple2FL y1 y2)))-}
+instance (NormalForm a, NormalForm b) => NormalForm (a, b) where
+  normalFormWith nf = \case
+    Tuple2FL x1 x2 -> FL $
+      unFL (nf x1) P.>>= \y1 ->
+        unFL(nf x2) P.>>= \y2 ->
+          unFL (P.return (Tuple2FL (FL (P.return y1)) (FL (P.return y2))))
 -- instance (NormalForm a, NormalForm b) => NormalForm (Tuple2FL FL a b) where
 --   normalFormWith nf = \case
 --     Tuple2FL x1 x2 ->
@@ -182,8 +188,8 @@ instance (To a, To [a]) => To [a] where
   toWith tf (x : xs) = ConsFL (tf x) (tf xs)
 
 instance (From a, From [a]) => From [a] where
-  fromWith _  NilFL = []
-  fromWith ff (ConsFL x xs) = ff x : ff xs
+  from NilFL = []
+  from (ConsFL x xs) = fromFL x : fromFL xs
 
 instance (To a, Matchable a, Matchable [a], To [a]) => Matchable [a] where
   match NilFL [] = P.return ()
@@ -197,29 +203,11 @@ instance (Unifiable a, Unifiable [a]) => Unifiable [a] where
 
 instance (NormalForm a, NormalForm [a]) => NormalForm [a] where
   normalFormWith nf = \case
-      NilFL -> P.return (Result (P.pure NilFL))
-      ConsFL x xs ->
-        nf x P.>>= \y ->
-          nf xs P.>>= \ys ->
-            P.return (Result (P.pure (ConsFL y ys)))
--- instance (NormalForm a, NormalForm (ListFL FL a)) => NormalForm (ListFL FL a) where
---   normalFormWith nf = \case
---       NilFL -> P.return NilFL
---       ConsFL x xs -> FL $
---         unFL (nf x) P.>>= \y ->
---           unFL (nf xs) P.>>= \ys ->
---             unFL (P.return (ConsFL (FL (P.return y)) (FL (P.return ys))))
-{-
-groundNormalFormFL :: FL a -> FL a
-groundNormalFormFL
-nfWith nf = \case
-  NilFL -> return NilFL
-  ConsFL x xs -> return ConsFL
--}
-{-
-narrowSameConstr NilFL = NilFL
-narrowSameConstr (ConsFL _ _) = ConsFL free free
--}
+      NilFL -> P.return NilFL
+      ConsFL x xs -> FL $
+        unFL (nf x) P.>>= \y ->
+          unFL (nf xs) P.>>= \ys ->
+            unFL (P.return (ConsFL (FL (P.return y)) (FL (P.return ys))))
 
 instance (ShowFree a, ShowFree [a]) => ShowFree [a] where
   showsFreePrec' _ []     = P.showString "[]"
@@ -229,6 +217,7 @@ instance (ShowFree a, ShowFree [a]) => ShowFree [a] where
     showsFreePrec 6 xs
 
 instance Invertible a => Invertible [a]
+
 instance FunctorFL (MaybeFL FL) where
   fmapFL = returnFLF $ \f -> returnFLF $ \x -> x P.>>= \case
     NothingFL -> P.return NothingFL
@@ -269,8 +258,8 @@ instance To a => To (P.Maybe a) where
   toWith tf (P.Just x) = JustFL (tf x)
 
 instance From a => From (P.Maybe a) where
-  fromWith _ NothingFL = P.Nothing
-  fromWith ff (JustFL x) = P.Just (ff x)
+  from NothingFL = P.Nothing
+  from (JustFL x) = P.Just (fromFL x)
 
 instance (To a, Matchable a) => Matchable (P.Maybe a) where
   match NothingFL P.Nothing = P.return ()
@@ -284,10 +273,10 @@ instance Unifiable a => Unifiable (P.Maybe a) where
 
 instance NormalForm a => NormalForm (P.Maybe a) where
   normalFormWith nf = \case
-      NothingFL -> P.return (Result (P.pure NothingFL))
-      JustFL x ->
-        nf x P.>>= \y ->
-          P.return (Result (P.pure (JustFL y)))
+      NothingFL -> P.return NothingFL
+      JustFL x -> FL $
+        unFL (nf x) P.>>= \y ->
+          unFL (P.return (JustFL (FL (P.return y))))
 
 instance ShowFree a => ShowFree (P.Maybe a) where
   showsFreePrec' _ P.Nothing  = P.showString "Nothing"
@@ -314,7 +303,7 @@ instance To a => To (P.Ratio a) where
   toWith tf (a P.:% b) = tf a :%# tf b
 
 instance From a => From (P.Ratio a) where
-  fromWith ff (a :%# b) = ff a P.:% ff b
+  from (a :%# b) = fromFL a P.:% fromFL b
 
 instance (To a, Matchable a) => Matchable (P.Ratio a) where
   match (a :%# b) (x P.:% y) = matchFL a x P.>> matchFL b y
@@ -324,10 +313,10 @@ instance Unifiable a => Unifiable (P.Ratio a) where
 
 instance NormalForm a => NormalForm (P.Ratio a) where
   normalFormWith nf = \case
-      a :%# b ->
-        nf a P.>>= \x ->
-          nf b P.>>= \y ->
-            P.return (Result (P.pure (x :%# y)))
+      a :%# b -> FL $
+        unFL (nf a) P.>>= \x ->
+          unFL (nf b) P.>>= \y ->
+            unFL (P.return (FL (P.return x) :%# FL (P.return y)))
 
 instance ShowFree a => ShowFree (P.Ratio a) where
   showsFreePrec' d (x P.:% y) = P.showParen (d P.> 7) $
@@ -783,8 +772,8 @@ instance To Bool where
   toWith _ True = TrueFL
 
 instance From Bool where
-  fromWith _ FalseFL = False
-  fromWith _ TrueFL = True
+  from FalseFL = False
+  from TrueFL  = True
 
 instance Matchable Bool where
   match FalseFL False = P.return ()
@@ -797,7 +786,8 @@ instance Unifiable Bool where
   lazyUnify _       _       = P.empty
 
 instance NormalForm Bool where
-  normalFormWith _ !x = P.return (Result (P.pure (P.coerce x)))
+  normalFormWith _ FalseFL = P.return FalseFL
+  normalFormWith _ TrueFL  = P.return TrueFL
 
 instance ShowFree Bool where
   showFree' False = "False"
@@ -822,7 +812,7 @@ instance To () where
   toWith _ () = UnitFL
 
 instance From () where
-  fromWith _ UnitFL = ()
+  from UnitFL = ()
 
 instance Matchable () where
   match UnitFL () = P.return ()
@@ -831,7 +821,7 @@ instance Unifiable () where
   lazyUnify UnitFL UnitFL = P.return ()
 
 instance NormalForm () where
-  normalFormWith _ !x = P.return (Result (P.pure (P.coerce x)))
+  normalFormWith _ UnitFL = P.return UnitFL
 
 instance ShowFree () where
   showFree' () = "()"
@@ -859,7 +849,7 @@ instance To Ordering where
   toWith _ GT = GTFL
 
 instance From Ordering where
-  fromWith _ = \case
+  from = \case
     LTFL -> LT
     EQFL -> EQ
     GTFL -> GT
@@ -877,7 +867,9 @@ instance Unifiable Ordering where
   lazyUnify _    _    = P.empty
 
 instance NormalForm Ordering where
-  normalFormWith _ !x = P.return (Result (P.pure (P.coerce x)))
+  normalFormWith _ LTFL = P.return LTFL
+  normalFormWith _ EQFL = P.return EQFL
+  normalFormWith _ GTFL = P.return GTFL
 
 instance ShowFree Ordering where
   showFree' LT = "LT"
@@ -893,10 +885,10 @@ instance HasPrimitiveInfo (IntegerFL FL) where
   primitiveInfo = Primitive
 
 instance To Integer where
-  toWith _ = P.coerce
+  toWith _ x = IntegerFL x
 
 instance From Integer where
-  fromWith _ = P.coerce
+  from (IntegerFL x) = x
 
 instance Matchable Integer where
   match (IntegerFL x) y = P.guard (x P.== y)
@@ -905,7 +897,7 @@ instance Unifiable Integer where
   lazyUnify (IntegerFL x) (IntegerFL y) = P.guard (x P.== y)
 
 instance NormalForm Integer where
-  normalFormWith _ !x = P.return (Result (P.pure (P.coerce x)))
+  normalFormWith _ (IntegerFL x) = P.return (IntegerFL x)
 
 instance ShowFree Integer where
   showFree' = P.show
@@ -922,7 +914,7 @@ instance To Int where
   toWith _ = P.coerce
 
 instance From Int where
-  fromWith _ = P.coerce
+  from = P.coerce
 
 instance Matchable Int where
   match (IntFL x) y = P.guard (x P.== y)
@@ -931,7 +923,7 @@ instance Unifiable Int where
   lazyUnify (IntFL x) (IntFL y) = P.guard (x P.== y)
 
 instance NormalForm Int where
-  normalFormWith _ !x = P.return (Result (P.pure (P.coerce x)))
+  normalFormWith _ (IntFL x) = P.return (IntFL x)
 
 instance ShowFree Int where
   showFree' = P.show
@@ -948,7 +940,7 @@ instance To Float where
   toWith _ = P.coerce
 
 instance From Float where
-  fromWith _ = P.coerce
+  from = P.coerce
 
 instance Matchable Float where
   match (FloatFL x) y = P.guard (x P.== y)
@@ -957,7 +949,7 @@ instance Unifiable Float where
   lazyUnify (FloatFL x) (FloatFL y) = P.guard (x P.== y)
 
 instance NormalForm Float where
-  normalFormWith _ !x = P.return (Result (P.pure (P.coerce x)))
+  normalFormWith _ (FloatFL x) = P.return (FloatFL x)
 
 instance ShowFree Float where
   showFree' = P.show
@@ -974,7 +966,7 @@ instance To Double where
   toWith _ = P.coerce
 
 instance From Double where
-  fromWith _ = P.coerce
+  from = P.coerce
 
 instance Matchable Double where
   match (DoubleFL x) y = P.guard (x P.== y)
@@ -983,7 +975,7 @@ instance Unifiable Double where
   lazyUnify (DoubleFL x) (DoubleFL y) = P.guard (x P.== y)
 
 instance NormalForm Double where
-  normalFormWith _ !x = P.return (Result (P.pure (P.coerce x)))
+  normalFormWith _ (DoubleFL x) = P.return (DoubleFL x)
 
 instance ShowFree Double where
   showFree' = P.show
@@ -1000,7 +992,7 @@ instance To P.Char where
   toWith _ = P.coerce
 
 instance From P.Char where
-  fromWith _ = P.coerce
+  from = P.coerce
 
 instance Matchable P.Char where
   match (CharFL x) y = P.guard (x P.== y)
@@ -1009,7 +1001,7 @@ instance Unifiable P.Char where
   lazyUnify (CharFL x) (CharFL y) = P.guard (x P.== y)
 
 instance NormalForm P.Char where
-  normalFormWith _ !x = P.return (Result (P.pure (P.coerce x)))
+  normalFormWith _ (CharFL x) = P.return (CharFL x)
 
 instance ShowFree P.Char where
   showFree' = P.show
@@ -1105,7 +1097,7 @@ instance ShowFL (DoubleFL FL) where
 
 instance ShowFL (CharFL FL) where
   showFL = liftFL1Convert P.show
-  showListFL = returnFLF $ \x -> FL $ groundNormalFormFL x P.>>= \v -> unFL (toFL (P.showList (fromIdentity v)))
+  showListFL = returnFLF $ \x -> groundNormalFormFL x P.>>= \v -> toFL (P.showList (from v))
 
 instance (Shareable FL a, ShowFL a) => ShowFL (ListFL FL a) where
   showFL = returnFLF $ \xs -> apply2FL showListFL xs (P.return NilFL)
@@ -1796,18 +1788,27 @@ testTakeND = P.return $ Func $ \xs -> xs P.>>= \case
     ConsFL z zs -> zs P.>>= \case
       ConsFL a as -> P.return (Tuple3FL y z a)-}
 
-testExpr1 = P.map fromIdentity $ evalFLWith groundNormalFormFL test1
-testExpr11 = P.map fromIdentity $ evalFLWith groundNormalFormFL test11
-testExpr = P.map fromIdentity $ evalFLWith groundNormalFormFL (testTake `appFL` test)
-testExpr2 = P.map fromIdentity $ evalFLWith groundNormalFormFL (testTake `appFL` test2)
-testExpr3 = P.map fromIdentity $ evalFLWith groundNormalFormFL (testTake `appFL` test3)
+testExpr1 = P.map fromFLVal $ evalFL $ groundNormalFormFL test1
+testExpr11 = P.map fromFLVal $ evalFL $ groundNormalFormFL test11
+testExpr = P.map fromFLVal $ evalFL $ groundNormalFormFL (testTake `appFL` test)
+testExpr2 = P.map fromFLVal $ evalFL $ groundNormalFormFL (testTake `appFL` test2)
+testExpr3 = P.map fromFLVal $ evalFL $ groundNormalFormFL (testTake `appFL` test3)
 
-testExpr4 = P.map fromIdentity $ evalFLWith groundNormalFormFL (testTake `appFL` test4)
+testExpr4 = P.map fromFLVal $ evalFL $ groundNormalFormFL (testTake `appFL` test4)
 
 {-evalND' = map (\(Val x) -> x) $ evalNDWith nd initFLState
 fromND :: ND (Lifted (ND FLState) a) -> a
 fromND nd = head . map (\(Val x) -> x) $ evalNDWith nd initFLState
 testExpr4ND = P.map fromIdentity $ evalFLWith groundNormalFormFL (testTakeND `appFL` test4ND)-}
-testExpr5 = P.map fromIdentity $ evalFLWith groundNormalFormFL (test5)
+testExpr5 = P.map fromFLVal $ evalFL $ groundNormalFormFL (test5)
 
-testExpr5' = P.map fromIdentity $ evalFLWith groundNormalFormFL (test5')
+testExpr5' = P.map fromFLVal $ evalFL $ groundNormalFormFL (test5')
+
+
+-- instance NormalForm2 Bool where
+--   normalForm2 FalseFL = P.return FalseFL
+--   normalForm2 TrueFL  = P.return TrueFL
+
+-- instance NormalForm2 a => NormalForm2 [a] where
+--   normalForm2 NilFL = P.return $ Val $ NilFL
+--   normalForm2 (ConsFL x xs) = unFL (groundNormalFormFL2 x) P.>>= \y -> unFL (groundNormalFormFL2 x) P.>>= \ys -> P.return (ConsFL y ys)

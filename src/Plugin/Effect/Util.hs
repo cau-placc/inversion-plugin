@@ -45,4 +45,4 @@ apply3FL :: FL ((-->) FL a ((-->) FL b ((-->) FL c d))) -> FL a -> FL b -> FL c 
 apply3FL f a b c = f `appFL` a `appFL` b `appFL` c
 
 unsafeFrom :: From a => Lifted FL a -> a
-unsafeFrom = fromWith (error "Used 'unsafeFrom' on non-primitive value")
+unsafeFrom = from

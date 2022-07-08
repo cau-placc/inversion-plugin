@@ -72,7 +72,7 @@ inOutClassInv name gnf inClassExpQs outClassExpQ = do
       freeNames = map (fst . snd) mapping
       letExp = DoE Nothing [NoBindS lazyUnifyExp, NoBindS returnExp]
       returnExp = mkLiftedTupleE (map VarE freeNames)
-      bodyExp = applyExp (VarE 'map) [VarE (if gnf then 'fromIdentity else 'fromEither), applyExp (VarE 'evalFLWith) [VarE (if gnf then 'groundNormalFormFL else 'normalFormFL), letExp]]
+      bodyExp = applyExp (VarE 'map) [VarE 'fromFLVal, AppE (VarE 'evalFL) (AppE (VarE (if gnf then 'groundNormalFormFL else 'normalFormFL)) letExp)]
   bNm <- newName "b"
   let letDecs = [FunD bNm [Clause (map VarP freeNames) (NormalB bodyExp) []]]
   return $ LetE letDecs (applyExp (VarE bNm) (map (snd . snd) mapping))
