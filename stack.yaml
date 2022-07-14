@@ -3,7 +3,7 @@ packages:
   - .
   - sandbox
 extra-deps:
-  - tree-monad-0.3.1
+  - tree-monad-0.3.2
   - git: https://github.com/LeventErkok/sbv.git
     commit: 58f13c937cb8d6847e84c2b1ed3be35f39897526
   - libBF-0.6.2
