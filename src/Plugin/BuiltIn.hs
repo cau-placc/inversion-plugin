@@ -40,9 +40,8 @@
 -- This module is not supposed to be imported by users, please import
 -- 'Plugin.InversionPlugin.Prelude' instead.
 module Plugin.BuiltIn where
-import Debug.Trace as P
+
 import qualified Control.Monad as P
-import           Control.Monad.Codensity (Codensity(..))
 import           Control.Monad.Fix
 import qualified GHC.Base      as P hiding (mapM)
 import qualified GHC.Real      as P
@@ -191,7 +190,7 @@ instance (From a, From [a]) => From [a] where
   from NilFL = []
   from (ConsFL x xs) = fromFL x : fromFL xs
 
-instance (To a, Matchable a, Matchable [a], To [a]) => Matchable [a] where
+instance (Matchable a, To a, Matchable [a], To [a]) => Matchable [a] where
   match NilFL [] = P.return ()
   match (ConsFL x xs) (y:ys) = matchFL x y P.>> matchFL xs ys
   match _ _ = P.empty

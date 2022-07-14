@@ -57,38 +57,42 @@ class Monad m => MonadShare m where
 class Shareable m a where
   shareArgs :: a -> m a
 
---------------------------------------------------------------------------------
+type ID = Int --TODO: Enum voraussetzen, damit man mit pred den vrogänger berechnen kann. Id muss als schlüssel für den Heap verwendet werden können (d.h. im normalfall mindestens eq), integer ist ein guter wert, in der praxis
 
-
-
-type ND s = StateT s Search
-
-class NDState s where
+class ShareState s where
   memoID :: s -> ID
   setMemoID :: ID -> s -> s
   memoMap :: s -> Map ID Untyped
   setMemoMap :: Map ID Untyped -> s -> s
 
-freshMemoID :: NDState s => ND s ID
+freshMemoID :: (ShareState s, MonadState s m) => m ID
 freshMemoID = do
   i <- gets memoID
   modify (setMemoID (pred i))
   return i
 
 -- Note: This requires the TypeSynonymInstances language extension.
-instance NDState s => MonadShare (ND s) where
-  share nd = do
+instance {-# OVERLAPPABLE #-} (ShareState s, Monad m, MonadState s m) => MonadShare m where --TODO: remove Monad ma nd overlappable for the diss
+  share mx = do
     i <- freshMemoID
     return $ do
-      map1 <- gets memoMap
-      case findBinding i map1 of
-        Nothing -> nd >>= shareArgs >>= \x -> do
+      m <- gets memoMap
+      case findBinding i m of
+        Nothing -> mx >>= shareArgs >>= \x -> do
           modify (\s -> setMemoMap (insertBinding i x (memoMap s)) s)
           return x
         Just x  -> return x
 
-evalND :: NDState s => ND s a -> s -> [a]
-evalND nd = search . evalStateT nd
+--------------------------------------------------------------------------------
+
+
+
+--------------------------------------------------------------------------------
+
+type ND s = StateT s Search
+
+evalND :: ND s a -> s -> [a]
+evalND nd s = search (searchTree (evalStateT nd s))
   where
 #ifdef DEPTH_FIRST
     search = dfs
@@ -101,18 +105,14 @@ evalND nd = search . evalStateT nd
 {-
 type ND1 s = StateT s SearchTree
 
-evalND1 :: NDState s => ND1 s a -> s -> SearchTree a
+evalND1 :: NDState s => ND1 s a -> s -> Tree a
 evalND1 = evalStateT
 
 type ND2 s = StateT s (Codensity SearchTree)
 
 evalND2 :: NDState s => ND3 s a -> s -> SearchTree a
-evalND2 nd s = runCodensity (evalStateT nd) s) return
+evalND2 nd s = runCodensity (evalStateT nd s) return
 -}
-
---------------------------------------------------------------------------------
-
-type ID = Int --TODO: Enum voraussetzen, damit man mit pred den vrogänger berechnen kann. Id muss als schlüssel für den Heap verwendet werden können (d.h. im normalfall mindestens eq), integer ist ein guter wert, in der praxis
 
 --------------------------------------------------------------------------------
 
@@ -303,7 +303,7 @@ data FLState = FLState {
   }
 --TODO: getrennter heap?
 
-instance NDState FLState where
+instance ShareState FLState where
   memoID = nextID
   memoMap = heap
   setMemoID i s = s { nextID = i }
@@ -477,7 +477,7 @@ groundNormalFormFL fl = FL $ resolveFL fl >>= \case
   HaskellVal (x :: b) -> case decomposeInjectivity @FL @a @b of
     Refl -> return (HaskellVal x)
 --TODO: Alternatively:
-groundNormalFormFL fl = fl >>= normalFormWith groundNormalFormFL
+--groundNormalFormFL fl = fl >>= normalFormWith groundNormalFormFL
 
 normalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> FL (Lifted FL a)
 normalFormFL fl = FL $ resolveFL fl >>= \case
