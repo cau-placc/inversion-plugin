@@ -885,5 +885,5 @@ toFL' :: To a => a -> FL (Lifted FL a)
 toFL' x | isBottom x = empty
         | otherwise  = return (toWith toFL' x)
 
-type Input a = (To a, Unifiable a)
-type Output a = (From a, HasPrimitiveInfo (Lifted FL a), NormalForm a)
+type Input a = (To a, Unifiable a, Shareable FL (Lifted FL a))
+type Output a = (From a, HasPrimitiveInfo (Lifted FL a), NormalForm a, Shareable FL (Lifted FL a))
