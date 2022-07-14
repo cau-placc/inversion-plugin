@@ -259,6 +259,7 @@ data FLVal (a :: Type) where
   Var        :: HasPrimitiveInfo a => ID -> FLVal a
   Val        :: a -> FLVal a
   HaskellVal :: To b => b -> FLVal (Lifted FL b)
+  --TODO: reihenfolge der konstruktoren umändern...
 
   --TODO: stark ähnlich zu uneval von den set functions. nur war da die idee, dass der wert nicht umgewandelt werden muss, sondern der effekt da einfach unausgewertet drin stecken kann. bei der normalform berechnung müsste man einen weg haben, diesen wert nicht weiter anzuschauen
 
@@ -428,44 +429,12 @@ free = FL $ freshID >>= return . Var
 
 --------------------------------------------------------------------------------
 
-data Result (f :: Type -> Type) (a :: Type) where
-  Result :: f a -> Result f a
-  HaskellResult :: b -> Result f (Lifted (Result f) b)
--- {-data Result (f :: Type -> Type) (a :: Type) where
---   Result :: f a -> Result f a
---   HaskellResult :: b -> Result f (Lifted (Result f) b)-}
-
-class NormalForm1 a where
-  normalFormWith1 :: Applicative m => (forall b. NormalForm b => FL (Lifted FL b) -> ND FLState (Result m (Lifted (Result m) b))) -> Lifted FL a -> ND FLState (Result m (Lifted (Result m) a))
--- class NormalForm a where
---   normalFormWith :: (forall b. NormalForm b => FL b -> FL b) -> a -> FL a
 
 -- TODO: GHC injectivity check cannot do decomposition, https://gitlab.haskell.org/ghc/ghc/-/issues/10833
 -- Thus, we create the proof manually using unsafeCoerce
 decomposeInjectivity :: Lifted m a ~ Lifted m b => a :~: b
 decomposeInjectivity = unsafeCoerce Refl
 
---groundNormalFormFL :: FL a -> FL a
-
--- groundNormalFormFL :: FL a -> ND FLState (Identity (TODO Identity a))
---TODO m (BoolM FL) = BoolM m
---TODO m (ListM FL) = ListM m
---TODO m (ListM FL a) = ListM m (TODO m a)
--- groundNormalFormFL :: FL (Lifted FL a) -> ND FLState (Identity (Lifted Identity a))
-
---evalFL' :: FL a -> ND FLState a
---evalND :: ND s a -> s -> [a]
-
---evalFL :: FL a -> [a]
---evalFL ... = evalND
-
--- evalFL :: FL (Lifted FL a) -> [Lifted FL a]
-
--- from :: Lifted FL a -> a
---
-
-class NormalForm2 a where
-  normalForm2 :: Lifted FL a -> ND FLState (FLVal (Lifted FL a))
 class NormalForm a where
   normalFormWith :: (forall b. NormalForm b => FL (Lifted FL b) -> FL (Lifted FL b)) -> Lifted FL a -> FL (Lifted FL a)
 
@@ -680,6 +649,28 @@ narrowSameConstr (ConsFL _ _) = ConsFL free free
 -}
 
 --------------------------------------------------------------------------------
+
+{-data FLVal1 a = Val1 { unVal1 :: a } | Var1 ID
+
+data FLVal2 a where
+  Val2 :: a -> FLVal2 a
+  Var2 :: ID -> FLVal2 a
+  HaskellVal2 :: To a => a -> FLVal2 (Lifted FL a)
+
+unVal2 :: FLVal2 a -> a
+unVal2 (Val2 x) = x
+unVal2 (HaskellVal2 x) = to x
+
+fromFLVal1 :: From a => FLVal1 (Lifted FL a) -> a
+fromFLVal1 = \case
+  Var1 i        -> throw (FreeVariableException i)
+  x            -> from (unVal1 x)
+
+fromFLVal2 :: From a => FLVal2 (Lifted FL a) -> a
+fromFLVal2 = \case
+  Var2 i        -> throw (FreeVariableException i)
+  x            -> from (unVal2 x)
+-}
 
 class Matchable a where
   match :: Lifted FL a -> a -> FL ()
