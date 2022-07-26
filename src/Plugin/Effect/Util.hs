@@ -30,13 +30,10 @@ liftFL2Convert f = returnFLF $ \a -> returnFLF $ \b ->
     a >>= \a' -> b >>= \b' -> return $ to (f (unsafeFrom a') (unsafeFrom b'))
 
 assertConstraintND :: Constraint -> [ID] -> ND FLState ()
-assertConstraintND c ids = get >>= \FLState { .. } -> put (FLState nextID heap (insertConstraint c ids constraintStore))
+assertConstraintND c ids = get >>= \FLState { .. } -> put (FLState { constraintStore = insertConstraint c ids constraintStore, .. })
 
 checkConsistencyND :: ND FLState ()
 checkConsistencyND = get >>= \FLState {..} -> unless (isConsistent constraintStore) empty
-
-freshIdentifierND :: ND FLState ID
-freshIdentifierND = get >>= \FLState {..} -> put (FLState (nextID - 1) heap constraintStore) >> return nextID
 
 apply2FL :: FL ((-->) FL a ((-->) FL b c)) -> FL a -> FL b -> FL c
 apply2FL f a b = f `appFL` a `appFL` b

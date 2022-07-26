@@ -1628,7 +1628,7 @@ primitive1 f mConstraint = returnFLF $ \x ->
         Val a -> unFL $ P.return (coerce (f (coerce a)))
         HaskellVal a -> unFL $ P.return (coerce (f (unsafeCoerce a)))
         x'    -> do
-          j <- freshIdentifierND
+          j <- freshVarID
           assertConstraintND (constraint x' (Var j)) (j: varOf x')
           -- Consistency not necessary, see comment in primitive2
           P.return (Var j)
@@ -1650,7 +1650,7 @@ primitive2 op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
           (# HaskellVal a, HaskellVal b #) -> unFL $ P.return $ coerce (unsafeCoerce a `op` unsafeCoerce b)
           --TODO:
           _                  -> do
-            j <- freshIdentifierND
+            j <- freshVarID
             assertConstraintND (constraint x' y' (Var j)) (j : varsOf x' y')
             -- Diss: Checking consistency is unnecessary, because "j" is fresh.
             -- However, it is important to enter x and y in the set of constrained vars, because
@@ -1706,8 +1706,8 @@ primitive2Pair op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
           (# HaskellVal a, Val b #) -> unFL $ toFL $ unsafeCoerce a `op` coerce b
           (# HaskellVal a, HaskellVal b #) -> unFL $ toFL $ unsafeCoerce a `op` unsafeCoerce b
           _                  -> do
-            j <- freshIdentifierND
-            k <- freshIdentifierND
+            j <- freshVarID
+            k <- freshVarID
             assertConstraintND (constraint x' y' (Var j) (Var k)) (j : k : varsOf x' y')
             -- Diss: Checking consistency is unnecessary, because "j" and "k" are fresh.
             -- However, it is important to enter x and y in the set of constrained vars, because
