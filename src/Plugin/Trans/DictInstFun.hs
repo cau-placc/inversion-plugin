@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections #-}
 -- |
 -- Module      : Plugin.Trans.DictInstFun
 -- Description : Lift the dictionary binding of a type class.
@@ -128,21 +129,19 @@ liftDictExpr cls w tcs (L l ex) = L l <$> liftDictExpr' ex
               (HsWrap cw (HsConLikeOut _ (RealDataCon dc)))
             )
         ) = do
-        cw' <- replaceWrapper tcs cw
-        dc' <- liftIO (getLiftedCon dc tcs)
-        let (apps, _) = collectTyApps cw'
-        stc <- getShareClassTycon
-        mty <- mkTyConTy <$> getMonadTycon
-        let mkShareTy ty = mkTyConApp stc [mty, ty]
-        wanteds <- newWanteds (Shouldn'tHappenOrigin "InversionPlugin origin") (map mkShareTy apps)
-        let cts = map CNonCanonical wanteds
-        emitConstraints (WC (listToBag cts) emptyBag emptyBag)
-        return
-          ( XExpr
-              ( WrapExpr
-                  (HsWrap (foldr ((<.>) . WpEvApp . EvExpr . ctEvExpr) cw' wanteds) (HsConLikeOut noExtField (RealDataCon dc')))
-              )
-          )
+      cw' <- replaceWrapper tcs cw
+      dc' <- liftIO (getLiftedCon dc tcs)
+      apps <- mapM (\ty -> (ty,). (`Bndr` Required) <$> freshTVar (typeKind ty)) $ reverse $ fst $ collectTyApps cw'
+      stc <- getShareClassTycon
+      mty <- mkTyConTy <$> getMonadTycon
+      let mkShareTy ty = mkTyConApp stc [mty, ty]
+      uss <- replicateM (length apps) getUniqueSupplyM
+      let instantiateShareable u (ty, v) = (`piResultTy` ty) . ForAllTy v <$> mkShareable mkShareTy u v
+      let stys = catMaybes $ zipWith instantiateShareable uss apps
+      wanteds <- newWanteds (Shouldn'tHappenOrigin "Inversion Plugin (Finn Teegen)") stys
+      let cts = map CNonCanonical wanteds
+      emitConstraints (WC (listToBag cts) emptyBag emptyBag)
+      return (mkHsWrap (foldr ((<.>) . WpEvApp . EvExpr . ctEvExpr) cw' wanteds) (HsConLikeOut noExtField (RealDataCon dc')))
     liftDictExpr' (HsConLikeOut _ (RealDataCon dc)) = do
       dc' <- liftIO (getLiftedCon dc tcs)
       return (HsConLikeOut noExtField (RealDataCon dc'))

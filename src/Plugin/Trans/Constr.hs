@@ -100,13 +100,17 @@ liftConstr isClass dflags instEnvs stycon ftycon mvar mtycon tcs tcsM tycon s cn
       (s5, tmp5) = splitUniqSupply tmp4
       (s6, s7) = splitUniqSupply tmp5
       ss = listSplitUniqSupply s4
+      uss = listSplitUniqSupply s7
+
+  let mkShareTy ty = mkTyConApp stycon [mkTyConTy mtycon, ty]
+      newSuperClassArgs
+        | isClass = catMaybes $ zipWith (\u (Bndr tv _) -> Scaled Many
+                                            <$> mkShareable mkShareTy u (Bndr tv Required)) uss
+                              $ dataConUserTyVarBinders cn
+        | otherwise = []
 
   -- Lift all constructor arguments and update any type constructors.
-  liftedargs <- liftIO (zipWithM liftAndReplaceType ss (dataConOrigArgTys cn))
-  let mkShareTy ty = mkTyConApp stycon [mkTyConTy mtycon, ty]
-  let additional = catMaybes $ zipWith (\(Bndr v _) u -> Scaled Many <$> mkShareable mkShareTy u (Bndr v Required))
-                    (dataConUserTyVarBinders cn) (listSplitUniqSupply s7)
-  let argtys = if isClass then additional ++ liftedargs else liftedargs
+  argtys <- (newSuperClassArgs++) <$> liftIO (zipWithM liftAndReplaceType ss (dataConOrigArgTys cn))
 
   -- Create the new worker and constructor names, if required.
   let w = dataConWorkId cn

@@ -25,6 +25,12 @@ freshSimpleTVar = do
   let k = liftedTypeKind
   return $ mkTyVar (mkSystemName u (mkTyVarOcc "a")) k
 
+-- | Create a fresh type variable of the given kind.
+freshTVar :: Kind -> TcM TyVar
+freshTVar k = do
+  u <- getUniqueM
+  return $ mkTyVar (mkSystemName u (mkTyVarOcc "a")) k
+
 -- | Create a fresh type variable of kind 'Type -> Type'.
 freshMonadTVar :: TcM TyVar
 freshMonadTVar = do

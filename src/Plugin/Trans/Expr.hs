@@ -989,6 +989,7 @@ liftVarWithWrapper given tcs w v dttKey
                         | otherwise = removeNameSuffix (occName v)
                 Just (_, idx) <- return $ find ((== occ) . occName . fst) (zip sels [0..])
                 -- a built-in class already knows its correct index
+                -- this differs from our other plugins
                 let idx' = idx + if cls' == cls then 0 else length (classTyVars cls)
                 return (mkDictSelId (sels' !! idx') cls')
               | isLocalId v =
