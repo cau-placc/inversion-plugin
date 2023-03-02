@@ -30,8 +30,6 @@ liftTycon ::
   DynFlags ->
   -- | Family Instance Environments, both home and external
   FamInstEnvs ->
-  -- | 'Shareable' type constructor
-  TyCon ->
   -- | '-->' type constructor
   TyCon ->
   -- | Monad type constructor
@@ -47,7 +45,7 @@ liftTycon ::
   -- | Next fresh unique supply, the original type constructor
   -- and maybe the lifted type constructor
   IO (UniqSupply, (TyCon, Maybe TyCon))
-liftTycon dynFlags instEnvs stycon ftycon mtycon supply tcs tcsM tc
+liftTycon dynFlags instEnvs ftycon mtycon supply tcs tcsM tc
   | isVanillaAlgTyCon tc || isClassTyCon tc = mdo
       -- The tycon definition is cyclic, so we use this let-construction.
       let (s1, tmp) = splitUniqSupply supply
@@ -66,7 +64,6 @@ liftTycon dynFlags instEnvs stycon ftycon mtycon supply tcs tcsM tc
           isCls
           dynFlags
           instEnvs
-          stycon
           ftycon
           mVar
           mtycon
@@ -79,7 +76,7 @@ liftTycon dynFlags instEnvs stycon ftycon mtycon supply tcs tcsM tc
       flav <- case (tyConRepName_maybe tc, tyConClass_maybe tc) of
         (Just p, Just c) ->
           flip ClassTyCon (liftRepName s4 p)
-            <$> liftClass dynFlags stycon ftycon mtycon tcs tcsM tycon us2 c
+            <$> liftClass dynFlags ftycon mtycon tcs tcsM tycon us2 c
         (Just p, Nothing) -> return (VanillaAlgTyCon (liftRepName s4 p))
         _ ->
           panicAnyUnsafe "Unknown flavour of type constructor" tc
@@ -106,7 +103,7 @@ liftTycon dynFlags instEnvs stycon ftycon mtycon supply tcs tcsM tc
                          (mkVisFunTyMany liftedTypeKind liftedTypeKind)
       -- lift only the "inner" type of synonyms
       ty <- replaceTyconTyPure tcs
-        <$> liftInnerTy stycon ftycon (mkTyVarTy mVar) supply3 tcsM origty
+        <$> liftInnerTy ftycon (mkTyVarTy mVar) supply3 tcsM origty
       let name = liftName (tyConName tc) u
           tycon = mkSynonymTyCon
             name (mkAnonTyConBinder VisArg mVar : tyConBinders tc) (tyConResKind tc)
@@ -126,8 +123,6 @@ liftAlgRhs ::
   DynFlags ->
   -- | Family Instance Environments, both home and external
   FamInstEnvs ->
-  -- | 'Shareable' type constructor
-  TyCon ->
   -- | '-->' type constructor
   TyCon ->
   -- | 'Monad' type variable
@@ -150,7 +145,6 @@ liftAlgRhs
   isClass
   dflags
   instEnvs
-  stycon
   ftycon
   mvar
   mtycon
@@ -162,13 +156,12 @@ liftAlgRhs
   (DataTyCon cns size ne) = case listSplitUniqSupply us of
     [] -> panicAnyUnsafe "Finite Unique supply" ()
     (u : uss) -> do
-      cns' <- zipWithM (liftConstr isClass dflags instEnvs stycon ftycon mvar mtycon tcs tcsM tycon) uss cns
+      cns' <- zipWithM (liftConstr isClass dflags instEnvs ftycon mvar mtycon tcs tcsM tycon) uss cns
       return (u, DataTyCon cns' size ne)
 liftAlgRhs
   isClass
   dflags
   instEnvs
-  stycon
   ftycon
   mvar
   mtycon
@@ -180,9 +173,9 @@ liftAlgRhs
     let (u1, tmp1) = splitUniqSupply us
         (u2, tmp2) = splitUniqSupply tmp1
         (u3, u4) = splitUniqSupply tmp2
-    dc' <- liftConstr isClass dflags instEnvs stycon ftycon mvar mtycon tcs tcsM tycon u1 dc
+    dc' <- liftConstr isClass dflags instEnvs ftycon mvar mtycon tcs tcsM tycon u1 dc
     let mtype = if isClass then mkTyConTy mtycon else mkTyVarTy mvar
-    rhs' <- replaceTyconTyPure tcs <$> liftType stycon ftycon mtype u2 tcsM rhs
+    rhs' <- replaceTyconTyPure tcs <$> liftType ftycon mtype u2 tcsM rhs
 
     -- Only switch unique and name for datatypes, etc.
     -- (see comment above liftTycon)
@@ -201,7 +194,7 @@ liftAlgRhs
     if isClass
       then return (u4, DataTyCon [dc'] 1 False)
       else return (u4, NewTyCon dc' rhs' (etavs, etarhs) co' lev)
-liftAlgRhs _ _ _ _ _ _ _ _ _ _ u c = return (u, c)
+liftAlgRhs _ _ _ _ _ _ _ _ _ u c = return (u, c)
 
 -- | Eta-reduce type variables of a newtype declaration to generate a
 -- more siple newtype coercion.

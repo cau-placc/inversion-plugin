@@ -18,6 +18,7 @@
 {-# LANGUAGE UndecidableInstances      #-}
 
 {-# OPTIONS_GHC -Wno-orphans #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
 module Plugin.Effect.Monad where
 
@@ -51,11 +52,7 @@ import Unsafe.Coerce (unsafeCoerce)
 --------------------------------------------------------------------------------
 
 class Monad m => MonadShare m where
-  share :: Shareable m a => m a -> m (m a)
-
- -- Note: Adding MonadShare m here as a constraint leads to a bug in the plugin when a quantified constraint occurs.
-class Shareable m a where
-  shareArgs :: a -> m a
+  share :: m a -> m (m a)
 
 --------------------------------------------------------------------------------
 
@@ -99,8 +96,8 @@ findBinding i = fmap typed . lookupHeap i
 
 type ND s = StateT s Search
 
-evalND :: ND s a -> s -> [a]
-evalND nd s = search (searchTree (evalStateT nd s))
+evalND :: NDState s => ND s a -> [a]
+evalND nd = search (searchTree (evalStateT nd initNDState))
   where
 #ifdef DEPTH_FIRST
     search = dfs
@@ -111,10 +108,11 @@ evalND nd s = search (searchTree (evalStateT nd s))
 #endif
 
 class NDState s where
-  memoID :: s -> ID
-  setMemoID :: ID -> s -> s
-  memoMap :: s -> Map ID Untyped
-  setMemoMap :: Map ID Untyped -> s -> s
+  initNDState :: s
+  memoID      :: s -> ID
+  setMemoID   :: ID -> s -> s
+  memoMap     :: s -> Map ID Untyped
+  setMemoMap  :: Map ID Untyped -> s -> s
 
 freshMemoID :: NDState s => ND s ID
 freshMemoID = do
@@ -129,10 +127,12 @@ instance NDState s => MonadShare (ND s) where
     return $ do
       m <- gets memoMap
       case findBinding i m of
-        Nothing -> mx >>= shareArgs >>= \x -> do
+        Nothing -> mx >>= \x -> do
           modify (\s -> setMemoMap (insertBinding i x (memoMap s)) s)
           return x
         Just x  -> return x
+
+--TODO: memo auslagern
 
 {-
 type ND1 s = StateT s SearchTree
@@ -149,8 +149,10 @@ evalND2 nd s = runCodensity (evalStateT nd s) return
 --------------------------------------------------------------------------------
 
 class Narrowable a where
-  narrow :: [a]
+  narrow :: [FL a]
   --TODO: narrowSameConstr :: a -> a
+
+--TODO: narrow same constructor als remark?
 
 --------------------------------------------------------------------------------
 
@@ -240,7 +242,7 @@ generate i = getModels i . constraints
 
 --------------------------------------------------------------------------------
 
-data PrimitiveInfo a = (Narrowable a, Shareable FL a) => NoPrimitive
+data PrimitiveInfo a = Narrowable a => NoPrimitive
                      | Constrainable a => Primitive
 
 class HasPrimitiveInfo a where
@@ -301,22 +303,19 @@ data FLState = FLState {
     varHeap :: Heap Untyped,
     constraintStore :: ConstraintStore
   }
---TODO: getrennter heap?
 
 instance NDState FLState where
   memoID = _memoID
   memoMap = _memoMap
   setMemoID i s = s { _memoID = i }
   setMemoMap m s = s { _memoMap = m }
-
-initFLState :: FLState
-initFLState = FLState {
-    _memoID = 0,
-    _memoMap = emptyHeap,
-    varID = -1,
-    varHeap = emptyHeap,
-    constraintStore = initConstraintStore
-  }
+  initNDState = FLState {
+      _memoID = 0,
+      _memoMap = emptyHeap,
+      varID = -1,
+      varHeap = emptyHeap,
+      constraintStore = initConstraintStore
+    }
 
 freshVarID :: ND FLState ID
 freshVarID = do
@@ -326,13 +325,10 @@ freshVarID = do
 
 --------------------------------------------------------------------------------
 
---TODO: begründung: wenn ich shareable fl habe, kann ich daraus das shareable auf nd ebene konstruieren. das brauche ich, weil für die komponenten, der werte, die ich auf nd ebene share und die in fl sind (wofür ich shareabgle habe), in der nd monade sharen möchte (weil ich die share von der nd-instanz verwende).
-instance Shareable FL a => Shareable (ND FLState) (FLVal a) where
-  shareArgs (Var i)        = return (Var i)
-  shareArgs (Val x)        = unFL (shareArgs x)
-  shareArgs (HaskellVal y) = return (HaskellVal y)
-
 newtype FL a = FL { unFL :: ND FLState (FLVal a) }
+
+evalFL :: FL a -> [FLVal a]
+evalFL fl = evalND (unFL fl)
 
 instance Functor FL where
   fmap = liftM
@@ -360,23 +356,54 @@ resolveFL = resolveFL' []
                                                                Just x  -> resolveFL' (i : is) x
           HaskellVal y -> return (HaskellVal y)
 
-instantiate :: forall a. HasPrimitiveInfo a => ID -> FL a
+instantiate :: forall a. HasPrimitiveInfo a => ID -> ND FLState a
 instantiate i = case primitiveInfo @a of
   NoPrimitive -> msum (map update narrow)
-    where update x = do
-            x' <- share (return x) --TODO: share necessary because argument might be free calls that need to be shared
-            FL $ do
-             modify $ \ FLState { .. } -> FLState { varHeap = insertBinding i x' varHeap, .. }
-             unFL x'
-  Primitive   -> FL $ get >>= \ FLState { .. } -> unFL $ msum (map update (generate i constraintStore))
+    where update (FL ndx) = do
+            Val x <- ndx
+            modify $ \ FLState { .. } -> FLState { varHeap = insertBinding i (return @FL x) varHeap, .. } --TODO: in der ersten version sind auf dem heap noch keine fl a berechnungen, sondern nur lifted as
+            return x
+  Primitive   -> get >>= \ FLState { .. } -> msum (map update (generate i constraintStore))
     where update x = do
             let c = eqConstraint (Var i) (Val x)
-            let x' = return x --TODO: no share necessary because primitive types do not have arguments (that would be free otherwise)
-            FL $ do
-              modify $ \ FLState { .. } -> FLState { varHeap = insertBinding i x' varHeap
-                                                   , constraintStore = insertConstraint c [i] constraintStore
-                                                   , .. }
-              unFL x'
+            modify $ \ FLState { .. } -> FLState { varHeap = insertBinding i (return @FL x) varHeap
+                                                 , constraintStore = insertConstraint c [i] constraintStore
+                                                 , .. }
+            return x
+
+-- instantiate :: forall a. HasPrimitiveInfo a => ID -> FL a
+-- instantiate i = case primitiveInfo @a of
+--   NoPrimitive -> msum (map update narrow)
+--     where update x = do
+--             x' <- share (return x) --TODO: share necessary because argument might be free calls that need to be shared
+--             FL $ do
+--               modify $ \ FLState { .. } -> FLState { varHeap = insertBinding i x' varHeap, .. } --TODO: in der ersten version sind auf dem heap noch keine fl a berechnungen, sondern nur lifted as
+--               unFL x' --TODO remove
+--   Primitive   -> FL $ get >>= \ FLState { .. } -> unFL $ msum (map update (generate i constraintStore))
+--     where update x = do
+--             let c = eqConstraint (Var i) (Val x)
+--             let x' = return x --TODO: no share necessary because primitive types do not have arguments (that would be free otherwise)
+--             FL $ do
+--               modify $ \ FLState { .. } -> FLState { varHeap = insertBinding i x' varHeap
+--                                                    , constraintStore = insertConstraint c [i] constraintStore
+--                                                    , .. }
+--               unFL x'
+
+-- instantiate :: forall a. HasPrimitiveInfo a => ID -> ND FLState (FLVal a)
+-- instantiate i = case primitiveInfo @a of
+--   NoPrimitive -> msum (map update narrow)
+--     where update x = do
+--             x' <- share (return (Val x)) --TODO: share necessary because argument might be free calls that need to be shared
+--             modify $ \ FLState { .. } -> FLState { varHeap = insertBinding i x' varHeap, .. }
+--             x'
+--   Primitive   -> get >>= \ FLState { .. } -> msum (map update (generate i constraintStore))
+--     where update x = do
+--             let c = eqConstraint (Var i) (Val x)
+--             let x' = return x --TODO: no share necessary because primitive types do not have arguments (that would be free otherwise)
+--             modify $ \ FLState { .. } -> FLState { varHeap = insertBinding i x' varHeap
+--                                                    , constraintStore = insertConstraint c [i] constraintStore
+--                                                    , .. }
+--             x'
 
 {-
 resolveFL :: FL a -> ND FLState (FLVal a)
@@ -401,10 +428,10 @@ instantiate i = get >>= \ FLState { .. } ->
 -}
 
 instance Monad FL where
-  fl >>= f = FL $ resolveFL fl >>= unFL . \case
-    Var i        -> instantiate i >>= f
-    Val x        -> f x
-    HaskellVal y -> f (to y)
+  fl >>= f = FL $ resolveFL fl >>= \case
+    Var i        -> instantiate i >>= unFL . f
+    Val x        -> unFL (f x)
+    HaskellVal y -> unFL (f (to y))
 
 instance Alternative FL where
   empty = FL empty
@@ -425,7 +452,7 @@ instance MonadShare FL where
   share fl = FL (fmap (Val . FL) (share (unFL fl)))
 
 free :: HasPrimitiveInfo a => FL a
-free = FL (freshVarID >>= return . Var)
+free = FL (Var <$> freshVarID)
 
 --------------------------------------------------------------------------------
 
@@ -441,7 +468,7 @@ class NormalForm a where
 --TODO: rename haskellval y to haskellval x overall
 groundNormalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> FL (Lifted FL a)
 groundNormalFormFL fl = FL $ resolveFL fl >>= \case
-  Var i -> unFL $ groundNormalFormFL (instantiate i)
+  Var i -> instantiate i >>= unFL . normalFormWith groundNormalFormFL
   Val x -> unFL $ normalFormWith groundNormalFormFL x
   HaskellVal (x :: b) -> case decomposeInjectivity @FL @a @b of
     Refl -> return (HaskellVal x)
@@ -455,7 +482,7 @@ normalFormFL fl = FL $ resolveFL fl >>= \case
       NoPrimitive -> return (Var i)
       Primitive   -> if isUnconstrained i constraintStore
                        then return (Var i)
-                       else unFL $ normalFormFL (instantiate i)
+                       else instantiate i >>= unFL . normalFormWith normalFormFL
   Val x -> unFL $ normalFormWith normalFormFL x
   HaskellVal (x :: b) -> case decomposeInjectivity @FL @a @b of
     Refl -> return (HaskellVal x)
@@ -528,9 +555,6 @@ normalFormFL fl = resolveFL fl >>= \case
 --evalFLWith :: NormalForm a => (forall b. NormalForm b => FL (Lifted FL b) -> ND FLState (m (Lifted m b))) -> FL (Lifted FL a) -> [m (Lifted m a)]
 --evalFLWith nf fl = evalND (nf fl) initFLState
 --map fromFLVal $ evalFL (groundNormalFormFL ...)
-
-evalFL :: FL a -> [FLVal a]
-evalFL fl = evalND (unFL fl) initFLState
 
 {-
 groundNormalFormFL :: FL (a :--> a)
@@ -723,7 +747,7 @@ type Input a = (To a, HasPrimitiveInfo (Lifted FL a))-}
 
 --TODO: eigentlich nur narrowable notwendig --TODO: instantiateSameConstructor
 instantiateSameConstructor :: (HasPrimitiveInfo (Lifted FL a), Unifiable a) => Lifted FL a -> ID -> FL ()
-instantiateSameConstructor x i = instantiate i >>= lazyUnify x --TODO: discuss why this is inefficient
+instantiateSameConstructor x i = FL $ instantiate i >>= unFL . lazyUnify x --TODO: discuss why this is inefficient
 
 {-
 narrowSame NilFL = NilFL
@@ -843,7 +867,7 @@ lazyUnifyFL fl1 fl2 = FL $ resolveFL fl1 >>= \case
 --------------------------------------------------------------------------------
 
 --TODO: no longer needed, just for sanity checking if all necessary instances are defined for built-in types
-class (From a, To a, Matchable a, Unifiable a, NormalForm a, Shareable FL (Lifted FL a), HasPrimitiveInfo (Lifted FL a), ShowFree a) => Invertible a
+class (From a, To a, Matchable a, Unifiable a, NormalForm a, HasPrimitiveInfo (Lifted FL a), ShowFree a) => Invertible a
 
 --------------------------------------------------------------------------------
 
@@ -852,6 +876,8 @@ infixr 0 :-->
 type (:-->) = (-->) FL --TODO: move to util. gehört aber eigentlich auch nicht hier hin.
 
 newtype (-->) (m :: Type -> Type) (a :: Type) (b :: Type) = Func (m a -> m b)
+
+--remark: newtype um instanzen angeben zu können und typklassen (partielle applikation ,e.g. functor, unterstützen)
 
 infixr 0 -->
 
@@ -865,11 +891,8 @@ instance (From a, NormalForm a, To b) => To (a -> b) where
 --instance (From a, NormalForm (Lifted FL a), To b) => To (a -> b) where
   --toWith _ f = Func $ \x -> toFL' (f (fromFL (groundNormalFormFL x)))
 
-instance MonadShare m => Shareable m ((-->) m a b) where
-  shareArgs = return
-
-appFL :: Monad m => m ((-->) m a b) -> m a -> m b
-mf `appFL` x = mf >>= \ (Func f) -> f x
+appFL :: MonadShare m => m ((-->) m a b) -> m a -> m b
+mf `appFL` mx = share mx >>= \x -> mf >>= \ (Func f) -> f x
 
 -- This function incorporates the improvement from the paper for
 -- partial values in the context of partial inversion with higher-order functions.
@@ -877,5 +900,5 @@ toFL' :: To a => a -> FL (Lifted FL a)
 toFL' x | isBottom x = empty
         | otherwise  = return (toWith toFL' x)
 
-type Input a = (To a, Unifiable a, Shareable FL (Lifted FL a))
-type Output a = (From a, HasPrimitiveInfo (Lifted FL a), NormalForm a, Shareable FL (Lifted FL a))
+type Input a = (To a, Unifiable a)
+type Output a = (From a, HasPrimitiveInfo (Lifted FL a), NormalForm a) --TODO: Get rid of the tpye family maybe?

@@ -20,7 +20,6 @@ where
 
 import Control.Exception
 import Control.Monad.State
-import Data.Maybe
 import GHC.Core.Class
 import GHC.Core.SimpleOpt
 import GHC.Core.Unfold.Make
@@ -29,7 +28,6 @@ import GHC.Driver.Config
 import GHC.Plugins
 import GHC.Types.Demand
 import GHC.Types.Id.Make
-import GHC.Core.TyCo.Rep
 import Plugin.Trans.Type
 import Plugin.Trans.Util
 import Plugin.Trans.Var
@@ -65,8 +63,6 @@ instance MonadUnique ClassM where
 liftClass ::
   -- | Compiler flags
   DynFlags ->
-  -- | 'Shareable' type constructor
-  TyCon ->
   -- | 'Nondet' type constructor
   TyCon ->
   -- | '-->' type constructor
@@ -83,29 +79,19 @@ liftClass ::
   Class ->
   -- | Lifted class
   IO Class
-liftClass dflags stycon ftycon mtycon tcs tcsM tycon us cls = flip evalStateT us $ mdo
+liftClass dflags ftycon mtycon tcs tcsM tycon us cls = flip evalStateT us $ mdo
   -- Look up the new type constructors for all super classes
-  us1 <- getUniqueSupplyM
-  us2 <- getUniqueSupplyM
   superclss <- liftIO $ mapM
       (fmap (replaceTyconTyPure tcs) . replaceTyconTy tcsM)
       (classSCTheta cls)
-  let mkShareTy ty = mkTyConApp stycon [mkTyConTy mtycon, ty]
-  let stys = catMaybes $ zipWith (\v u -> mkShareable mkShareTy u (Bndr v Required)) (classTyVars cls) (listSplitUniqSupply us1)
-  let nms = map (\u -> let un = uniqFromSupply u
-                       in mkExternalName un (nameModule (className cls))
-                            (mkVarOcc $ "$sel" ++ show un) noSrcSpan) (listSplitUniqSupply us2)
-  let ssels = zipWith (\ty n -> let ty' = mkForAllTys (map (`Bndr` Inferred) $ classTyVars cls)
-                                          (FunTy InvisArg Many (mkTyConApp tycon (map mkTyVarTy $ classTyVars cls)) ty)
-                                in mkExactNameDictSelId n cls' ty' dflags) stys nms
   -- Lift the super class selector functions
-  supersel <- mapM (liftSuperSel dflags stycon ftycon mtycon tcs tcsM cls') (classSCSelIds cls)
+  supersel <- mapM (liftSuperSel dflags ftycon mtycon tcs tcsM cls') (classSCSelIds cls)
   -- Lift the associated types of the class
   astypes <- mapM (liftATItem mtycon tcs tcsM cls) (classATItems cls)
   -- Lift all class functions
   classops <-
     mapM
-      (liftClassOpItem dflags stycon ftycon mtycon tcs tcsM cls cls')
+      (liftClassOpItem dflags ftycon mtycon tcs tcsM cls cls')
       (classOpItems cls)
   -- Create the new class from its lifted components
   let cls' =
@@ -113,8 +99,8 @@ liftClass dflags stycon ftycon mtycon tcs tcsM tycon us cls = flip evalStateT us
           (tyConName tycon)
           (classTyVars cls)
           (snd (classTvsFds cls))
-          (stys ++ superclss)
-          (ssels ++ supersel)
+          superclss
+          supersel
           astypes
           classops
           (classMinimalDef cls)
@@ -122,13 +108,13 @@ liftClass dflags stycon ftycon mtycon tcs tcsM tycon us cls = flip evalStateT us
   return cls'
 
 -- | Lift a super class selector function.
-liftSuperSel :: DynFlags -> TyCon -> TyCon -> TyCon -> UniqFM TyCon TyCon -> TyConMap -> Class -> Var -> ClassM Var
-liftSuperSel dflags stycon ftycon mtycon tcs tcsM cls v = do
+liftSuperSel :: DynFlags -> TyCon -> TyCon -> UniqFM TyCon TyCon -> TyConMap -> Class -> Var -> ClassM Var
+liftSuperSel dflags ftycon mtycon tcs tcsM cls v = do
   u <- getUniqueM
   us <- getUniqueSupplyM
   -- A super class selector is not lifted like a function.
   -- Instead we just have to update its mentioned type constructors.
-  ty' <- lift $ replaceTyconTyPure tcs <$> liftInnerTyParametrized False stycon ftycon (mkTyConTy mtycon) us tcsM (varType v)
+  ty' <- lift $ replaceTyconTyPure tcs <$> liftInnerTy ftycon (mkTyConTy mtycon) us tcsM (varType v)
   -- Create the new selector id with the correct attributes.
   return (mkExactNameDictSelId (liftName (varName v) u) cls ty' dflags)
 
@@ -137,14 +123,13 @@ liftClassOpItem ::
   DynFlags ->
   TyCon ->
   TyCon ->
-  TyCon ->
   UniqFM TyCon TyCon ->
   TyConMap ->
   Class ->
   Class ->
   ClassOpItem ->
   ClassM ClassOpItem
-liftClassOpItem dflags stycon ftycon mtycon tcs tcsM clsOld clsNew (v, mbdef) = do
+liftClassOpItem dflags ftycon mtycon tcs tcsM clsOld clsNew (v, mbdef) = do
   us1 <- getUniqueSupplyM
   us2 <- getUniqueSupplyM
   us3 <- getUniqueSupplyM
@@ -158,10 +143,10 @@ liftClassOpItem dflags stycon ftycon mtycon tcs tcsM clsOld clsNew (v, mbdef) = 
   let varCount = length (classTyVars clsOld)
   let (bndr, liftingType) = splitInvisPiTysN varCount (varType v)
   -- Now we can lift the type.
-  bndr' <- liftIO (mapM (replacePiTy stycon ftycon (mkTyConTy mtycon) us3 tcsM) bndr)
+  bndr' <- liftIO (mapM (replacePiTy ftycon (mkTyConTy mtycon) us3 tcsM) bndr)
   ty' <- liftIO $
     replaceTyconTyPure tcs . mkPiTys bndr'
-      <$> liftType stycon ftycon (mkTyConTy mtycon) us1 tcsM liftingType
+      <$> liftType ftycon (mkTyConTy mtycon) us1 tcsM liftingType
   -- Create the new selector id with the correct attributes.
   let v' = mkExactNameDictSelId (varName v) clsNew ty' dflags
   -- Lift any default implementations
@@ -175,7 +160,7 @@ liftClassOpItem dflags stycon ftycon mtycon tcs tcsM clsOld clsNew (v, mbdef) = 
       u <- getUniqueM
       ty' <- liftIO $
         replaceTyconTyPure tcs
-          <$> liftType stycon ftycon (mkTyConTy mtycon) us2 tcsM ty
+          <$> liftType ftycon (mkTyConTy mtycon) us2 tcsM ty
       return (Just (liftName n u, GenericDM ty'))
 
 -- | Create a selector identifier with the given name, class and type.

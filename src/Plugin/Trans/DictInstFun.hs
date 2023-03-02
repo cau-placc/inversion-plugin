@@ -9,9 +9,7 @@
 -- class. It is not lifted like a normal function.
 module Plugin.Trans.DictInstFun (liftDictInstFun) where
 
-import Control.Monad
 import Data.List
-import Data.Maybe
 import GHC.Core.ConLike
 import GHC.Core.InstEnv
 import GHC.Core.TyCo.Rep
@@ -26,7 +24,6 @@ import GHC.Tc.Types.Evidence
 import GHC.Tc.Utils.Monad
 import GHC.Tc.Types.Constraint
 import GHC.Tc.Types.Origin
-import GHC.Tc.Utils.Instantiate
 import GHC.Tc.Utils.TcType
 import GHC.Tc.Solver
 import GHC.Tc.Utils.Zonk
@@ -34,7 +31,6 @@ import Language.Haskell.Syntax.Extension
 import Plugin.Trans.Constr
 import Plugin.Trans.Type
 import Plugin.Trans.Util
-import Plugin.Trans.Var
 
 -- | Lift the dictionary binding of a type class.
 -- It is not lifted like a normal function.
@@ -67,21 +63,11 @@ liftDictInstBinding tcs cls (AbsBinds _ tvs evs ex evb bs sig)
       -- The monomorphic one has to be updated for the new type constructors.
       m' <- setVarType m <$> liftInnerTyTcM tcs (varType m)
 
-      -- Create the dictionary variables.
-      stc <- getShareClassTycon
-      mty <- mkTyConTy <$> getMonadTycon
-      u <- replicateM (length tvs) getUniqueSupplyM
-      let mkShareTy ty = mkTyConApp stc [mty, ty]
-      let evsty =
-            catMaybes $
-              zipWith ((. flip Bndr Inferred) . mkShareable mkShareTy) u tvs
-      newevs <- mapM freshDictId evsty
-
       -- Each function and superclass selector uses the same wrapper,
       -- that applies all tvs and then all evs.
       -- So we create it once, and use it everywhere.
       let replaceEv ev = setVarType ev <$> liftInnerTyTcM tcs (varType ev)
-      allevsids <- (++ newevs) <$> mapM replaceEv evs
+      allevsids <- mapM replaceEv evs
       let evWraps = map (WpEvApp . EvExpr . evId) allevsids
       let tyWraps = map (WpTyApp . mkTyVarTy) tvs
       let wrap = foldl (<.>) WpHole (reverse evWraps ++ reverse tyWraps)
@@ -129,19 +115,14 @@ liftDictExpr cls w tcs (L l ex) = L l <$> liftDictExpr' ex
               (HsWrap cw (HsConLikeOut _ (RealDataCon dc)))
             )
         ) = do
-      cw' <- replaceWrapper tcs cw
-      dc' <- liftIO (getLiftedCon dc tcs)
-      apps <- mapM (\ty -> (ty,). (`Bndr` Required) <$> freshTVar (typeKind ty)) $ reverse $ fst $ collectTyApps cw'
-      stc <- getShareClassTycon
-      mty <- mkTyConTy <$> getMonadTycon
-      let mkShareTy ty = mkTyConApp stc [mty, ty]
-      uss <- replicateM (length apps) getUniqueSupplyM
-      let instantiateShareable u (ty, v) = (`piResultTy` ty) . ForAllTy v <$> mkShareable mkShareTy u v
-      let stys = catMaybes $ zipWith instantiateShareable uss apps
-      wanteds <- newWanteds (Shouldn'tHappenOrigin "Inversion Plugin (Finn Teegen)") stys
-      let cts = map CNonCanonical wanteds
-      emitConstraints (WC (listToBag cts) emptyBag emptyBag)
-      return (mkHsWrap (foldr ((<.>) . WpEvApp . EvExpr . ctEvExpr) cw' wanteds) (HsConLikeOut noExtField (RealDataCon dc')))
+        cw' <- replaceWrapper tcs cw
+        dc' <- liftIO (getLiftedCon dc tcs)
+        return
+          ( XExpr
+              ( WrapExpr
+                  (HsWrap cw' (HsConLikeOut noExtField (RealDataCon dc')))
+              )
+          )
     liftDictExpr' (HsConLikeOut _ (RealDataCon dc)) = do
       dc' <- liftIO (getLiftedCon dc tcs)
       return (HsConLikeOut noExtField (RealDataCon dc'))
@@ -152,7 +133,6 @@ liftDictExpr cls w tcs (L l ex) = L l <$> liftDictExpr' ex
 
     liftInstFunUse :: Var -> TcM (HsExpr GhcTc)
     liftInstFunUse v = do
-      stc <- getShareClassTycon
       mtc <- getMonadTycon
 
       -- v has type forall instVars . instConstraints => clsFuncTy,
@@ -170,14 +150,8 @@ liftDictExpr cls w tcs (L l ex) = L l <$> liftDictExpr' ex
         _ -> do
           let (bs1, ty1) = splitInvisPiTysN (length (is_tvs cls)) ty
               (bs2, ty2) = splitInvisFunTys ty1
-              bs = mapMaybe namedTyCoVarBinder_maybe bs1
-          uss <- replicateM (length bs) getUniqueSupplyM
-          let mkShareType t' = mkTyConApp stc [mkTyConTy mtc, t']
-              cons = catMaybes $ zipWith (mkShareable mkShareType) uss bs
           bs' <- mapM (replacePiTyTcM tcs) (bs1 ++ bs2)
-          ty' <-
-            mkPiTys bs' . flip (foldr mkInvisFunTyMany) cons
-              <$> liftTypeTcM tcs ty2
+          ty' <- mkPiTys bs' <$> liftTypeTcM tcs ty2
           return (setVarType v ty')
 
       -- Use the given wrapper expression.

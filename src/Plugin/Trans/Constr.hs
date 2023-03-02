@@ -21,7 +21,6 @@ module Plugin.Trans.Constr (
 
 import Control.Exception
 import Control.Monad
-import Data.Maybe
 import Data.List
 import GHC.Core.FamInstEnv
 import GHC.Core.PatSyn
@@ -71,8 +70,6 @@ liftConstr ::
   DynFlags ->
   -- | Family Instance Environments, both home and external
   FamInstEnvs ->
-  -- | 'Shareable' type constructor
-  TyCon ->
   -- | '-->' type constructor
   TyCon ->
   -- | 'Monad' type variable
@@ -91,26 +88,17 @@ liftConstr ::
   DataCon ->
   -- | Lifted constructor
   IO DataCon
-liftConstr isClass dflags instEnvs stycon ftycon mvar mtycon tcs tcsM tycon s cn = do
+liftConstr isClass dflags instEnvs ftycon mvar mtycon tcs tcsM tycon s cn = do
   -- Create all required unique keys.
   let (s1, tmp1) = splitUniqSupply s
       (s2, tmp2) = splitUniqSupply tmp1
       (s3, tmp3) = splitUniqSupply tmp2
       (s4, tmp4) = splitUniqSupply tmp3
-      (s5, tmp5) = splitUniqSupply tmp4
-      (s6, s7) = splitUniqSupply tmp5
+      (s5, s6) = splitUniqSupply tmp4
       ss = listSplitUniqSupply s4
-      uss = listSplitUniqSupply s7
-
-  let mkShareTy ty = mkTyConApp stycon [mkTyConTy mtycon, ty]
-      newSuperClassArgs
-        | isClass = catMaybes $ zipWith (\u (Bndr tv _) -> Scaled Many
-                                            <$> mkShareable mkShareTy u (Bndr tv Required)) uss
-                              $ dataConUserTyVarBinders cn
-        | otherwise = []
 
   -- Lift all constructor arguments and update any type constructors.
-  argtys <- (newSuperClassArgs++) <$> liftIO (zipWithM liftAndReplaceType ss (dataConOrigArgTys cn))
+  liftedargs <- liftIO (zipWithM liftAndReplaceType ss (dataConOrigArgTys cn))
 
   -- Create the new worker and constructor names, if required.
   let w = dataConWorkId cn
@@ -150,7 +138,7 @@ liftConstr isClass dflags instEnvs stycon ftycon mvar mtycon tcs tcsM tycon s cn
           (if isClass then dataConUserTyVarBinders cn else Bndr mvar SpecifiedSpec : dataConUserTyVarBinders cn)
           (dataConEqSpec cn)
           (dataConTheta cn)
-          argtys
+          liftedargs
           resty
           NoRRI
           tycon
@@ -167,7 +155,7 @@ liftConstr isClass dflags instEnvs stycon ftycon mvar mtycon tcs tcsM tycon s cn
   liftAndReplaceType us (Scaled m ty) =
     Scaled
       <$> (replaceTyconTyPure tcs <$> replaceTyconTy tcsM m)
-      <*> (replaceTyconTyPure tcs <$> liftType stycon ftycon mty us tcsM ty)
+      <*> (replaceTyconTyPure tcs <$> liftType ftycon mty us tcsM ty)
   replaceCon = fmap (replaceTyconTyPure tcs) . replaceTyconTy tcsM
 
 -- | Lift a record field by renaming its labels.
@@ -191,8 +179,6 @@ getLiftedCon c tcs = do
 
 -- | Get a lifted recrd selector from the given one and the TyCon map.
 getLiftedRecSel ::
-  -- | 'Shareable' type constructor
-  TyCon ->
   -- | '-->' type constructor
   TyCon ->
   -- | 'Nondet' type
@@ -207,7 +193,7 @@ getLiftedRecSel ::
   Var ->
   -- | Lifted record selector
   IO Var
-getLiftedRecSel stc ftc mty us tcs (RecSelData origTc) v = do
+getLiftedRecSel ftc mty us tcs (RecSelData origTc) v = do
   -- look up the lifted type constructor.
   tc' <- lookupTyConMap GetNew tcs origTc
   -- Get the index of the record selector in its original definition.
@@ -220,7 +206,7 @@ getLiftedRecSel stc ftc mty us tcs (RecSelData origTc) v = do
       ty <-
         if normalNewty
           then replaceTyconTy tcs (varType v)
-          else liftResultTy stc ftc mty us tcs (varType v)
+          else liftResultTy ftc mty us tcs (varType v)
       -- Use the index to find its new name in the new definition
       let nm = flSelector (tyConFieldLabels tc' !! y)
       return
@@ -240,7 +226,7 @@ getLiftedRecSel stc ftc mty us tcs (RecSelData origTc) v = do
     Nothing -> return v
  where
   midx = findIndex ((== varName v) . flSelector) (tyConFieldLabels origTc)
-getLiftedRecSel _ _ _ _ _ p@(RecSelPatSyn _) v =
+getLiftedRecSel _ _ _ _ p@(RecSelPatSyn _) v =
   throw (RecordLiftingException v p reason)
  where
   reason = "Pattern synonyms are not supported by the plugin yet"

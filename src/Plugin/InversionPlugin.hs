@@ -39,7 +39,6 @@ import GHC.Types.Error
 import GHC.Types.SourceText
 import GHC.Types.TypeEnv
 import GHC.Iface.Env
-import GHC.TcPlugin.API (mkTcPlugin)
 import GHC.Tc.Utils.Monad as TcRnMonad
 import GHC.Tc.Module
 import GHC.ThToHs
@@ -58,7 +57,6 @@ import Plugin.Trans.Preprocess
 import Plugin.Trans.Class
 import Plugin.Trans.Constr
 import Plugin.Trans.Record
-import Plugin.Trans.Solver
 import Plugin.Effect.Annotation
 import Plugin.Effect.TH
 import Plugin.Primitives
@@ -105,13 +103,12 @@ liftMonadPlugin mdopts env = do
   -- lift datatypes, we need the result for the lifting of datatypes itself
   s <- getUniqueSupplyM
   mtycon <- getMonadTycon
-  stycon <- getShareClassTycon
   ftycon <- getFunTycon
   flags <- getDynFlags
   instEnvs <- tcGetFamInstEnvs
   res <- liftIO ((mdo
     liftedTycns <- snd <$>
-      mapAccumM (\s' t -> liftTycon flags instEnvs stycon ftycon mtycon s' tnsM tyconsMap t)
+      mapAccumM (\s' t -> liftTycon flags instEnvs ftycon mtycon s' tnsM tyconsMap t)
         s (tcg_tcs env)
     let tycns = mapMaybe (\(a,b) -> fmap (a,) b) liftedTycns
     let tnsM = listToUFM tycns
@@ -267,48 +264,44 @@ liftMonadPlugin mdopts env = do
         -- but use tcg_inst_env instead of tcg_insts.
         let newInstEnv = extendInstEnvList (tcg_inst_env env3) newInsts
         dumpWith DumpInstEnv dopts newInstEnv
-        case mkTcPlugin solveShareableAnyPlugin of
-          TcPlugin { tcPluginInit = initSolve, tcPluginSolve = solve} -> do
-            solverState <- runTcPluginM initSolve (error "plugin init should not use this")
-            let env4 = env3 { tcg_insts = allInsts
-                            , tcg_inst_env = newInstEnv
-                            , tcg_tc_plugins = [solve solverState]}
-            setGblEnv env4 $ do
+        let env4 = env3 { tcg_insts = allInsts
+                         , tcg_inst_env = newInstEnv}
+        setGblEnv env4 $ do
 
-              -- finally do the monadic lifting for functions and dicts
-              tcg_binds' <- liftBindings tyconsMap (zip newInsts origInsts) (bagToList prep)
-              let tcg_bag = listToBag $ filter (`keepWithName` umSorted) tcg_binds'
+          -- finally do the monadic lifting for functions and dicts
+          tcg_binds' <- liftBindings tyconsMap (zip newInsts origInsts) (bagToList prep)
+          let tcg_bag = listToBag $ filter (`keepWithName` umSorted) tcg_binds'
 
-              let rdr' = mkGlobalRdrEnv (map (\n -> GRE (NormalGreName n) NoParent True []) umSorted) `plusGlobalRdrEnv` tcg_rdr_env env4
+          let rdr' = mkGlobalRdrEnv (map (\n -> GRE (NormalGreName n) NoParent True []) umSorted) `plusGlobalRdrEnv` tcg_rdr_env env4
 
-              let liftedBinds = tcg_binds env4    `unionBags`
-                                tcg_bag           `unionBags`
-                                listToBag recSelAdd
+          let liftedBinds = tcg_binds env4    `unionBags`
+                            tcg_bag           `unionBags`
+                            listToBag recSelAdd
 
-              tenv3 <- readTcRef (tcg_type_env_var env4)
+          tenv3 <- readTcRef (tcg_type_env_var env4)
 
-              let env10 = env4 { tcg_binds = liftedBinds, tcg_rdr_env = rdr', tcg_type_env = tenv3 }
-              (tenvfinal, evbindsfinal, bindsfinal, _, _, _) <- zonkTopDecls (tcg_ev_binds env10) (tcg_binds env10) [] [] []
+          let env10 = env4 { tcg_binds = liftedBinds, tcg_rdr_env = rdr', tcg_type_env = tenv3 }
+          (tenvfinal, evbindsfinal, bindsfinal, _, _, _) <- zonkTopDecls (tcg_ev_binds env10) (tcg_binds env10) [] [] []
 
-              -- create the final environment with restored plugin field
-              let finalEnv = env4 { tcg_binds      = bindsfinal
-                                  , tcg_tc_plugins = tcg_tc_plugins env
-                                  , tcg_ev_binds   = evbindsfinal
-                                  , tcg_exports    = tcg_exports env
-                                  , tcg_type_env   = tenvfinal
-                                  }
+          -- create the final environment with restored plugin field
+          let finalEnv = env4 { tcg_binds      = bindsfinal
+                              , tcg_tc_plugins = tcg_tc_plugins env
+                              , tcg_ev_binds   = evbindsfinal
+                              , tcg_exports    = tcg_exports env
+                              , tcg_type_env   = tenvfinal
+                              }
 
-              let keepNames = filter (not . isDictFun) umSorted
-              nms <- mapM (externaliseName (tcg_mod env)) keepNames
-              liftIO $ modifyIORef (tcg_keep finalEnv)
-                          (`extendNameSetList` nms)
+          let keepNames = filter (not . isDictFun) umSorted
+          nms <- mapM (externaliseName (tcg_mod env)) keepNames
+          liftIO $ modifyIORef (tcg_keep finalEnv)
+                      (`extendNameSetList` nms)
 
-              return finalEnv
+          return finalEnv
   where
     liftBindings :: TyConMap -> [(ClsInst, ClsInst)] -> [LHsBindLR GhcTc GhcTc]
                  -> TcM [LHsBindLR GhcTc GhcTc]
     liftBindings y z = fmap (map noLocA) .
-      concatMapM (fmap fst . liftMonadicBinding False False [] y z . unLoc)
+      concatMapM (liftMonadicBinding False False [] y z . unLoc)
 
 toTH :: TyCon -> TcM Dec
 toTH tc = do

@@ -13,13 +13,11 @@
 -- functions and expressions to integrate our effect.
 module Plugin.Trans.Expr (liftMonadicBinding, liftMonadicExpr) where
 
-import Control.Monad
 import Data.Char
 import Data.List
 import Data.Maybe
 import Data.Generics.Aliases
 import Data.Generics.Schemes
-import Data.Tuple.Extra
 import Data.Data (Data)
 
 import GHC.Builtin.Names
@@ -82,25 +80,16 @@ liftMonadicBinding ::
   TyConMap ->
   [(ClsInst, ClsInst)] ->
   HsBindLR GhcTc GhcTc ->
-  TcM ([HsBindLR GhcTc GhcTc], [(Var, LocatedN Var)])
+  TcM ([HsBindLR GhcTc GhcTc])
 liftMonadicBinding _ _ given tcs _ (FunBind wrap (L b name) eqs ticks) =
   setSrcSpanA b $
     addLandmarkErrCtxt ("In the definition of" <+> ppr name) $ do
       -- create the dictionary variables
       let (tvs, c) = collectTyDictArgs wrap
-      stc <- getShareClassTycon
-      mtc <- getMonadTycon
-      let mty = mkTyConTy mtc
-      uss <- replicateM (length tvs) getUniqueSupplyM
-      let mkShareTy ty = mkTyConApp stc [mty, ty]
-      let evsty =
-            catMaybes $
-              zipWith ((. flip Bndr Inferred) . mkShareable mkShareTy) uss tvs
-      evs <- mapM freshDictId evsty
       lclEnv <- getLclEnv
       let ctloc = mkGivenLoc topTcLevel UnkSkol lclEnv
 
-      allEvs <- (++ evs) <$> liftIO (mapM replaceEv c)
+      allEvs <- liftIO (mapM replaceEv c)
       let cts = mkGivens ctloc allEvs
       let given' = given ++ cts
       let unlifted = varType name
@@ -125,25 +114,16 @@ liftMonadicBinding _ _ given tcs _ (FunBind wrap (L b name) eqs ticks) =
 
       let fullwrap = wrapLike <.> mkWpLet binds'
       ticks' <- mapM (liftTick tcs) ticks
-      return ([FunBind fullwrap (L b name') eqs' ticks'], [])
+      return [FunBind fullwrap (L b name') eqs' ticks']
   where
     replaceEv ev = setVarType ev <$> replaceTyconTy tcs (varType ev)
 liftMonadicBinding lcl _ given tcs _ (AbsBinds a b c d e f g)
   -- we do not want to lift dicts or record selectors or other system stuff here
   | all (noSystemNameOrRec . abe_poly) d = do
-      -- create the dictionary variables
-      stc <- getShareClassTycon
-      mty <- mkTyConTy <$> getMonadTycon
-      uss <- replicateM (length b) getUniqueSupplyM
-      let mkShareTy ty = mkTyConApp stc [mty, ty]
-      let evsty =
-            catMaybes $
-              zipWith ((. flip Bndr Inferred) . mkShareable mkShareTy) uss b
-      evs <- mapM freshDictId evsty
       lclEnv <- getLclEnv
       let ctloc = mkGivenLoc topTcLevel UnkSkol lclEnv
 
-      allEvs <- (++ evs) <$> liftIO (mapM replaceEv c)
+      allEvs <- liftIO (mapM replaceEv c)
       let cts = mkGivens ctloc allEvs
       let given' = given ++ cts
 
@@ -155,7 +135,7 @@ liftMonadicBinding lcl _ given tcs _ (AbsBinds a b c d e f g)
       f' <-
         listToBag . map noLocA . concat
           <$> mapM
-            (fmap fst . liftMonadicBinding lcl True given' tcs [])
+            (liftMonadicBinding lcl True given' tcs [])
             (foldr (\(n, o, _) -> substitute n o) bs vs')
 
       -- lift any original evidence that is exported. This is only relevant
@@ -164,26 +144,8 @@ liftMonadicBinding lcl _ given tcs _ (AbsBinds a b c d e f g)
         mapM
           (liftEvidence given' tcs)
           (filter isExportedEv (concatMap flattenEv e))
-      vs'' <-
-        mapM
-          ( \(v1, v2, v3) ->
-              (,,v3)
-                <$> (setVarType v1 <$> liftTypeTcM tcs (varType v1))
-                <*> (setVarType v2 <$> liftTypeTcM tcs (varType v2))
-          )
-          vs'
-      return ([AbsBinds a b allEvs d' e' f' g], map (getLocFrom bs) vs'')
+      return [AbsBinds a b allEvs d' e' f' g]
   where
-    bindingVarMaybe :: HsBindLR GhcTc GhcTc -> Maybe (LocatedN Var)
-    bindingVarMaybe (FunBind _ name _ _) = Just name
-    bindingVarMaybe _ = Nothing
-
-    getLocFrom [] _ = error "Variable does not exist"
-    getLocFrom (x : xs) (v1, v2, v3)
-      | Just (L l name) <- bindingVarMaybe x,
-        name == v3 =
-          (v1, L l v2)
-      | otherwise = getLocFrom xs (v1, v2, v3)
 
     replaceEv ev = setVarType ev <$> replaceTyconTy tcs (varType ev)
 
@@ -191,75 +153,26 @@ liftMonadicBinding lcl _ given tcs _ (AbsBinds a b c d e f g)
     -- both the poly and mono type and for local bindings as well
     liftEx :: ABExport GhcTc -> TcM (ABExport GhcTc, Maybe (Var, Var, Var))
     liftEx (ABE x v1 v2 w p) = do
-      -- change unique only for local decls, as only those are shared
-      u <- if lcl then getUniqueM else return (varUnique v1)
-
       -- lift types
       mtycon <- getMonadTycon
       ftycon <- getFunTycon
-      stycon <- getShareClassTycon
       us2 <- getUniqueSupplyM
 
-      -- We only want to introduce Shareable constraints for the type
-      -- variables bound in this AbsBind, so we manually split off
-      -- all type and evidence abstractions bound here.
-      -- Then we can do the lifting and stuff.
-      -- All of this is only done, when a lifting is even required.
       let v1ty = varType v1
       ty1 <- do
           let (bs1, t1) = splitInvisPiTysN (length b + length c) v1ty
-          let bs = mapMaybe namedTyCoVarBinder_maybe bs1
-          uss <- replicateM (length bs) getUniqueSupplyM
-          let mkShareType t' = mkTyConApp stycon [mkTyConTy mtycon, t']
-              cons = catMaybes $ zipWith (mkShareable mkShareType) uss bs
           bs1' <- mapM (replacePiTyTcM tcs) bs1
-          mkPiTys bs1' . flip (foldr mkInvisFunTyMany) cons
-            <$> liftTypeTcM tcs t1
-
-      -- The wrapper w deals with matching the impedence beteween the expected
-      -- type of the exported function and the real type that is dictated by
-      -- the type and evidence variables.
-      -- See note [ABExport wrapper] in GHC.Hs.Binds.
-      -- In addition to matching the type applications of the function,
-      -- We also have to match the Shareable dictionaries
-      -- that have been inserted.
-      let (vs, rest) = collectHsWrapBinders w
-          vswrap = foldr ((<.>) . WpTyLam) WpHole vs
-          bs = map (flip Bndr Inferred) vs
-          mkShareType t' = mkTyConApp stycon [mkTyConTy mtycon, t']
-      uss <- replicateM (length vs) getUniqueSupplyM
-      let cons = catMaybes $ zipWith (mkShareable mkShareType) uss bs
-      convs <- mapM freshDictId cons
-      let conwrap = foldr (flip (<.>) . WpEvLam) vswrap (reverse convs)
-      -- For unused types, we can just apply GHC.Types.Any to them.
-      -- For unused evidence, we cannot do this.
-      -- Instead we create dummy evidence terms that have the right type
-      -- by using unsafeCoerce.
-      -- We know that the evidence is unused,
-      -- because its type is Shareable Nondet Any.
-      dfl <- getDynFlags
-      let unsafeCoShare =
-            Cast
-              (mkIntExpr (targetPlatform dfl) 0)
-              ( mkUnivCo
-                  (PluginProv "unsafe")
-                  Representational
-                  intTy
-                  (mkShareType (anyTypeOfKind liftedTypeKind))
-              )
-      let ovs = repeat unsafeCoShare
-      let evs = reverse $ zipWith ((,) . mkTyVarTy) vs convs
-      let conapp = mkEvWrapSimilar rest ovs evs
+          mkPiTys bs1' <$> liftTypeTcM tcs t1
 
       -- lift the mono type and create the new variables.
-      ty2 <- liftIO (liftTypeIfRequired stycon ftycon mtycon us2 tcs (varType v2))
+      ty2 <- liftIO (liftTypeIfRequired ftycon mtycon us2 tcs (varType v2))
       let v2' = setVarType v2 ty2
       let v1' = setVarType v1 ty1
+      w' <- liftWrapperTcM True tcs w
       -- also (possibly) change unique for sharing
-      let v1u = setVarUnique v1' u
       return
-        ( ABE x v1u v2' (conwrap <.> (conapp <.> rest)) p,
-          Just (setVarUnique v1 u, v1, v2)
+        ( ABE x v1' v2' w' p,
+          Just (v1, v1, v2)
         )
 
     -- Do not lift any system stuff, except instance fun definitions ($c) and
@@ -279,7 +192,7 @@ liftMonadicBinding lcl _ given tcs _ (AbsBinds a b c d e f g)
     isExportedEv (EvBind v _ _) = any ((== v) . abe_mono) d
 liftMonadicBinding _ _ _ tcs clsInsts bind@(AbsBinds _ _ _ d _ _ _)
   | all (isDictFun . abe_poly) d =
-      maybe ([bind], []) ((,[]) . (: []))
+      maybe [bind] ((: []))
         <$> liftDictInstFun bind tcs clsInsts
   where
     isDictFun v = case occNameString (occName v) of
@@ -287,7 +200,7 @@ liftMonadicBinding _ _ _ tcs clsInsts bind@(AbsBinds _ _ _ d _ _ _)
       _ -> False
 liftMonadicBinding _ _ _ tcs _ bind@(AbsBinds _ _ _ d _ _ _)
   | all (isRecordSelector . abe_poly) d =
-      maybe ([bind], []) ((,[]) . (: [bind])) -- do not throw away the old selector
+      maybe [bind] (: [bind]) -- do not throw away the old selector
         <$> liftRecordSel tcs bind
 liftMonadicBinding _ _ _ tcs _ (VarBind x1 name e1)
   -- This is the error binding for an unimplemented type class function.
@@ -299,43 +212,27 @@ liftMonadicBinding _ _ _ tcs _ (VarBind x1 name e1)
       case e1' of
         HsApp x2 (L l3 (XExpr (WrapExpr (HsWrap (WpCompose w1 w2) e2)))) e3 -> do
           mtycon <- getMonadTycon
-          stycon <- getShareClassTycon
           -- Look at the number of abstractions in wrap.
           -- Those abstractions correspond to the vars bound in the instance head.
           -- Only for those we want Shareable.
           -- But only if the type is not lifted already.
           let numBinders = length (fst (collectHsWrapBinders wrap))
           let ty = varType name
-          (ty', bndrs) <- case splitTyConApp_maybe (snd (splitInvisPiTys ty)) of
+          ty' <- case splitTyConApp_maybe (snd (splitInvisPiTys ty)) of
             Just (tc, _)
-              | tc == mtycon ->
-                  (,[]) <$> liftIO (replaceTyconTy tcs ty)
+              | tc == mtycon -> liftIO (replaceTyconTy tcs ty)
             _ -> do
               let (bs1, ty1) = splitInvisPiTysN numBinders ty
-                  bs = mapMaybe namedTyCoVarBinder_maybe bs1
-              uss <- replicateM (length bs) getUniqueSupplyM
-              let mkShareType t' = mkTyConApp stycon [mkTyConTy mtycon, t']
-                  cons = catMaybes $ zipWith (mkShareable mkShareType) uss bs
               bs1' <- mapM (replacePiTyTcM tcs) bs1
-              (,cons) . mkPiTys bs1' . flip (foldr mkInvisFunTyMany) cons
-                <$> liftTypeTcM tcs ty1
+              mkPiTys bs1' <$> liftTypeTcM tcs ty1
 
           let name' = setVarType name ty'
-          wrap' <- createAbstractionWrapperWith wrap bndrs
           w1' <- liftErrorWrapper tcs w1
           w2' <- liftErrorWrapper tcs w2
           let e1'' = HsApp x2 (L l3 (mkHsWrap (WpCompose w1' w2') e2)) e3
-          return ([VarBind x1 name' (noLocA (mkHsWrap wrap' e1''))], [])
+          return [VarBind x1 name' (noLocA (mkHsWrap wrap e1''))]
         _ -> panicAny "Unexpected layout of unimplemented method error expr" e1'
-liftMonadicBinding _ _ _ _ _ a = return ([a], [])
-
--- The variables introduced here are guaranteed to be unused.
--- We just need to match the expected type.
-createAbstractionWrapperWith :: HsWrapper -> [Type] -> TcM HsWrapper
-createAbstractionWrapperWith w [] = return w
-createAbstractionWrapperWith w (ty : tys) = do
-  v <- freshDictId ty
-  createAbstractionWrapperWith (w <.> WpEvLam v) tys
+liftMonadicBinding _ _ _ _ _ a = return [a]
 
 liftEvidence :: [Ct] -> TyConMap -> EvBind -> TcM TcEvBinds
 liftEvidence given tcs (EvBind v _ _) = do
@@ -353,10 +250,10 @@ liftLocalBinds ::
   [Ct] ->
   TyConMap ->
   HsLocalBinds GhcTc ->
-  TcM (HsLocalBinds GhcTc, [(Var, LocatedN Var)])
+  TcM (HsLocalBinds GhcTc)
 liftLocalBinds given tcs (HsValBinds x b) = do
-  (b', vs) <- liftValBinds given tcs b
-  return (HsValBinds x b', vs)
+  b' <- liftValBinds given tcs b
+  return (HsValBinds x b')
 liftLocalBinds _ _ b@(HsIPBinds _ _) = do
   reportError
     ( mkMsgEnvelope
@@ -365,29 +262,29 @@ liftLocalBinds _ _ b@(HsIPBinds _ _) = do
         "Implicit parameters are not supported by the plugin"
     )
   failIfErrsM
-  return (b, [])
-liftLocalBinds _ _ b = return (b, [])
+  return b
+liftLocalBinds _ _ b = return b
 
 liftValBinds ::
   [Ct] ->
   TyConMap ->
   HsValBindsLR GhcTc GhcTc ->
-  TcM (HsValBindsLR GhcTc GhcTc, [(Var, LocatedN Var)])
+  TcM (HsValBindsLR GhcTc GhcTc)
 liftValBinds _ _ bs@ValBinds {} =
   panicAny "Untyped bindings are not expected after TC" bs
 liftValBinds given tcs (XValBindsLR (NValBinds bs _)) = do
-  (bs', vss) <- unzip <$> mapM liftNV bs
-  return (XValBindsLR (NValBinds bs' []), concat vss)
+  bs' <- mapM liftNV bs
+  return (XValBindsLR (NValBinds bs' []))
   where
     liftNV ::
       (RecFlag, LHsBinds GhcTc) ->
-      TcM ((RecFlag, LHsBinds GhcTc), [(Var, LocatedN Var)])
+      TcM ((RecFlag, LHsBinds GhcTc))
     liftNV (rf, b) = do
       let bs1 = map unLoc (bagToList b)
-      (bs2, vss) <-
-        first (map noLocA . concat) . unzip
+      bs2 <-
+        (map noLocA . concat)
           <$> mapM (liftMonadicBinding True False given tcs []) bs1
-      return ((rf, listToBag bs2), concat vss)
+      return (rf, listToBag bs2)
 
 liftMonadicEquation ::
   [Ct] ->
@@ -395,8 +292,8 @@ liftMonadicEquation ::
   MatchGroup GhcTc (LHsExpr GhcTc) ->
   TcM (MatchGroup GhcTc (LHsExpr GhcTc))
 liftMonadicEquation given tcs (MG a (L b alts) c) = do
-  a'@(MatchGroupTc _ res) <- liftMGTc tcs a
-  alts' <- mapM (liftMonadicAlt given tcs res) alts
+  a' <- liftMGTc tcs a
+  alts' <- mapM (liftMonadicAlt given tcs) alts
   return (MG a' (L b alts') c)
 
 liftMGTc :: TyConMap -> MatchGroupTc -> TcM MatchGroupTc
@@ -408,35 +305,29 @@ liftMGTc tcs (MatchGroupTc args res) = do
 liftMonadicAlt ::
   [Ct] ->
   TyConMap ->
-  Type ->
   LMatch GhcTc (LHsExpr GhcTc) ->
   TcM (LMatch GhcTc (LHsExpr GhcTc))
-liftMonadicAlt given tcs resty (L a (Match b c d rhs)) = do
-  (d', s) <- unzip <$> mapM (liftPattern tcs) d
-  rhs' <- liftMonadicRhs (concat s) given tcs resty rhs
+liftMonadicAlt given tcs (L a (Match b c d rhs)) = do
+  d' <- mapM (liftPattern tcs) d
+  rhs' <- liftMonadicRhs given tcs rhs
   return (L a (Match b c d' rhs'))
 
 liftMonadicRhs ::
-  [(Var, LocatedN Var)] ->
   [Ct] ->
   TyConMap ->
-  Type ->
   GRHSs GhcTc (LHsExpr GhcTc) ->
   TcM (GRHSs GhcTc (LHsExpr GhcTc))
-liftMonadicRhs s given tcs resty (GRHSs a grhs b) = do
-  grhs' <- mapM (liftMonadicGRhs s given tcs resty) grhs
+liftMonadicRhs given tcs (GRHSs a grhs b) = do
+  grhs' <- mapM (liftMonadicGRhs given tcs) grhs
   return (GRHSs a grhs' b)
 
 liftMonadicGRhs ::
-  [(Var, LocatedN Var)] ->
   [Ct] ->
   TyConMap ->
-  Type ->
   LGRHS GhcTc (LHsExpr GhcTc) ->
   TcM (LGRHS GhcTc (LHsExpr GhcTc))
-liftMonadicGRhs s given tcs bdyty (L a (GRHS b c body)) = do
-  body' <- liftMonadicExpr given tcs body
-  L a . GRHS b c <$> shareVars tcs s given body' bdyty
+liftMonadicGRhs given tcs (L a (GRHS b c body)) =
+  L a . GRHS b c <$> liftMonadicExpr given tcs body
 
 liftMonadicExpr ::
   [Ct] ->
@@ -593,11 +484,9 @@ liftMonadicExpr _ _ e@(L _ (HsMultiIf _ _)) =
   panicAny "Multi-way if should have been desugared before lifting" e
 liftMonadicExpr given tcs (L l (HsLet x bs e)) = do
   -- Lift local binds first, so that they end up in the type environment.
-  (bs', vs) <- liftLocalBinds given tcs bs
+  bs' <- liftLocalBinds given tcs bs
   e' <- liftMonadicExpr given tcs e
-  ety <- getTypeOrPanic e >>= liftTypeTcM tcs -- ok
-  e'' <- shareVars tcs vs given e' ety
-  return (L l (HsLet x bs' e''))
+  return (L l (HsLet x bs' e'))
 liftMonadicExpr given tcs (L l1 (HsDo x ctxt (L l2 stmts))) = do
   x' <- liftTypeTcM tcs x
   -- Because ListComp are not overloadable,
@@ -738,31 +627,27 @@ liftMonadicStmts ::
   TcM [ExprLStmt GhcTc]
 liftMonadicStmts _ _ _ _ _ [] = return []
 liftMonadicStmts ctxt ctxtSwitch ty given tcs (s : ss) = do
-  (s', vs) <- liftMonadicStmt s
+  s' <- liftMonadicStmt s
   ss' <- liftMonadicStmts ctxt ctxtSwitch ty given tcs ss
-  if null vs
-    then return (s' : ss')
-    else do
-      e <- shareVars tcs vs given (noLocA (HsDo ty ctxt (noLocA ss'))) ty
-      return [s', noLocA (LastStmt noExtField e Nothing NoSyntaxExprTc)]
+  return (s' : ss')
   where
     liftMonadicStmt ::
       ExprLStmt GhcTc ->
-      TcM (ExprLStmt GhcTc, [(Var, LocatedN Var)])
+      TcM (ExprLStmt GhcTc)
     liftMonadicStmt (L l (LastStmt x e a r)) = do
       e' <- liftMonadicExpr given tcs e
       r' <-
         if synExprExists r
           then trans1 r
           else return r
-      return (L l (LastStmt x e' a r'), [])
+      return (L l (LastStmt x e' a r'))
     liftMonadicStmt (L l (BindStmt (XBindStmtTc b x m f) p e)) = do
       -- p is definitely just a varPat and f is NoSyntaxExprTc or Nothing
-      (p', vs) <- liftPattern tcs p
+      p' <- liftPattern tcs p
       e' <- liftMonadicExpr given tcs e
       x' <- liftTypeTcM tcs x
       b' <- transBind b
-      return (L l (BindStmt (XBindStmtTc b' x' m f) p' e'), vs)
+      return (L l (BindStmt (XBindStmtTc b' x' m f) p' e'))
     liftMonadicStmt (L _ ApplicativeStmt {}) = do
       reportError
         ( mkMsgEnvelope
@@ -771,7 +656,7 @@ liftMonadicStmts ctxt ctxtSwitch ty given tcs (s : ss) = do
             "Applicative do-notation is not supported by the plugin"
         )
       failIfErrsM
-      return (s, [])
+      return s
     liftMonadicStmt (L l (BodyStmt x e se g)) = do
       x' <- liftTypeTcM tcs x
       e' <- liftMonadicExpr given tcs e
@@ -780,10 +665,10 @@ liftMonadicStmts ctxt ctxtSwitch ty given tcs (s : ss) = do
         if synExprExists g
           then trans1 g
           else return g
-      return (L l (BodyStmt x' e' se' g'), [])
+      return (L l (BodyStmt x' e' se' g'))
     liftMonadicStmt (L l (LetStmt x bs)) = do
-      (bs', vs) <- liftLocalBinds given tcs bs
-      return (L l (LetStmt x bs'), vs)
+      bs' <- liftLocalBinds given tcs bs
+      return (L l (LetStmt x bs'))
     liftMonadicStmt (L _ ParStmt {}) = do
       reportError
         ( mkMsgEnvelope
@@ -792,7 +677,7 @@ liftMonadicStmts ctxt ctxtSwitch ty given tcs (s : ss) = do
             "Parallel list comprehensions are not supported by the plugin"
         )
       failIfErrsM
-      return (s, [])
+      return s
     liftMonadicStmt (L _ TransStmt {}) = do
       reportError
         ( mkMsgEnvelope
@@ -801,7 +686,7 @@ liftMonadicStmts ctxt ctxtSwitch ty given tcs (s : ss) = do
             "Transformative list comprehensions are not supported by the plugin"
         )
       failIfErrsM
-      return (s, [])
+      return s
     liftMonadicStmt (L _ RecStmt {}) = do
       reportError
         ( mkMsgEnvelope
@@ -810,7 +695,7 @@ liftMonadicStmts ctxt ctxtSwitch ty given tcs (s : ss) = do
             "Recursive do-notation is not supported by the plugin"
         )
       failIfErrsM
-      return (s, [])
+      return s
 
     synExprExists NoSyntaxExprTc = False
     synExprExists _ = True
@@ -928,7 +813,6 @@ liftVarWithWrapper given tcs w v dttKey
       -- lift type
       mtc <- getMonadTycon
       let mty = mkTyConTy mtc
-      stc <- getShareClassTycon
       ftc <- getFunTycon
       w' <- liftWrapperTcM True tcs w
       us <- getUniqueSupplyM
@@ -938,7 +822,7 @@ liftVarWithWrapper given tcs w v dttKey
       let (arg, res) = splitMyFunTy ftc mtc (instantiateWith realApps (varType v))
 
       let p = sel_tycon (idDetails v)
-      v' <- liftIO (getLiftedRecSel stc ftc mty us tcs p v)
+      v' <- liftIO (getLiftedRecSel ftc mty us tcs p v)
 
       let vExpr = noLocA (mkHsWrap w' (HsVar noExtField (noLocA v')))
       e <- case p of
@@ -958,10 +842,9 @@ liftVarWithWrapper given tcs w v dttKey
       -- lift type
       w' <- liftWrapperTcM True tcs w
       mtc <- getMonadTycon
-      stc <- getShareClassTycon
       us <- getUniqueSupplyM
       ftc <- getFunTycon
-      ty' <- liftIO (liftTypeIfRequired stc ftc mtc us tcs (varType v))
+      ty' <- liftIO (liftTypeIfRequired ftc mtc us tcs (varType v))
 
       let (apps, absts) = collectTyApps w'
       let abstsWrap = foldr ((<.>) . WpTyLam) WpHole absts
@@ -1186,10 +1069,9 @@ liftFieldOcc tcs (FieldOcc v _) = do
       | RecSelId parent _ <- idDetails realV ->
           do
             mty <- mkTyConTy <$> getMonadTycon
-            stc <- getShareClassTycon
             ftc <- getFunTycon
             us <- getUniqueSupplyM
-            v' <- liftIO (getLiftedRecSel stc ftc mty us tcs parent v)
+            v' <- liftIO (getLiftedRecSel ftc mty us tcs parent v)
             return (FieldOcc v' (noLocA (nameRdrName (varName v'))))
     _ -> panicBndr "Expected RecSel in FieldOcc of Record operation" v
 
@@ -1209,83 +1091,6 @@ liftTick tcs (Breakpoint x i ids) = Breakpoint x i <$> mapM transId ids
   where
     transId v = setVarType v <$> liftTypeTcM tcs (varType v)
 liftTick _ t = return t
-
-shareVars ::
-  TyConMap ->
-  [(Var, LocatedN Var)] ->
-  [Ct] ->
-  LHsExpr GhcTc ->
-  Type ->
-  TcM (LHsExpr GhcTc)
-shareVars _ vs evs e' ety = do
-  foldM (shareVar ety) e' $
-    reverse $
-      map (second unLoc) $
-        sortBy ((. snd) . cmpLocated . snd) vs
-  where
-    -- share v1 >>= \v2 -> e
-    -- differs from the normal lifting, because we optimize for call-by-need
-    shareVar ty e (v1, v2)
-      | isForAllTy (varType v1) ||
-        maxUsage v2 e <= 1 = return (substitute v1 v2 e)
-      | Many <- varMult v2 = do
-          let v1e = noLocA (HsVar noExtField (noLocA v1))
-          let v1ty = varType v1
-          s <-
-            noLocA . HsPar EpAnnNotUsed
-              <$> mkAppWith mkNewShareTh evs v1ty [v1e]
-          mtycon <- getMonadTycon
-          let sty = mkTyConApp mtycon [v1ty]
-          let v2ty = Scaled (varMult v2) (varType v2)
-          let l = noLocA (HsPar EpAnnNotUsed (mkLam (noLocA v2) v2ty e ty))
-          mkBind evs s sty l ty
-      -- Interestingly, we know that v1 and v2 do not ocurr more than once in e,
-      -- as long as their multiplicity is not Many. Even if the multiplicity
-      -- is polymorphic we know this, as the function could not have
-      -- such a multiplicity if the function could not be linear in v1/v2.
-      | otherwise = return (substitute v1 v2 e)
-
-maxUsage :: Var -> LHsExpr GhcTc -> Int
-maxUsage v = goL
- where
-  goL :: LHsExpr GhcTc -> Int
-  goL (L _ e) = go e
-  go :: HsExpr GhcTc -> Int
-  go e' = case e' of
-    HsVar _ (L _ v') -> if v == v' then 1 else 0
-    XExpr (WrapExpr (HsWrap _ e)) -> go e
-    HsLam _ mg -> goMG mg * 2 -- a variable ocurring in a lambda might be used more than once.
-    HsLamCase _ mg -> goMG mg * 2
-    OpApp _ e1 op e2 -> goL e1 + goL op + goL e2
-    HsApp _ fn ex -> goL fn + goL ex
-    HsAppType _ e _ -> goL e
-    NegApp _ e (SyntaxExprTc n _ _) -> goL e + go n
-    HsPar _ e -> goL e
-    ExplicitTuple _ args _ -> sum (map goTup args)
-    ExplicitSum _ _ _ e -> goL e
-    HsCase _ scr br -> goL scr + goMG br
-    HsIf _ e1 e2 e3 -> goL e1 + max (goL e2) (goL e3)
-    HsLet _ bs e -> goBs bs + goL e
-    HsDo _ _ (L _ stmts) -> sum (map goStmt stmts)
-    ExplicitList _ es -> sum (map goL es)
-    RecordUpd _ e fs -> goL e + goF fs
-    ExprWithTySig _ e _ -> goL e
-    ArithSeq _ (Just (SyntaxExprTc e _ _)) i -> go e + sum (map goL (arithSeqArgs i))
-    ArithSeq _ _ i -> sum (map goL (arithSeqArgs i))
-    HsPragE _ _ e -> goL e
-    HsTick _ _ e -> goL e
-    HsBinTick _ _ _ e -> goL e
-    _                 -> 0
-
-  goMG (MG _ (L _ ms) _) = maximum (map goM ms)
-  goM :: LMatch GhcTc (LHsExpr GhcTc) -> Int
-  goM (L _ (Match _ _ _ (GRHSs _ [L _ (GRHS _ _ e)] _))) = goL e
-  goM _                                                  = 0
-  goTup (Present _ e) = goL e
-  goTup _             = 0
-  goBs _ = 2 -- TODO, also remember that functions probably use it more than once
-  goStmt _ = 2 -- TODO
-  goF _ = 2 -- TODO
 
 substitute :: Data a => Var -> Var -> a -> a
 substitute new old = everywhere (mkT substVar)

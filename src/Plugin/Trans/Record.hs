@@ -13,7 +13,6 @@ module Plugin.Trans.Record (liftRecordSel, mkRecSelFun) where
 
 import Data.Generics.Aliases
 import Data.Generics.Schemes
-import Data.Tuple
 import GHC.Data.Bag
 import GHC.Hs.Binds
 import GHC.Hs.Expr
@@ -46,7 +45,6 @@ liftRecordSel tcs (AbsBinds _ tvs evs ex evb bs sig)
   | [L l (FunBind wrap _ mg ticks)] <- bagToList bs,
     [ABE _ p m w s] <- ex = do
       u <- getUniqueM
-      stc <- getShareClassTycon
       ftc <- getFunTycon
       us1 <- getUniqueSupplyM
       us2 <- getUniqueSupplyM
@@ -60,7 +58,7 @@ liftRecordSel tcs (AbsBinds _ tvs evs ex evb bs sig)
 
       -- Look up how the lifted record selector should look.
       mty <- mkTyConTy <$> getMonadTycon
-      p' <- liftIO (getLiftedRecSel stc ftc mty us1 tcs parent p)
+      p' <- liftIO (getLiftedRecSel ftc mty us1 tcs parent p)
       -- Lift its type.
       m' <-
         setVarType
@@ -69,7 +67,7 @@ liftRecordSel tcs (AbsBinds _ tvs evs ex evb bs sig)
               )
               u
           )
-          <$> liftIO (liftResultTy stc ftc mty us2 tcs (varType m))
+          <$> liftIO (liftResultTy ftc mty us2 tcs (varType m))
       -- Lift its implementation.
       mg' <- liftRecSelMG tcs m' mg
 
@@ -108,27 +106,17 @@ liftRecSelAlt ::
   TcM (LMatch GhcTc (LHsExpr GhcTc))
 liftRecSelAlt tcs f (L _ (Match _ (FunRhs _ fixity strict) [pat] rhs)) = do
   -- Lift any left-side pattern.
-  (pat', vs') <- liftPattern tcs pat
-  let vs = map (\(a, L _ b) -> (a, b)) vs'
+  pat' <- liftPattern tcs pat
   let ctxt = FunRhs (noLocA (varName f)) fixity strict :: HsMatchContext GhcRn
   -- Replace any variables on the right side.
   -- Thankfully, a record selector is always just a single variable on the rhs.
-  rhs' <-
-    everywhere (mkT (replaceVarExpr (map swap vs)))
-      <$> everywhereM (mkM (liftErrorWrapper tcs)) rhs
+  rhs' <- everywhereM (mkM (liftErrorWrapper tcs)) rhs
   return (noLocA (Match EpAnnNotUsed ctxt [pat'] rhs'))
 liftRecSelAlt _ _ x = return x
-
--- | Substitute variables in the given expression.
-replaceVarExpr :: [(Var, Var)] -> HsExpr GhcTc -> HsExpr GhcTc
-replaceVarExpr vs (HsVar _ (L l v))
-  | Just v' <- lookup v vs = HsVar noExtField (L l v')
-replaceVarExpr _ e = e
 
 mkRecSelFun :: TyConMap -> Var -> TcM (LHsBind GhcTc)
 mkRecSelFun tcs v = do
   ftc <- getFunTycon
-  stc <- getShareClassTycon
   mtc <- getMonadTycon
   let mty = mkTyConTy mtc
   us <- getUniqueSupplyM
@@ -138,7 +126,7 @@ mkRecSelFun tcs v = do
   let (pis, ty) = splitForAllTyCoVars (varType v)
   let (_, unliftedArg, unliftedRes) = splitFunTy ty
   Just (oldTc, _) <- return $ splitTyConApp_maybe unliftedArg
-  v' <- liftIO (getLiftedRecSel stc ftc mty us tcs (RecSelData oldTc) v)
+  v' <- liftIO (getLiftedRecSel ftc mty us tcs (RecSelData oldTc) v)
   arg <- liftInnerTyTcM tcs unliftedArg
   res <- liftTypeTcM tcs unliftedRes
 

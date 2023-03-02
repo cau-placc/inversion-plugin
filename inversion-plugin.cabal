@@ -1,16 +1,16 @@
 cabal-version: 3.0
 name:          inversion-plugin
 synopsis:      A compiler plugin to provide automatic inversion
-version:       1.0
+version:       2.0
 license:       BSD-3-Clause
 license-file:  LICENSE
-copyright:     (c) 2020-2022, Finn Teegen, Kai-Oliver Prott, Niels Bunkenburg
+copyright:     (c) 2020-2023, Finn Teegen, Kai-Oliver Prott, Niels Bunkenburg
 maintainer:    fte@informatik.uni-kiel.de
 author:        Finn Teegen, Kai-Oliver Prott, Niels Bunkenburg
 category:      Language
 build-type:    Simple
 stability:     experimental
-description:   A nice plugin for the GHC that automatically derives inverse functions.
+description:   A very nice plugin for the GHC that automatically derives inverse functions.
 
 extra-source-files:
   README.md
@@ -126,14 +126,12 @@ common deps
     Plugin.Trans.PatternMatching
     Plugin.Trans.Preprocess
     Plugin.Trans.Record
-    Plugin.Trans.Solver
     Plugin.Trans.TyCon
     Plugin.Trans.Type
     Plugin.Trans.Util
     Plugin.Trans.Var
     SBVTest
     What4Test
-    Plugin.TestShare
 
 library
   import: deps

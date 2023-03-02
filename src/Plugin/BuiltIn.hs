@@ -42,7 +42,6 @@
 module Plugin.BuiltIn where
 
 import qualified Control.Monad as P
-import           Control.Monad.Fix
 import qualified GHC.Base      as P hiding (mapM)
 import qualified GHC.Real      as P
 import qualified GHC.Exts      as P
@@ -72,14 +71,11 @@ data SoloFL (m :: Type -> Type) a = SoloFL (m a)
 type instance Lifted m Solo = SoloFL m
 type instance Lifted m (Solo a) = SoloFL m (Lifted m a)
 
-instance (MonadShare m, Shareable m a) => Shareable m (SoloFL m a) where
-  shareArgs (SoloFL x) = SoloFL P.<$> share x
-
-instance (HasPrimitiveInfo a, Shareable FL (SoloFL FL a)) => HasPrimitiveInfo (SoloFL FL a) where
+instance HasPrimitiveInfo a => HasPrimitiveInfo (SoloFL FL a) where
   primitiveInfo = NoPrimitive
 
-instance (HasPrimitiveInfo a, Shareable FL (SoloFL FL a)) => Narrowable (SoloFL FL a) where
-  narrow = [SoloFL free]
+instance HasPrimitiveInfo a => Narrowable (SoloFL FL a) where
+  narrow = [SoloFL P.<$> share free]
 
 instance To a => To (Solo a) where
   toWith tf (Solo x) = SoloFL (tf x)
@@ -116,14 +112,11 @@ type instance Lifted m (,) = Tuple2FL m
 type instance Lifted m ((,) a) = Tuple2FL m (Lifted m a)
 type instance Lifted m (a, b) = Tuple2FL m (Lifted m a) (Lifted m b)
 
-instance (MonadShare m, Shareable m a, Shareable m b) => Shareable m (Tuple2FL m a b) where
-  shareArgs (Tuple2FL x y) = Tuple2FL P.<$> share x P.<*> share y
-
-instance (HasPrimitiveInfo a, HasPrimitiveInfo b, Shareable FL (Tuple2FL FL a b)) => HasPrimitiveInfo (Tuple2FL FL a b) where
+instance (HasPrimitiveInfo a, HasPrimitiveInfo b) => HasPrimitiveInfo (Tuple2FL FL a b) where
   primitiveInfo = NoPrimitive
 
-instance (HasPrimitiveInfo a, HasPrimitiveInfo b, Shareable FL (Tuple2FL FL a b)) => Narrowable (Tuple2FL FL a b) where
-  narrow = [Tuple2FL free free]
+instance (HasPrimitiveInfo a, HasPrimitiveInfo b) => Narrowable (Tuple2FL FL a b) where
+  narrow = [Tuple2FL P.<$> share free P.<*> share free]
 
 instance (To a, To b) => To (a, b) where
   toWith tf (x1, x2) = Tuple2FL (tf x1) (tf x2)
@@ -172,15 +165,11 @@ type StringFL m = ListFL m (CharFL m)
 type instance Lifted m [] = ListFL m
 type instance Lifted m [a] = ListFL m (Lifted m a)
 
-instance (MonadShare m, Shareable m a, Shareable m (ListFL m a)) => Shareable m (ListFL m a) where
-  shareArgs NilFL         = P.return NilFL
-  shareArgs (ConsFL x xs) = ConsFL P.<$> share x P.<*> share xs
-
-instance (HasPrimitiveInfo a, HasPrimitiveInfo (ListFL FL a), Shareable FL (ListFL FL a)) => HasPrimitiveInfo (ListFL FL a) where
+instance HasPrimitiveInfo a => HasPrimitiveInfo (ListFL FL a) where
   primitiveInfo = NoPrimitive
 
-instance (HasPrimitiveInfo a, HasPrimitiveInfo (ListFL FL a), Shareable FL (ListFL FL a)) => Narrowable (ListFL FL a) where
-  narrow = [NilFL, ConsFL free free]
+instance (HasPrimitiveInfo a, HasPrimitiveInfo (ListFL FL a)) => Narrowable (ListFL FL a) where
+  narrow = [P.return NilFL, ConsFL P.<$> share free P.<*> share free]
 
 instance (To a, To [a]) => To [a] where
   toWith _  [] = NilFL
@@ -242,15 +231,11 @@ data MaybeFL (m :: Type -> Type) a = NothingFL | JustFL (m a)
 type instance Lifted m P.Maybe = MaybeFL m
 type instance Lifted m (P.Maybe a) = MaybeFL m (Lifted m a)
 
-instance (MonadShare m, Shareable m a) => Shareable m (MaybeFL m a) where
-  shareArgs NothingFL  = P.return NothingFL
-  shareArgs (JustFL x) = JustFL P.<$> share x
-
-instance (HasPrimitiveInfo a, Shareable FL (MaybeFL FL a)) => HasPrimitiveInfo (MaybeFL FL a) where
+instance HasPrimitiveInfo a => HasPrimitiveInfo (MaybeFL FL a) where
   primitiveInfo = NoPrimitive
 
-instance (HasPrimitiveInfo a, Shareable FL (MaybeFL FL a)) => Narrowable (MaybeFL FL a) where
-  narrow = [NothingFL, JustFL free]
+instance HasPrimitiveInfo a => Narrowable (MaybeFL FL a) where
+  narrow = [P.return NothingFL, JustFL P.<$> share free]
 
 instance To a => To (P.Maybe a) where
   toWith _  P.Nothing = NothingFL
@@ -289,14 +274,11 @@ data RatioFL m a = m a :%# m a
 type instance Lifted m P.Ratio = RatioFL m
 type instance Lifted m (P.Ratio a) = RatioFL m (Lifted m a)
 
-instance (MonadShare m, Shareable m a) => Shareable m (RatioFL m a) where
-  shareArgs (x :%# y) = (:%#) P.<$> share x P.<*> share y
-
-instance (HasPrimitiveInfo a, Shareable FL (RatioFL FL a)) => HasPrimitiveInfo (RatioFL FL a) where
+instance HasPrimitiveInfo a => HasPrimitiveInfo (RatioFL FL a) where
   primitiveInfo = NoPrimitive
 
-instance (HasPrimitiveInfo a, Shareable FL (RatioFL FL a)) => Narrowable (RatioFL FL a) where
-  narrow = [free :%# free]
+instance HasPrimitiveInfo a => Narrowable (RatioFL FL a) where
+  narrow = [(:%#) P.<$> share free P.<*> share free]
 
 instance To a => To (P.Ratio a) where
   toWith tf (a P.:% b) = tf a :%# tf b
@@ -330,14 +312,14 @@ type RationalFL m = RatioFL m (IntegerFL m)
 failFLStr :: P.String -> a
 failFLStr = P.error
 
-failFLStrFL :: Shareable FL a => FL (StringFL FL :--> a)
+failFLStrFL :: FL (StringFL FL :--> a)
 failFLStrFL = P.return $ Func $ P.const P.empty
 
 -- Lifted seq operator to force evaluation. Forces the effect and value.
 seq :: forall (k :: RuntimeRep) a b. a -> b -> b
 seq = P.seq
 
-seqFL :: forall (k :: RuntimeRep) a b. (Shareable FL a, Shareable FL b) => FL (a :--> b :--> b)
+seqFL :: forall (k :: RuntimeRep) a b. FL (a :--> b :--> b)
 seqFL = returnFLF $ \a -> returnFLF $ \b ->
   a P.>>= \a' -> P.seq a' b
 
@@ -350,7 +332,7 @@ seqValue a b = a P.>>= \a' -> a' `seq` b
 coerce :: forall (k :: RuntimeRep) a b. a -> b
 coerce = unsafeCoerce
 
-coerceFL :: forall (k :: RuntimeRep) a b. (Shareable FL a, Shareable FL b) => FL (a :--> b)
+coerceFL :: forall (k :: RuntimeRep) a b. FL (a :--> b)
 coerceFL = returnFLF $ \(FL a) -> FL $ a P.>>= unsafeCoerce
 
 -- | Lifted equality test for strings
@@ -381,24 +363,23 @@ eqCharFL = (==#)
 
 -- * Prelude stuff
 
-fstFL :: forall a b. (Shareable FL a, Shareable FL b) => FL (Tuple2FL FL a b :--> a)
+fstFL :: forall a b. FL (Tuple2FL FL a b :--> a)
 fstFL = returnFLF $ \x -> x P.>>= \case
   Tuple2FL a _ -> a
 
-sndFL :: forall a b. (Shareable FL a, Shareable FL b) => FL (Tuple2FL FL a b :--> b)
+sndFL :: forall a b. FL (Tuple2FL FL a b :--> b)
 sndFL = returnFLF $ \x -> x P.>>= \case
   Tuple2FL _ b -> b
 
-undefinedFL :: forall (r :: RuntimeRep) . forall (a :: P.Type) . Shareable FL a => FL a
+undefinedFL :: forall (r :: RuntimeRep) . forall (a :: P.Type) . FL a
 undefinedFL = P.empty
 
-errorFL :: forall (r :: RuntimeRep) . forall (a :: P.Type) . Shareable FL a => FL (StringFL FL :--> a)
+errorFL :: forall (r :: RuntimeRep) . forall (a :: P.Type) . FL (StringFL FL :--> a)
 errorFL = failFLStrFL
 
 -- Lifted function to desugar left sections.
 leftSectionFL :: forall (r1 :: RuntimeRep) (r2 :: RuntimeRep)
                         (n :: Multiplicity) a b.
-                 (Shareable FL a, Shareable FL b) =>
                  FL ((a :--> b) :--> a :--> b)
 leftSectionFL = returnFLF $ \f -> returnFLF $ \a ->
   f `appFL` a
@@ -406,7 +387,6 @@ leftSectionFL = returnFLF $ \f -> returnFLF $ \a ->
 -- Lifted function to desugar right sections.
 rightSectionFL :: forall (r1 :: RuntimeRep) (r2 :: RuntimeRep) (r3 :: RuntimeRep)
                          (n1 :: Multiplicity) (n2 :: Multiplicity) a b c.
-                  (Shareable FL a, Shareable FL b, Shareable FL c) =>
                   FL ((a :--> b :--> c) :--> b :--> a :--> c)
 rightSectionFL = returnFLF $ \f -> returnFLF $ \b -> returnFLF $ \a ->
   f `appFL` a `appFL` b
@@ -414,33 +394,28 @@ rightSectionFL = returnFLF $ \f -> returnFLF $ \b -> returnFLF $ \a ->
 notFL :: FL (BoolFL FL :--> BoolFL FL)
 notFL = liftFL1Convert P.not
 
-idFL :: Shareable FL a => FL (a :--> a)
+idFL :: FL (a :--> a)
 idFL = returnFLF P.id
 
-(.#) :: forall a b c. (Shareable FL a, Shareable FL b, Shareable FL c)
-     => FL ((b :--> c) :--> (a :--> b) :--> a :--> c)
+(.#) :: forall a b c. FL ((b :--> c) :--> (a :--> b) :--> a :--> c)
 (.#) = returnFLF $ \f -> returnFLF $ \g -> returnFLF $ \a ->
   f `appFL` (g `appFL` a)
 
-flipFL :: forall a b c. (Shareable FL a, Shareable FL b, Shareable FL c)
-       => FL ((a :--> b :--> c) :--> b :--> a :--> c)
+flipFL :: forall a b c. FL ((a :--> b :--> c) :--> b :--> a :--> c)
 flipFL = returnFLF $ \f -> returnFLF $ \x -> returnFLF $ \y ->
   f `appFL` y `appFL` x
 
-curryFL :: forall a b c. (Shareable FL a, Shareable FL b, Shareable FL c)
-        => FL ((Tuple2FL FL a b :--> c) :--> a :--> b :--> c)
+curryFL :: forall a b c. FL ((Tuple2FL FL a b :--> c) :--> a :--> b :--> c)
 curryFL = returnFLF $ \f -> returnFLF $ \x -> returnFLF $ \y ->
   f `appFL` P.return (Tuple2FL x y)
 
-uncurryFL :: forall a b c. (Shareable FL a, Shareable FL b, Shareable FL c)
-          => FL ((a :--> b :--> c) :--> Tuple2FL FL a b :--> c)
+uncurryFL :: forall a b c. FL ((a :--> b :--> c) :--> Tuple2FL FL a b :--> c)
 uncurryFL = returnFLF $ \f -> returnFLF $ \p ->
   p P.>>= \case
     Tuple2FL x y -> f `appFL` x `appFL` y
 
 -- | Lifted const function
-constFL :: (Shareable FL a, Shareable FL b)
-        => FL (a :--> b :--> a)
+constFL :: FL (a :--> b :--> a)
 constFL = returnFLF $ \a -> returnFLF $ P.const a
 
 -- | Lifted logical and
@@ -460,19 +435,19 @@ otherwiseFL :: FL (BoolFL FL)
 otherwiseFL = P.return TrueFL
 
 -- | Lifted head function
-headFL :: Shareable FL a => FL (ListFL FL a :--> a)
+headFL :: FL (ListFL FL a :--> a)
 headFL = returnFLF $ \xs -> xs P.>>= \case
   NilFL -> P.empty
   ConsFL x _ -> x
 
 -- | Lifted tail function
-tailFL :: Shareable FL a => FL (ListFL FL a :--> ListFL FL a)
+tailFL :: FL (ListFL FL a :--> ListFL FL a)
 tailFL = returnFLF $ \xs -> xs P.>>= \case
   NilFL -> P.empty
   ConsFL _ ys -> ys
 
 -- | Lifted (++) function
-(++#) :: Shareable FL a => FL (ListFL FL a :--> ListFL FL a :--> ListFL FL a)
+(++#) :: FL (ListFL FL a :--> ListFL FL a :--> ListFL FL a)
 (++#) = returnFLF $ \xs -> returnFLF $ \ys ->
   xs P.>>= \case
     NilFL -> ys
@@ -486,11 +461,11 @@ appendListNoShare = returnFLF $ \xs -> returnFLF $ \ys ->
     ConsFL a as -> P.return (ConsFL a (appendListNoShare `appFL` as `appFL` ys))
 
 -- | Lifted reverse function
-reverseFL :: Shareable FL a => FL (ListFL FL a :--> ListFL FL a)
+reverseFL :: FL (ListFL FL a :--> ListFL FL a)
 reverseFL = foldlFL `appFL` (flipFL `appFL` returnFLF (\x -> returnFLF $ \xs -> P.return (ConsFL x xs))) `appFL` P.return NilFL
 
 -- | Lifted map function for lists
-mapFL :: forall a b. (Shareable FL a, Shareable FL b) => FL ((a :--> b) :--> ListFL FL a :--> ListFL FL b)
+mapFL :: forall a b. FL ((a :--> b) :--> ListFL FL a :--> ListFL FL b)
 mapFL = returnFLF $ \f' -> share f' P.>>= \f -> returnFLF $ \xs ->
   xs P.>>= \case
     NilFL -> P.return NilFL
@@ -504,17 +479,17 @@ mapFLNoShare = returnFLF $ \f -> returnFLF $ \xs ->
     ConsFL a as -> P.return (ConsFL (f `appFL` a) (mapFLNoShare `appFL` f `appFL` as))
 
 -- | Lifted concat function
-concatFL :: forall t a. (FoldableFL t, forall x. Shareable FL x => Shareable FL (t x), Shareable FL a)
+concatFL :: forall t a. FoldableFL t
          => FL (t (ListFL FL a) :--> ListFL FL a)
 concatFL = foldrFL `appFL` (++#) `appFL` P.return NilFL
 
 -- | Lifted concatMap function
-concatMapFL :: forall t a b. (FoldableFL t, forall x. Shareable FL x => Shareable FL (t x), Shareable FL a, Shareable FL b)
+concatMapFL :: forall t a b. FoldableFL t
             => FL ((a :--> ListFL FL b) :--> t a :--> ListFL FL b)
 concatMapFL = returnFLF $ \f -> foldrFL `appFL` ((.#) `appFL` (++#) `appFL` f) `appFL` P.return NilFL
 
 -- | Lifted takeWhile function for lists
-takeWhileFL :: Shareable FL a => FL ((a :--> BoolFL FL) :--> ListFL FL a :--> ListFL FL a)
+takeWhileFL :: FL ((a :--> BoolFL FL) :--> ListFL FL a :--> ListFL FL a)
 takeWhileFL = returnFLF $ \p' -> share p' P.>>= \p -> returnFLF $ \xs ->
   xs P.>>= \case
     NilFL -> P.return NilFL
@@ -523,7 +498,7 @@ takeWhileFL = returnFLF $ \p' -> share p' P.>>= \p -> returnFLF $ \xs ->
       TrueFL -> P.return (ConsFL a (takeWhileFL `appFL` p `appFL` as))
 
 -- | Lifted dropWhile function for lists
-dropWhileFL :: Shareable FL a => FL ((a :--> BoolFL FL) :--> ListFL FL a :--> ListFL FL a)
+dropWhileFL :: FL ((a :--> BoolFL FL) :--> ListFL FL a :--> ListFL FL a)
 dropWhileFL = returnFLF $ \p' -> share p' P.>>= \p -> returnFLF $ \xs ->
   xs P.>>= \case
     NilFL -> P.return NilFL
@@ -532,7 +507,7 @@ dropWhileFL = returnFLF $ \p' -> share p' P.>>= \p -> returnFLF $ \xs ->
       TrueFL -> dropWhileFL `appFL` p `appFL` as
 
 -- | Lifted replicate function
-replicateFL :: Shareable FL a => FL (IntFL FL :--> a :--> ListFL FL a)
+replicateFL :: FL (IntFL FL :--> a :--> ListFL FL a)
 replicateFL = returnFLF $ \n' -> share n' P.>>= \n -> returnFLF $ \x' -> share x' P.>>= \x ->
   ((==#) `appFL` n `appFL` P.return (IntFL 0)) P.>>= \case
   FalseFL -> ((>#) `appFL` n `appFL` P.return (IntFL 0)) P.>>= \case
@@ -541,7 +516,7 @@ replicateFL = returnFLF $ \n' -> share n' P.>>= \n -> returnFLF $ \x' -> share x
   TrueFL -> P.return NilFL
 
 -- | Lifted take function for lists
-takeFL :: Shareable FL a => FL (IntFL FL :--> ListFL FL a :--> ListFL FL a)
+takeFL :: FL (IntFL FL :--> ListFL FL a :--> ListFL FL a)
 takeFL = returnFLF $ \n' -> share n' P.>>= \n -> returnFLF $ \xs ->
   (<=#) `appFL` n `appFL` P.return (IntFL 0) P.>>= \case
     FalseFL -> xs P.>>= \case
@@ -550,7 +525,7 @@ takeFL = returnFLF $ \n' -> share n' P.>>= \n -> returnFLF $ \xs ->
     TrueFL -> P.return NilFL
 
 -- | Lifted drop function for lists
-dropFL :: Shareable FL a => FL (IntFL FL :--> ListFL FL a :--> ListFL FL a)
+dropFL :: FL (IntFL FL :--> ListFL FL a :--> ListFL FL a)
 dropFL = returnFLF $ \n' -> share n' P.>>= \n -> returnFLF $ \xs ->
   (<=#) `appFL` n `appFL` P.return (IntFL 0) P.>>= \case
     FalseFL -> xs P.>>= \case
@@ -559,13 +534,13 @@ dropFL = returnFLF $ \n' -> share n' P.>>= \n -> returnFLF $ \xs ->
     TrueFL -> xs
 
 -- | Lifted maybe function
-maybeFL :: forall b a. (Shareable FL b, Shareable FL a) => FL (b :--> (a :--> b) :--> MaybeFL FL a :--> b)
+maybeFL :: forall b a. FL (b :--> (a :--> b) :--> MaybeFL FL a :--> b)
 maybeFL = returnFLF $ \n -> returnFLF $ \j -> returnFLF $ \m -> m P.>>= \case
   NothingFL -> n
   JustFL x -> j `appFL` x
 
 -- | Lifted lookup function
-lookupFL :: forall a b. (EqFL a, Shareable FL a, Shareable FL b)
+lookupFL :: forall a b. EqFL a
          => FL (a :--> ListFL FL (Tuple2FL FL a b) :--> MaybeFL FL b)
 lookupFL = returnFLF $ \k' -> share k' P.>>= \k -> returnFLF $ \xs -> xs P.>>= \case
   NilFL -> P.return NothingFL
@@ -575,7 +550,7 @@ lookupFL = returnFLF $ \k' -> share k' P.>>= \k -> returnFLF $ \xs -> xs P.>>= \
       TrueFL -> P.return (JustFL v)
 
 -- | Lifted notElem function
-notElemFL :: forall t a. (FoldableFL t, EqFL a, forall x. Shareable FL x => Shareable FL (t x), Shareable FL a)
+notElemFL :: forall t a. (FoldableFL t, EqFL a)
            => FL (a :--> t a :--> BoolFL FL)
 notElemFL = returnFLF $ \x -> (.#) `appFL` notFL `appFL` (elemFL `appFL` x)
 
@@ -584,7 +559,7 @@ data NonEmptyFL a = a :|# [a]
 --TODO: Eq, Ord, Functor, Applicative, Monad
 
 --TODO: Move
-class Shareable FL a => SemigroupFL a where
+class SemigroupFL a where
   (<>#) :: FL (a :--> a :--> a)
 
   sconcat :: FL (NonEmptyFL a :--> a)
@@ -592,15 +567,15 @@ class Shareable FL a => SemigroupFL a where
     go b (c:cs) = b <> go c cs
     go b []     = b-}
 
-  stimes :: forall b. (IntegralFL b, Shareable FL b) => FL (b :--> a :--> a)
+  stimes :: forall b. IntegralFL b => FL (b :--> a :--> a)
   --stimes = stimesDefault
 
-instance Shareable FL a => SemigroupFL (ListFL FL a) where
+instance SemigroupFL (ListFL FL a) where
   (<>#) = appendListNoShare
   --stimesFL = stimesListFL
 
 --TODO: Move
-class (Shareable FL a, SemigroupFL a) => MonoidFL a where
+class SemigroupFL a => MonoidFL a where
   memptyFL  :: FL a
 
   mappendFL :: FL (a :--> a :--> a)
@@ -610,33 +585,33 @@ class (Shareable FL a, SemigroupFL a) => MonoidFL a where
   mconcatFL :: FL (ListFL FL a :--> a)
   mconcatFL = foldrFL `appFL` mappendFL `appFL` memptyFL
 
-instance Shareable FL a => MonoidFL (ListFL FL a) where
+instance MonoidFL (ListFL FL a) where
   memptyFL = P.return NilFL
 
 --TODO: Move to BuiltIn.Foldable
-class (forall x. Shareable FL x => Shareable FL (t x)) => FoldableFL t where
-    foldFL :: (MonoidFL m, Shareable FL m) => FL (t m :--> m)
+class FoldableFL t where
+    foldFL :: MonoidFL m => FL (t m :--> m)
     foldFL = foldMapFL `appFL` idFL
 
-    foldMapFL :: forall a m. (MonoidFL m, Shareable FL a, Shareable FL m) => FL ((a :--> m) :--> t a :--> m)
+    foldMapFL :: forall a m. MonoidFL m => FL ((a :--> m) :--> t a :--> m)
     foldMapFL = returnFLF $ \f' -> share f' P.>>= \f -> foldrFL `appFL` ((.#) `appFL` mappendFL `appFL` f) `appFL` memptyFL
 
-    foldMap'FL :: forall a m. (MonoidFL m, Shareable FL a, Shareable FL m) => FL ((a :--> m) :--> t a :--> m)
+    foldMap'FL :: forall a m. MonoidFL m => FL ((a :--> m) :--> t a :--> m)
     foldMap'FL = returnFLF $ \f' -> share f' P.>>= \f -> foldl'FL `appFL` returnFLF (\acc -> returnFLF $ \a -> (<>#) `appFL` acc `appFL` (f `appFL` a)) `appFL` memptyFL
 
-    foldrFL :: forall a b. (Shareable FL a, Shareable FL b) => FL ((a :--> b :--> b) :--> b :--> t a :--> b)
+    foldrFL :: forall a b. FL ((a :--> b :--> b) :--> b :--> t a :--> b)
     --foldrFL f z t = appEndo (foldMap (Endo #. f) t) z
 
-    foldr'FL :: forall a b. (Shareable FL a, Shareable FL b) => FL ((a :--> b :--> b) :--> b :--> t a :--> b)
+    foldr'FL :: forall a b. FL ((a :--> b :--> b) :--> b :--> t a :--> b)
     --foldr' f z0 xs = foldl f' id xs z0
     --  where f' k x z = k $! f x z
 
-    foldlFL :: forall a b. (Shareable FL a, Shareable FL b) => FL ((b :--> a :--> b) :--> b :--> t a :--> b)
+    foldlFL :: forall a b. FL ((b :--> a :--> b) :--> b :--> t a :--> b)
     --foldl f z t = appEndo (getDual (foldMap (Dual . Endo . flip f) t)) z
 
-    foldl'FL :: forall a b. (Shareable FL a, Shareable FL b) => FL ((b :--> a :--> b) :--> b :--> t a :--> b)
+    foldl'FL :: forall a b. FL ((b :--> a :--> b) :--> b :--> t a :--> b)
 
-    foldr1FL :: forall a. Shareable FL a => FL ((a :--> a :--> a) :--> t a :--> a)
+    foldr1FL :: forall a. FL ((a :--> a :--> a) :--> t a :--> a)
     --foldr1FL f xs = fromMaybe (errorWithoutStackTrace "foldr1: empty structure")
     --                (foldr mf Nothing xs)
     --  where
@@ -644,7 +619,7 @@ class (forall x. Shareable FL x => Shareable FL (t x)) => FoldableFL t where
     --                     Nothing -> x
     --                     Just y  -> f x y)
 
-    foldl1FL :: Shareable FL a => FL ((a :--> a :--> a) :--> t a :--> a)
+    foldl1FL :: FL ((a :--> a :--> a) :--> t a :--> a)
     {-foldl1 f xs = fromMaybe (errorWithoutStackTrace "foldl1: empty structure")
                     (foldl mf Nothing xs)
       where
@@ -652,33 +627,33 @@ class (forall x. Shareable FL x => Shareable FL (t x)) => FoldableFL t where
                          Nothing -> y
                          Just x  -> f x y)-}
 
-    toListFL :: Shareable FL a => FL (t a :--> ListFL FL a)
+    toListFL :: FL (t a :--> ListFL FL a)
     --toList t = build (\ c n -> foldr c n t)
 
-    nullFL :: Shareable FL a => FL (t a :--> BoolFL FL)
+    nullFL :: FL (t a :--> BoolFL FL)
     --null = foldr (\_ _ -> False) True
 
-    lengthFL :: Shareable FL a => FL (t a :--> IntFL FL)
+    lengthFL :: FL (t a :--> IntFL FL)
     --length = foldl' (\c _ -> c+1) 0
 
-    elemFL :: (EqFL a, Shareable FL a) => FL (a :--> t a :--> BoolFL FL)
+    elemFL :: EqFL a => FL (a :--> t a :--> BoolFL FL)
     --elem = any . (==)
 
 
-    maximumFL :: (OrdFL a, Shareable FL a) => FL (t a :--> a)
+    maximumFL :: OrdFL a => FL (t a :--> a)
     {-maximum = fromMaybe (errorWithoutStackTrace "maximum: empty structure") .
        getMax . foldMap' (Max #. (Just :: a -> Maybe a))
     {-# INLINEABLE maximum #-}-}
 
-    minimumFL :: (OrdFL a, Shareable FL a) => FL (t a :--> a)
+    minimumFL :: OrdFL a => FL (t a :--> a)
     {-minimumFL = fromMaybe (errorWithoutStackTrace "minimum: empty structure") .
        getMin . foldMap' (Min #. (Just :: a -> Maybe a))
     {-# INLINEABLE minimum #-}-}
 
-    sumFL :: (NumFL a, Shareable FL a) => FL (t a :--> a)
+    sumFL :: NumFL a => FL (t a :--> a)
     --sum = getSum #. foldMap' Sum
 
-    productFL :: (NumFL a, Shareable FL a) => FL (t a :--> a)
+    productFL :: NumFL a => FL (t a :--> a)
     --product = getProduct #. foldMap' Product
 
 instance FoldableFL (ListFL FL) where
@@ -732,19 +707,19 @@ instance FoldableFL (ListFL FL) where
   sum     = List.sum
   toList  = id-}
 
-allFL :: forall t a. (FoldableFL t, forall x. Shareable FL x => Shareable FL (t x), Shareable FL a)
+allFL :: forall t a. FoldableFL t
       => FL ((a :--> BoolFL FL) :--> t a :--> BoolFL FL)
 allFL = returnFLF $ \p' -> share p' P.>>= \p -> foldrFL `appFL` returnFLF (\x -> returnFLF $ \acc -> (&&#) `appFL` (p `appFL` x) `appFL` acc) `appFL` P.return TrueFL
 
-anyFL :: forall t a. (FoldableFL t, forall x. Shareable FL x => Shareable FL (t x), Shareable FL a)
+anyFL :: forall t a. FoldableFL t
       => FL ((a :--> BoolFL FL) :--> t a :--> BoolFL FL)
 anyFL = returnFLF $ \p' -> share p' P.>>= \p -> foldrFL `appFL` returnFLF (\x -> returnFLF $ \acc -> (||#) `appFL` (p `appFL` x) `appFL` acc) `appFL` P.return FalseFL
 
-andFL :: forall t. (FoldableFL t, forall x. Shareable FL x => Shareable FL (t x))
+andFL :: forall t. FoldableFL t
       => FL (t (BoolFL FL) :--> BoolFL FL)
 andFL = foldrFL `appFL` (&&#) `appFL` P.return TrueFL
 
-orFL :: forall t. (FoldableFL t, forall x. Shareable FL x => Shareable FL (t x))
+orFL :: forall t. FoldableFL t
      => FL (t (BoolFL FL) :--> BoolFL FL)
 orFL = foldrFL `appFL` (||#) `appFL` P.return TrueFL
 
@@ -756,15 +731,11 @@ boolFLtoBool TrueFL  = True
 
 type instance Lifted m Bool = BoolFL m
 
-instance MonadShare m => Shareable m (BoolFL m) where
-  shareArgs FalseFL = P.return FalseFL
-  shareArgs TrueFL  = P.return TrueFL
-
 instance HasPrimitiveInfo (BoolFL FL) where
   primitiveInfo = NoPrimitive
 
 instance Narrowable (BoolFL FL) where
-  narrow = [FalseFL, TrueFL]
+  narrow = [P.return FalseFL, P.return TrueFL]
 
 instance To Bool where
   toWith _ False = FalseFL
@@ -798,14 +769,11 @@ data UnitFL (m :: Type -> Type) = UnitFL
 
 type instance Lifted m () = UnitFL m
 
-instance MonadShare m => Shareable m (UnitFL m) where
-  shareArgs UnitFL = P.return UnitFL --TODO: Remove qualification for Prelude
-
 instance HasPrimitiveInfo (UnitFL FL) where
   primitiveInfo = NoPrimitive
 
 instance Narrowable (UnitFL FL) where
-  narrow = [UnitFL]
+  narrow = [P.return UnitFL]
 
 instance To () where
   toWith _ () = UnitFL
@@ -831,16 +799,11 @@ data OrderingFL (m :: Type -> Type) = LTFL | EQFL | GTFL
 
 type instance Lifted m Ordering = OrderingFL m
 
-instance MonadShare m => Shareable m (OrderingFL m) where
-  shareArgs LTFL = P.return LTFL
-  shareArgs EQFL = P.return EQFL
-  shareArgs GTFL = P.return GTFL
-
 instance HasPrimitiveInfo (OrderingFL FL) where
   primitiveInfo = NoPrimitive
 
 instance Narrowable (OrderingFL FL) where
-  narrow = [LTFL, EQFL, GTFL]
+  narrow = [P.return LTFL, P.return EQFL, P.return GTFL]
 
 instance To Ordering where
   toWith _ LT = LTFL
@@ -877,14 +840,11 @@ instance ShowFree Ordering where
 
 instance Invertible Ordering
 
-instance MonadShare m => Shareable m (IntegerFL m) where
-  shareArgs !x = P.return x
-
 instance HasPrimitiveInfo (IntegerFL FL) where
   primitiveInfo = Primitive
 
 instance To Integer where
-  toWith _ x = IntegerFL x
+  toWith _ = IntegerFL
 
 instance From Integer where
   from (IntegerFL x) = x
@@ -902,9 +862,6 @@ instance ShowFree Integer where
   showFree' = P.show
 
 instance Invertible Integer
-
-instance MonadShare m => Shareable m (IntFL m) where
-  shareArgs !x = P.return x
 
 instance HasPrimitiveInfo (IntFL FL) where
   primitiveInfo = Primitive
@@ -929,9 +886,6 @@ instance ShowFree Int where
 
 instance Invertible Int
 
-instance MonadShare m => Shareable m (FloatFL m) where
-  shareArgs !x = P.return x
-
 instance HasPrimitiveInfo (FloatFL FL) where
   primitiveInfo = Primitive
 
@@ -955,9 +909,6 @@ instance ShowFree Float where
 
 instance Invertible Float
 
-instance MonadShare m => Shareable m (DoubleFL m) where
-  shareArgs !x = P.return x
-
 instance HasPrimitiveInfo (DoubleFL FL) where
   primitiveInfo = Primitive
 
@@ -980,9 +931,6 @@ instance ShowFree Double where
   showFree' = P.show
 
 instance Invertible Double
-
-instance MonadShare m => Shareable m (CharFL m) where
-  shareArgs !x = P.return x
 
 instance HasPrimitiveInfo (CharFL FL) where
   primitiveInfo = Primitive
@@ -1013,7 +961,7 @@ type ShowSFL m = (-->) m (StringFL m) (StringFL m)
 type instance Lifted FL P.Show = ShowFL
 type instance Lifted FL (P.Show f) = ShowFL (Lifted FL f)
 -- | Lifted Show type class
-class Shareable FL a => ShowFL a where
+class ShowFL a where
   {-# MINIMAL showsPrecFL | showFL #-}
   showsPrecFL :: FL (IntFL FL :--> a :--> ShowSFL FL)
   showsPrecFL = returnFLF $ \_ -> returnFLF $ \x -> returnFLF $ \s ->
@@ -1043,7 +991,7 @@ showsList__ = returnFLF $ \showx' -> share showx' P.>>= \showx -> returnFLF $ \l
 shows :: P.Show a => a -> P.ShowS
 shows = P.showsPrec 0
 
-showsFL :: (ShowFL a, Shareable FL a) => FL (a :--> ShowSFL FL)
+showsFL :: ShowFL a => FL (a :--> ShowSFL FL)
 showsFL = showsPrecFL `appFL` toFL 0
 
 showsFLNoShare :: ShowFL a => FL (a :--> ShowSFL FL)
@@ -1098,7 +1046,7 @@ instance ShowFL (CharFL FL) where
   showFL = liftFL1Convert P.show
   showListFL = returnFLF $ \x -> groundNormalFormFL x P.>>= \v -> toFL (P.showList (from v))
 
-instance (Shareable FL a, ShowFL a) => ShowFL (ListFL FL a) where
+instance ShowFL a => ShowFL (ListFL FL a) where
   showFL = returnFLF $ \xs -> apply2FL showListFL xs (P.return NilFL)
 
 
@@ -1107,7 +1055,7 @@ instance (Shareable FL a, ShowFL a) => ShowFL (ListFL FL a) where
 type instance Lifted FL P.Eq = EqFL
 type instance Lifted FL (P.Eq f) = EqFL (Lifted FL f)
 -- | Lifted Eq type class
-class Shareable FL a => EqFL a where
+class EqFL a where
   (==#) :: FL (a :--> a :--> BoolFL FL)
   (==#) = returnFLF $ \a1 -> returnFLF $ \a2 -> notFL `appFL` apply2FL (/=#) a1 a2
 
@@ -1146,7 +1094,7 @@ instance EqFL (CharFL FL) where
   (==#) = primitiveOrd2 (P.==) (P.Just eqConstraint)
   (/=#) = primitiveOrd2 (P./=) (P.Just neqConstraint)
 
-instance (EqFL a, Shareable FL a) => EqFL (ListFL FL a) where
+instance EqFL a => EqFL (ListFL FL a) where
   (==#) = returnFLF $ \a1 -> returnFLF $ \a2 -> a1 P.>>= \case
     NilFL       -> a2 P.>>= \case
       NilFL       -> P.return TrueFL
@@ -1155,13 +1103,13 @@ instance (EqFL a, Shareable FL a) => EqFL (ListFL FL a) where
       NilFL       -> P.return FalseFL
       ConsFL y ys -> eqOn2 x y xs ys
 
-instance (EqFL a, Shareable FL a) => EqFL (RatioFL FL a) where
+instance EqFL a => EqFL (RatioFL FL a) where
   (==#) = returnFLF $ \x1 -> returnFLF $ \x2 -> do
     (a1 :%# b1) <- x1
     (a2 :%# b2) <- x2
     eqOn2 a1 a2 b1 b2
 
-eqOn2 :: (EqFL a1, EqFL a2, Shareable FL a1, Shareable FL a2)
+eqOn2 :: (EqFL a1, EqFL a2)
       => FL a1 -> FL a1 -> FL a2 -> FL a2 -> FL (BoolFL FL)
 eqOn2 x y xs ys = apply2FL (&&#) (apply2FL (==#) x y) (apply2FL (==#) xs ys)
 
@@ -1170,7 +1118,7 @@ eqOn2 x y xs ys = apply2FL (&&#) (apply2FL (==#) x y) (apply2FL (==#) xs ys)
 type instance Lifted FL P.Ord = OrdFL
 type instance Lifted FL (P.Ord f) = OrdFL (Lifted FL f)
 -- | Lifted Ord type class
-class (Shareable FL a, EqFL a) => OrdFL a where
+class EqFL a => OrdFL a where
   {-# MINIMAL compareFL | (<=#) #-}
   compareFL :: FL (a :--> a :--> OrderingFL FL)
   compareFL = returnFLF $ \a1' -> share a1' P.>>= \a1 -> returnFLF $ \a2' -> share a2' P.>>= \a2 ->
@@ -1262,7 +1210,7 @@ instance OrdFL (CharFL FL) where
   maxFL = primitive2    P.max  charMaxConstraint
   minFL = primitive2    P.min  charMinConstraint
 
-instance (Shareable FL a, OrdFL a) => OrdFL (ListFL FL a) where
+instance OrdFL a => OrdFL (ListFL FL a) where
   compareFL = returnFLF $ \x -> returnFLF $ \y ->
     x P.>>= \x' -> y P.>>= \y' -> case (x', y') of
       (NilFL      , NilFL      ) -> P.return EQFL
@@ -1277,7 +1225,7 @@ instance (Shareable FL a, OrdFL a) => OrdFL (ListFL FL a) where
 type instance Lifted FL P.Num = NumFL
 type instance Lifted FL (P.Num f) = NumFL (Lifted FL f)
 -- | Lifted Num type class
-class Shareable FL a => NumFL a where
+class NumFL a where
   (+#) :: FL (a :--> a :--> a)
   (-#) :: FL (a :--> a :--> a)
   (-#) = returnFLF $ \a -> returnFLF $ \b ->
@@ -1329,7 +1277,7 @@ instance NumFL (DoubleFL FL) where
 type instance Lifted FL P.Fractional = FractionalFL
 type instance Lifted FL (P.Fractional f) = FractionalFL (Lifted FL f)
 -- | Lifted Fractional type class
-class (Shareable FL a, NumFL a) => FractionalFL a where
+class NumFL a => FractionalFL a where
   {-# MINIMAL fromRationalFL, (recipFL | (/#)) #-}
 
   (/#) :: FL (a :--> a :--> a)
@@ -1353,7 +1301,7 @@ instance FractionalFL (DoubleFL FL) where
 type instance Lifted FL P.Real = RealFL
 type instance Lifted FL (P.Real f) = RealFL (Lifted FL f)
 -- | Lifted Real type class
-class (Shareable FL a, NumFL a, OrdFL a) => RealFL a where
+class (NumFL a, OrdFL a) => RealFL a where
   toRationalFL :: FL (a :--> RationalFL FL)
 
 instance RealFL (IntFL FL) where
@@ -1373,7 +1321,7 @@ instance RealFL (DoubleFL FL) where
 type instance Lifted FL P.Integral = IntegralFL
 type instance Lifted FL (P.Integral f) = IntegralFL (Lifted FL f)
 -- | Lifted Integral type class
-class (Shareable FL a, RealFL a, EnumFL a) => IntegralFL a where
+class (RealFL a, EnumFL a) => IntegralFL a where
   quotFL      :: FL (a :--> a :--> a)
   remFL       :: FL (a :--> a :--> a)
   divFL       :: FL (a :--> a :--> a)
@@ -1423,9 +1371,9 @@ infixl 4 <$#, <*#, *>#, <*>#
 type instance Lifted FL P.Functor = FunctorFL
 type instance Lifted FL (P.Functor f) = FunctorFL (Lifted FL f)
 -- | Lifted Functor type class
-class (forall x. Shareable FL x => Shareable FL (f x)) => FunctorFL f where
-  fmapFL :: forall a b. (Shareable FL a, Shareable FL b) => FL ((a :--> b) :--> f a :--> f b)
-  (<$#) :: forall a b. (Shareable FL a, Shareable FL b) => FL (a :--> f b :--> f a)
+class FunctorFL f where
+  fmapFL :: forall a b. FL ((a :--> b) :--> f a :--> f b)
+  (<$#) :: forall a b. FL (a :--> f b :--> f a)
   (<$#) = returnFLF $ \a -> returnFLF $ \f ->
     apply2FL fmapFL (constFL `appFL` a) f
 
@@ -1434,29 +1382,29 @@ instance FunctorFL (ListFL FL) where
     NilFL       -> P.return NilFL
     ConsFL x xs -> P.return (ConsFL (f `appFL` x) (apply2FL fmapFL f xs))
 
-(<$>#) :: forall f a b. (FunctorFL f, forall x. Shareable FL x => Shareable FL (f x), Shareable FL a, Shareable FL b)
+(<$>#) :: forall f a b. FunctorFL f
        => FL ((a :--> b) :--> (f a :--> f b))
 (<$>#) = fmapFL
 
 type instance Lifted FL P.Applicative = ApplicativeFL
 type instance Lifted FL (P.Applicative f) = ApplicativeFL (Lifted FL f)
 -- | Lifted Applicative type class
-class (forall x. Shareable FL x => Shareable FL (f x), FunctorFL f) => ApplicativeFL f where
-  pureFL :: forall a. Shareable FL a => FL (a :--> f a)
+class FunctorFL f => ApplicativeFL f where
+  pureFL :: forall a. FL (a :--> f a)
 
-  (<*>#) :: forall a b. (Shareable FL a, Shareable FL b) => FL (f (a :--> b) :--> f a :--> f b)
+  (<*>#) :: forall a b. FL (f (a :--> b) :--> f a :--> f b)
   (<*>#) = returnFLF $ \f -> returnFLF $ \a ->
     apply3FL liftA2FL (liftFL1 P.id) f a
 
-  liftA2FL :: forall a b c. (Shareable FL a, Shareable FL b, Shareable FL c) => FL ((a :--> b :--> c) :--> f a :--> f b :--> f c)
+  liftA2FL :: forall a b c. FL ((a :--> b :--> c) :--> f a :--> f b :--> f c)
   liftA2FL = returnFLF $ \f -> returnFLF $ \a -> returnFLF $ \b ->
     apply2FL (<*>#) (apply2FL fmapFL f a) b
 
-  (*>#) :: forall a b. (Shareable FL a, Shareable FL b) => FL (f a :--> f b :--> f b)
+  (*>#) :: forall a b. FL (f a :--> f b :--> f b)
   (*>#) = returnFLF $ \a -> returnFLF $ \b ->
     apply3FL liftA2FL (liftFL2 (P.const P.id)) a b
 
-  (<*#) :: forall a b. (Shareable FL a, Shareable FL b) => FL (f a :--> f b :--> f a)
+  (<*#) :: forall a b. FL (f a :--> f b :--> f a)
   (<*#) = returnFLF $ \a -> returnFLF $ \b ->
     apply3FL liftA2FL constFL a b
   {-# MINIMAL pureFL, ((<*>#) | liftA2FL) #-}
@@ -1470,16 +1418,16 @@ instance ApplicativeFL (ListFL FL) where
 type instance Lifted FL P.Alternative = AlternativeFL
 type instance Lifted FL (P.Alternative f) = AlternativeFL (Lifted FL f)
 -- | Lifted Alternative type class
-class (forall x. Shareable FL x => Shareable FL (f x), ApplicativeFL f) => AlternativeFL f where
-  emptyFL :: forall a. Shareable FL a => FL (f a)
-  (<|>#) :: forall a. Shareable FL a => FL (f a :--> f a :--> f a)
-  someFL  :: forall a. Shareable FL a => FL (f a :--> f (ListFL FL a))
+class ApplicativeFL f => AlternativeFL f where
+  emptyFL :: forall a. FL (f a)
+  (<|>#) :: forall a. FL (f a :--> f a :--> f a)
+  someFL  :: forall a. FL (f a :--> f (ListFL FL a))
   someFL = returnFLF $ \v' -> share v' P.>>= \v ->
     let many_v = apply2FL (<|>#) some_v (pureFL `appFL` P.return NilFL)
         some_v = apply3FL liftA2FL consFL v many_v
         consFL = returnFLF $ \x -> returnFLF $ \y -> P.return (ConsFL x y)
     in some_v
-  manyFL  :: forall a. Shareable FL a => FL (f a :--> f (ListFL FL a))
+  manyFL  :: forall a. FL (f a :--> f (ListFL FL a))
   manyFL = returnFLF $ \v' -> share v' P.>>= \v ->
     let many_v = apply2FL (<|>#) some_v (pureFL `appFL` P.return NilFL)
         some_v = apply3FL liftA2FL consFL v many_v
@@ -1494,12 +1442,12 @@ instance AlternativeFL (ListFL FL) where
 type instance Lifted FL P.Monad = MonadFL
 type instance Lifted FL (P.Monad f) = MonadFL (Lifted FL f)
 -- | Lifted Monad type class
-class (forall x. Shareable FL x => Shareable FL (m x), ApplicativeFL m) => MonadFL m where
-  (>>=#) :: forall a b. (Shareable FL a, Shareable FL b) => FL (m a :--> (a :--> m b) :--> m b)
-  (>>#)  :: forall a b. (Shareable FL a, Shareable FL b) => FL (m a :--> m b :--> m b)
+class ApplicativeFL m => MonadFL m where
+  (>>=#) :: forall a b. FL (m a :--> (a :--> m b) :--> m b)
+  (>>#)  :: forall a b. FL (m a :--> m b :--> m b)
   (>>#) = returnFLF $ \a -> returnFLF $ \b ->
     apply2FL (>>=#) a (returnFLF (P.const b))
-  returnFL :: forall a. Shareable FL a => FL (a :--> m a)
+  returnFL :: forall a. FL (a :--> m a)
   returnFL = pureFL
   {-# MINIMAL (>>=#) #-}
 
@@ -1511,8 +1459,8 @@ instance MonadFL (ListFL FL) where
 type instance Lifted FL P.MonadFail = MonadFailFL
 type instance Lifted FL (P.MonadFail f) = MonadFailFL (Lifted FL f)
 -- | Lifted MonadFail type class
-class (forall x. Shareable FL x => Shareable FL (m x), MonadFL m) => MonadFailFL m where
-  failFL :: forall a. Shareable FL a => FL (StringFL FL :--> m a)
+class MonadFL m => MonadFailFL m where
+  failFL :: forall a. FL (StringFL FL :--> m a)
 
 instance MonadFailFL (ListFL FL) where
   failFL = returnFLF $ \_ -> P.return NilFL
@@ -1522,7 +1470,7 @@ instance MonadFailFL (ListFL FL) where
 type instance Lifted FL P.Enum = EnumFL
 type instance Lifted FL (P.Enum f) = EnumFL (Lifted FL f)
 -- | Lifted Enum type class
-class Shareable FL a => EnumFL a where
+class EnumFL a where
   succFL :: FL (a :--> a)
   succFL = returnFLF $ \a ->
     toEnumFL `appFL` apply2FL (+#) (toFL 1) (fromEnumFL `appFL` a)
@@ -1604,7 +1552,7 @@ instance EnumFL (IntegerFL FL) where
 type instance Lifted FL P.Bounded = BoundedFL
 type instance Lifted FL (P.Bounded f) = BoundedFL (Lifted FL f)
 -- | Lifted Bounded type class
-class Shareable FL a => BoundedFL a where
+class BoundedFL a where
   minBoundFL :: FL a
   maxBoundFL :: FL a
 
@@ -1614,10 +1562,10 @@ instance BoundedFL (IntFL FL) where
 
 type instance Lifted FL P.IsString = IsStringFL
 type instance Lifted FL (P.IsString f) = IsStringFL (Lifted FL f)
-class Shareable FL a => IsStringFL a where
+class IsStringFL a where
   fromStringFL :: FL (StringFL FL :--> a)
 
-instance (Shareable FL a, a ~ CharFL FL) => IsStringFL (ListFL FL a) where
+instance (a ~ CharFL FL) => IsStringFL (ListFL FL a) where
   fromStringFL = returnFLF P.id
 
 primitive1 :: HasPrimitiveInfo (Lifted FL b) => (a -> b) -> P.Maybe (FLVal (Lifted FL a) -> FLVal (Lifted FL b) -> Constraint) -> FL (Lifted FL a :--> Lifted FL b)
@@ -1722,92 +1670,3 @@ primitive2Pair op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
               varOf (Var i) = [i]
               varOf _       = []
     P.Nothing         -> apply2FL (liftFL2Convert op) x y
-
-data Anything
-
-instance Shareable FL Anything where
-  shareArgs = P.return
-
-test3 :: FL (ListFL FL (ListFL FL (BoolFL FL)))
-test3 = do
-  x <- mfix (\x -> share (P.return (ConsFL (P.return (ConsFL (P.return FalseFL P.<|> P.return TrueFL) (P.return NilFL))) x)))
-  x
-
-test5 :: FL (ListFL FL (BoolFL FL))
-test5 = do
-  x <- share (P.return (ConsFL (P.return FalseFL P.<|> P.return TrueFL) (P.return NilFL)))
-  x
-
-test5' :: FL (ListFL FL (BoolFL FL))
-test5' = do
-  x <- mfix (\x -> share (P.return (ConsFL (P.return FalseFL P.<|> P.return TrueFL) (P.return NilFL))))
-  x
-
-test4 :: FL (ListFL FL (BoolFL FL))
-test4 = do
-  x <- mfix (\x -> share (P.return (ConsFL (P.return FalseFL P.<|> P.return TrueFL) x)))
-  x
-
-test4ND :: ND FLState (ListFL (ND FLState) (BoolFL (ND FLState)))
-test4ND = do
-  x <- mfix (\x -> share (P.return (ConsFL (P.return FalseFL P.<|> P.return TrueFL) x)))
-  x
-
-test2 :: FL (ListFL FL (BoolFL FL))
-test2 = do
-  x <- mfix (\x -> share (P.return (ConsFL (free) x)))
-  x
-
-test1 :: FL (ListFL FL (Tuple2FL FL (BoolFL FL) (BoolFL FL)))
-test1 = do
-  x <- share (P.return FalseFL P.<|> P.return TrueFL)
-  y <- P.return (P.return (Tuple2FL x x))
-  P.return (ConsFL y (P.return (ConsFL y (P.return NilFL))))
-
-test11 :: FL (ListFL FL (ListFL FL (BoolFL FL)))
-test11 = do
-  x <- share (P.return (ConsFL (P.return FalseFL P.<|> P.return TrueFL) (P.return NilFL)))
-  P.return (ConsFL x (P.return (ConsFL x (P.return NilFL))))
-
-test :: FL (ListFL FL (BoolFL FL))
-test = do
-  (x, _) <- mfix (\(~(x', y')) -> (,) P.<$> share (P.return (ConsFL (P.return FalseFL P.<|> P.return TrueFL) y'))
-                                      P.<*> share (P.return (ConsFL (P.return FalseFL P.<|> P.return TrueFL) x')))
-  x
-
-testTake :: FL (ListFL FL a :--> Tuple3FL FL a a a)
-testTake = P.return $ Func $ \xs -> xs P.>>= \case
-  ConsFL y ys -> ys P.>>= \case
-    ConsFL z zs -> zs P.>>= \case
-      ConsFL a as -> P.return (Tuple3FL y z a)
-
-{-testTakeND :: ND FLState (ListFL (ND FLState) a :--> Tuple3FL (ND FLState) a a a)
-testTakeND = P.return $ Func $ \xs -> xs P.>>= \case
-  ConsFL y ys -> ys P.>>= \case
-    ConsFL z zs -> zs P.>>= \case
-      ConsFL a as -> P.return (Tuple3FL y z a)-}
-
-testExpr1 = P.map fromFLVal $ evalFL $ groundNormalFormFL test1
-testExpr11 = P.map fromFLVal $ evalFL $ groundNormalFormFL test11
-testExpr = P.map fromFLVal $ evalFL $ groundNormalFormFL (testTake `appFL` test)
-testExpr2 = P.map fromFLVal $ evalFL $ groundNormalFormFL (testTake `appFL` test2)
-testExpr3 = P.map fromFLVal $ evalFL $ groundNormalFormFL (testTake `appFL` test3)
-
-testExpr4 = P.map fromFLVal $ evalFL $ groundNormalFormFL (testTake `appFL` test4)
-
-{-evalND' = map (\(Val x) -> x) $ evalNDWith nd initFLState
-fromND :: ND (Lifted (ND FLState) a) -> a
-fromND nd = head . map (\(Val x) -> x) $ evalNDWith nd initFLState
-testExpr4ND = P.map fromIdentity $ evalFLWith groundNormalFormFL (testTakeND `appFL` test4ND)-}
-testExpr5 = P.map fromFLVal $ evalFL $ groundNormalFormFL (test5)
-
-testExpr5' = P.map fromFLVal $ evalFL $ groundNormalFormFL (test5')
-
-
--- instance NormalForm2 Bool where
---   normalForm2 FalseFL = P.return FalseFL
---   normalForm2 TrueFL  = P.return TrueFL
-
--- instance NormalForm2 a => NormalForm2 [a] where
---   normalForm2 NilFL = P.return $ Val $ NilFL
---   normalForm2 (ConsFL x xs) = unFL (groundNormalFormFL2 x) P.>>= \y -> unFL (groundNormalFormFL2 x) P.>>= \ys -> P.return (ConsFL y ys)

@@ -9,8 +9,6 @@
 -- The instance functions itself are not lifted here.
 module Plugin.Trans.ClsInst (liftInstance) where
 
-import Control.Monad
-import Data.Maybe
 import GHC.Core.Class
 import GHC.Core.InstEnv
 import GHC.Core.Unify
@@ -18,7 +16,6 @@ import GHC.Plugins
 import GHC.Tc.Types
 import Plugin.Trans.Class
 import Plugin.Trans.Type
-import Plugin.Trans.Util
 import Plugin.Trans.Var
 
 -- | Lift a given class instance.
@@ -38,24 +35,15 @@ liftInstance tcs (ClsInst _ _ _ tvs origCls origTys origDf ov orp) = do
   -- Split the lifted type into invisible pi-types (forall, constraints) #
   -- and the rest.
 
-  stc <- getShareClassTycon
   ftc <- getFunTycon
   mty <- mkTyConTy <$> getMonadTycon
   us <- getUniqueSupplyM
   (pis, inner) <-
     splitInvisPiTys
-      <$> liftIO (liftInnerTyParametrized False stc ftc mty us tcs (varType origDf))
-  -- Get named binders (e.g., foralls).
-  -- Extract variables from named binders.
-  let bs = mapMaybe namedTyCoVarBinder_maybe pis
-  uss <- replicateM (length bs) getUniqueSupplyM
+      <$> liftIO (liftInnerTy ftc mty us tcs (varType origDf))
 
-  -- Function to apply the shareable type constructor to its args.
-  let mkShareType t' = mkTyConApp stc [mty, t']
-      -- Create Shareable constraints for all given variables.
-      cons = catMaybes $ zipWith (mkShareable mkShareType) uss bs
   -- Incorporate the new constraints.
-  let dfType = mkPiTys pis (foldr mkInvisFunTyMany inner cons)
+  let dfType = mkPiTys pis inner
   let dfLifted = setVarType origDf dfType
 
   -- Set other properties of the new dictionary function.
