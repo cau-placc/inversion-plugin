@@ -3,3 +3,5 @@ module Plugin.Prelude
   where
 
 import Plugin.BuiltIn
+import Plugin.BuiltIn.Char ()
+import Plugin.BuiltIn.Identity ()

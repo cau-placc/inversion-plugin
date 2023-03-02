@@ -1,8 +1,6 @@
-{-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell   #-}
 {-# LANGUAGE TypeFamilies      #-}
 {-# OPTIONS_GHC -Wno-orphans   #-}
 {-|
@@ -18,35 +16,35 @@ rewrites of selected expressions.
 module Plugin.Trans.Preprocess (preprocessBinding) where
 
 import Prelude hiding (lookup)
+import Data.Char
 import Data.Generics (everywhereM, mkM)
 import Data.Map.Strict
 import Data.List (isPrefixOf)
-import Data.Maybe
 import Control.Monad.State
-import qualified Language.Haskell.TH as TH
 
 import GHC.Hs.Binds
-import GHC.Hs.Extension
 import GHC.Hs.Expr
-import GHC.Hs.Pat
+import GHC.Hs.Extension
 import GHC.Hs.Lit
-import GHC.Hs.Types
-import TcRnMonad
-import TcEvidence
-import SrcLoc
-import GhcPlugins
-import ErrUtils
-import Unique
-import Finder
-import IfaceEnv
-import PrimOp (tagToEnumKey)
-import PrelNames
+import GHC.Hs
+import GHC.Plugins
+import GHC.Tc.Types
+import GHC.Tc.Types.Evidence
+import GHC.Tc.Utils.Monad
+import GHC.Types.Unique
+import GHC.Unit.Finder
+import GHC.Data.Bag
+import GHC.Builtin.Names
+import GHC.Builtin.PrimOps
+import GHC.Types.TyThing
+import GHC.Iface.Env
+import GHC.Types.Error
 
 import Plugin.Trans.Util
 import Plugin.Trans.Var
 import Plugin.Trans.PatternMatching
 import Plugin.Trans.Type
-import Plugin.BuiltIn (notFL)
+import Plugin.Trans.Import
 
 type PM = StateT (Map Unique Name) TcM
 
@@ -61,7 +59,8 @@ instance MonadUnique (StateT s TcM) where
 
 rename :: Var -> PM Var
 rename v
-  | '$':'d':_<- occNameString (occName v) = return v
+  | '$':'d':x:_ <- occNameString (occName v), isUpper x = return v
+  | isRecordSelector v = renameRec v
   | otherwise = get >>= \s -> case lookup (varUnique v) s of
     Nothing -> do
       u <- getUniqueM
@@ -96,7 +95,7 @@ renameName v = get >>= \s -> case lookup (nameUnique v) s of
 
 -- | Preprocess a binding before lifting, to get rid of nested pattern matching.
 -- Also removes some explicit type applications and fuses HsWrapper.
-preprocessBinding :: Bool -> HsBindLR GhcTc GhcTc -> PM (HsBindLR GhcTc GhcTc)
+preprocessBinding :: Bool -> HsBindLR GhcTc GhcTc -> PM [HsBindLR GhcTc GhcTc]
 preprocessBinding lcl (AbsBinds a b c d e f g)
   -- Record selectors should stay like they are for now.
   | any (isRecordSelector . abe_poly) d = do
@@ -105,20 +104,20 @@ preprocessBinding lcl (AbsBinds a b c d e f g)
           preprocessExportRec x = return x
 
       d' <- mapM preprocessExportRec d
-      return (AbsBinds a b c d' e f g)
+      return [AbsBinds a b c d' e f g]
   | any (isDictFun . abe_poly) d = do
-      bs <- liftBag (preprocessBinding lcl) f
-      return (AbsBinds a b c d e bs g)
+      bs <- listToBag <$> concatMapM (\(L l bind) -> Prelude.map (L l) <$> preprocessBinding lcl bind) (bagToList f)
+      return [AbsBinds a b c d e bs g]
   | otherwise = do
       -- Preprocess each binding seperate.
-      bs <- liftBag (preprocessBinding lcl) f
+      bs <- listToBag <$> concatMapM (\(L l bind) -> Prelude.map (L l) <$> preprocessBinding lcl bind) (bagToList f)
       d' <- mapM preprocessExport d
-      return (AbsBinds a b c d' e bs g)
+      return [AbsBinds a b c d' e bs g]
   where
     isDictFun v = case occNameString (occName v) of
       '$':'f':_ -> True
       _         -> False
-preprocessBinding lcl (FunBind a (L b name) eqs c ticks) = do
+preprocessBinding lcl (FunBind a (L b name) eqs ticks) = do
   -- Compile pattern matching first, but only use matchExpr
   -- if this is a top-level binding to avoid doing this multiple times.
   Left matchedGr <- lift (compileMatchGroup eqs)
@@ -126,24 +125,26 @@ preprocessBinding lcl (FunBind a (L b name) eqs c ticks) = do
   -- Preprocess the inner part of the declaration afterwards.
   eqs' <- preprocessEquations matched
   name' <- rename name
-  return (FunBind a (L b name') eqs' c ticks)
-preprocessBinding _ (VarBind x v e inl) = do
+  return [FunBind a (L b name') eqs' ticks]
+preprocessBinding _ (VarBind x v e) = do
   e' <- preprocessExpr e
   v' <- rename v
-  return (VarBind x v' e' inl)
+  return [VarBind x v' e']
+preprocessBinding _ (PatBind ty p grhs ticks) = do
+  p' <- preprocessPat p
+  grhs' <- preprocessRhs grhs
+  (\(x, _, _) -> Prelude.map unLoc x) <$> lift (compileLetBind (noLocA (PatBind ty p' grhs' ticks)))
 preprocessBinding _ a = panicAny "unexpected binding type" a
 
 preprocessExport :: ABExport GhcTc -> PM (ABExport GhcTc)
 preprocessExport (ABE x p m w s) =
   ABE x <$> rename p <*> rename m <*> pure w <*> pure s
-preprocessExport x = return x
 
 preprocessEquations :: MatchGroup GhcTc (LHsExpr GhcTc)
                     -> PM (MatchGroup GhcTc (LHsExpr GhcTc))
 preprocessEquations (MG a (L b alts) c) = do
   alts' <- mapM preprocessAlt alts
   return (MG a (L b alts') c)
-preprocessEquations a = return a
 
 preprocessAlt :: LMatch GhcTc (LHsExpr GhcTc)
               -> PM (LMatch GhcTc (LHsExpr GhcTc))
@@ -152,7 +153,6 @@ preprocessAlt (L a (Match b c d rhs)) = do
   rhs' <- preprocessRhs rhs
   d' <- mapM preprocessPat d
   return (L a (Match b ctxt d' rhs'))
-preprocessAlt a = return a
 
 preprocessPat :: LPat GhcTc -> PM (LPat GhcTc)
 preprocessPat (L l p) = L l <$> case p of
@@ -165,8 +165,7 @@ preprocessPat (L l p) = L l <$> case p of
   ListPat x ps        -> ListPat x <$> mapM preprocessPat ps
   TuplePat x ps b     -> TuplePat x <$> mapM preprocessPat ps <*> pure b
   SumPat x p' t a     -> SumPat x <$> preprocessPat p' <*> pure t <*> pure a
-  ConPatIn _ _        -> panicAny "Cannot handle such a pattern" p
-  ConPatOut {}        -> (\x -> p { pat_args = x })
+  ConPat {}           -> (\x -> p { pat_args = x })
                             <$> preprocessConDetails (pat_args p)
   ViewPat x e p'      -> ViewPat x <$> preprocessExpr e <*> preprocessPat p'
   SplicePat _ _       -> panicAny "Cannot handle such a pattern" p
@@ -174,22 +173,21 @@ preprocessPat (L l p) = L l <$> case p of
   NPat {}             -> panicAny "Cannot handle such a pattern" p
   NPlusKPat {}        -> panicAny "Cannot handle such a pattern" p
   SigPat x p' s       -> SigPat x <$> preprocessPat p' <*> pure s
-  CoPat {}            -> panicAny "Cannot handle such a pattern" p
   XPat _              -> panicAny "Cannot handle such a pattern" p
 
 preprocessConDetails :: HsConPatDetails GhcTc -> PM (HsConPatDetails GhcTc)
-preprocessConDetails (PrefixCon args) = PrefixCon <$> mapM preprocessPat args
+preprocessConDetails (PrefixCon tyargs args) = PrefixCon tyargs <$> mapM preprocessPat args
 preprocessConDetails (RecCon (HsRecFields flds dd)) =
   (RecCon .) . HsRecFields <$> mapM preprocessFieldP flds <*> pure dd
 preprocessConDetails (InfixCon arg1 arg2) = InfixCon <$> preprocessPat arg1 <*> preprocessPat arg2
 
-preprocessFieldP :: Located (HsRecField' a (LPat GhcTc))
-                 -> PM (Located (HsRecField' a (LPat GhcTc)))
-preprocessFieldP (L l (HsRecField v e p)) = do
+preprocessFieldP :: XRec GhcTc (HsRecField' a (LPat GhcTc))
+                 -> PM (XRec GhcTc  (HsRecField' a (LPat GhcTc)))
+preprocessFieldP (L l (HsRecField a v e p)) = do
   e' <- preprocessPat e
-  return (L l (HsRecField v e' p))
+  return (L l (HsRecField a v e' p))
 
-preprocessMatchCtxt :: HsMatchContext Name -> PM (HsMatchContext Name)
+preprocessMatchCtxt :: HsMatchContext GhcRn -> PM (HsMatchContext GhcRn)
 preprocessMatchCtxt (FunRhs (L l idt) x y) = do
   v <- renameName idt
   return (FunRhs (L l v) x y)
@@ -200,25 +198,27 @@ preprocessRhs :: GRHSs GhcTc (LHsExpr GhcTc)
 preprocessRhs (GRHSs a grhs b) = do
   grhs' <- mapM preprocessGRhs grhs
   return (GRHSs a grhs' b)
-preprocessRhs a = return a
 
 preprocessGRhs :: LGRHS GhcTc (LHsExpr GhcTc)
                -> PM (LGRHS GhcTc (LHsExpr GhcTc))
 preprocessGRhs (L a (GRHS b c body)) = do
   body' <- preprocessExpr body
   return (L a (GRHS b c body'))
-preprocessGRhs a = return a
 
 isBuiltIn :: Name -> Bool
 isBuiltIn nm =
   "krep$" `isPrefixOf` str ||
   "$tc"   `isPrefixOf` str ||
   "$dm"   `isPrefixOf` str ||
-  "noMethodBindingError"  `isPrefixOf` str ||
-  "recSelError"  `isPrefixOf` str ||
+  ("noMethodBindingError" == str  && nameModule_maybe nm == Just cONTROL_EXCEPTION_BASE) ||
+  ("recSelError"  == str && nameModule_maybe nm == Just cONTROL_EXCEPTION_BASE) ||
+  ("undefined"  == str && nameModule_maybe nm == Just gHC_ERR) ||
+  ("error" == str && nameModule_maybe nm == Just gHC_ERR) ||
+  ("dataToTag#" == str && nameModule_maybe nm == Just gHC_PRIM) ||
   nameUnique nm == tagToEnumKey ||
   nameUnique nm == coerceKey
-  where str = occNameString (occName nm)
+  where
+    str = occNameString (occName nm)
 
 lookupByOccName :: Module -> OccName -> TcM (Maybe Var)
 lookupByOccName mdl occ = discardErrs $ recoverM
@@ -232,9 +232,6 @@ lookupByOccName mdl occ = discardErrs $ recoverM
 -- Some HsWrapper might be split into two halves on each side of an
 -- explicit type applications. We have to fuse those wrappers.
 preprocessExpr :: LHsExpr GhcTc -> PM (LHsExpr GhcTc)
-preprocessExpr (L l (HsWrap _ w1 (HsAppType _ (L _ (HsWrap _ w2 e)) _))) = do
-  e' <- preprocessExpr (L l e)
-  return (L l (HsWrap noExtField (w1 <.> w2) (unLoc e')))
 preprocessExpr e@(L l1 (HsVar x (L l2 v))) = do
   let nm = varName v
   mdl <- tcg_mod <$> lift getGblEnv
@@ -243,26 +240,24 @@ preprocessExpr e@(L l1 (HsVar x (L l2 v))) = do
     else case nameModule_maybe nm of
       Just mdl' | not $ isBuiltIn nm -> do
           hsc <- lift getTopEnv
-          let unitID = moduleUnitId mdl'
-          let pluginModName = mkModuleName $ fromJust $ TH.nameModule 'notFL
-          mbprel <- liftIO $ findImportedModule hsc pluginModName Nothing
-          prel <- case mbprel of
-            Found _ m -> return m
-            _         -> lift $ failWithTc "Could not find module for built-in primitives"
-          let definiteMdl = if unitID == baseUnitId || unitID == primUnitId
-                              then prel
-                              else mdl'
+          replacementModule <- case lookupSupportedBuiltInModule mdl' of
+            Just s  -> do
+              mbprel <- liftIO $ findImportedModule hsc (mkModuleName s) Nothing
+              case mbprel of
+                Found _ m -> return m
+                _         -> lift $ failWithTc $ "Could not find module for built-in primitives of the imported module:" <+> text s
+            Nothing -> return mdl'
           let definiteName = addNameSuffix (occName nm)
-          mv <- lift $ lookupByOccName definiteMdl definiteName
+          mv <- lift $ lookupByOccName replacementModule definiteName
           lift $ case mv of
-            Just v' -> return (L l1 (HsVar x (L l2 v')))
+            Just v' -> return (L l1 (HsVar x (L l2 (v' `setVarType` varType v))))
             Nothing -> failWithTc ("No inverse available for:" <+> ppr nm)
       _   -> return e
 preprocessExpr e@(L _ HsLit{}) =
   return e
 preprocessExpr (L l (HsOverLit x lit)) =
   (\e -> L l (HsOverLit x (lit { ol_witness = unLoc e })))
-    <$> preprocessExpr (noLoc (ol_witness lit))
+    <$> preprocessExpr (noLocA (ol_witness lit))
 preprocessExpr (L l (HsLam x mg)) = do
   mg' <- preprocessEquations mg
   return (L l (HsLam x mg'))
@@ -280,9 +275,12 @@ preprocessExpr (L l (HsApp x e1 e2)) = do
   e1' <- preprocessExpr e1
   e2' <- preprocessExpr e2
   return (L l (HsApp x e1' e2'))
-preprocessExpr (L l (HsAppType x e ty)) = do
-  e' <- preprocessExpr e
-  return (L l (HsAppType x e' ty))
+preprocessExpr (L l (HsAppType ty e _)) = do
+  e' <- unLoc <$> preprocessExpr e
+  case e' of
+    (XExpr (WrapExpr (HsWrap w' e''))) ->
+         return (L l (XExpr (WrapExpr (HsWrap (WpTyApp ty <.> w') e''))))
+    _ -> return (L l (XExpr (WrapExpr (HsWrap (WpTyApp ty) e'))))
 preprocessExpr (L l (NegApp x e1 e2)) = do
   e1' <- preprocessExpr e1
   e2' <- preprocessSynExpr e2
@@ -301,9 +299,8 @@ preprocessExpr (L l (SectionR x e1 e2)) = do
 preprocessExpr (L l (ExplicitTuple x args b)) = do
   args' <- mapM preprocessTupleArg args
   return (L l (ExplicitTuple x args' b))
-preprocessExpr e@(L l ExplicitSum {}) = do
-  flags <- getDynFlags
-  lift $ reportError (mkErrMsg flags l neverQualify
+preprocessExpr e@(L _ ExplicitSum {}) = do
+  lift $ reportError (mkMsgEnvelope (getLocA e) neverQualify
     "Unboxed sum types are not supported by the plugin")
   lift failIfErrsM
   return e
@@ -311,82 +308,60 @@ preprocessExpr (L l (HsCase x sc br)) = do
   br' <- preprocessEquations br
   sc' <- preprocessExpr sc
   return (L l (HsCase x sc' br'))
-preprocessExpr (L l (HsIf x Nothing e1 e2 e3)) = do
+preprocessExpr (L l (HsIf x e1 e2 e3)) = do
   e1' <- preprocessExpr e1
   e2' <- preprocessExpr e2
   e3' <- preprocessExpr e3
-  return (L l (HsIf x Nothing e1' e2' e3'))
-preprocessExpr (L l (HsIf x (Just se) e1 e2 e3)) = do
-  se' <- preprocessSynExpr se
-  e1' <- preprocessExpr e1
-  e2' <- preprocessExpr e2
-  e3' <- preprocessExpr e3
-  return (L l (HsIf x (Just se') e1' e2' e3'))
+  return (L l (HsIf x e1' e2' e3'))
 preprocessExpr e@(L _ (HsMultiIf _ _)) =
   panicAny "Multi-way if should have been desugared before lifting" e
 preprocessExpr (L l (HsLet x bs e)) = do
-  bs' <- preprocessLocalBinds bs
+  bs' <- preprocessLocalBinds (noLoc bs)
   e' <- preprocessExpr e
-  return (L l (HsLet x bs' e'))
+  return (L l (HsLet x (unLoc bs') e'))
 preprocessExpr (L l1 (HsDo x ctxt (L l2 stmts))) = do
   stmts' <- preprocessStmts stmts
   return (L l1 (HsDo x ctxt (L l2 stmts')))
-preprocessExpr (L l (ExplicitList x Nothing es)) = do
+preprocessExpr (L l (ExplicitList x es)) = do
   es' <- mapM preprocessExpr es
-  return (L l (ExplicitList x Nothing es'))
-preprocessExpr e@(L l (ExplicitList _ (Just _) _)) = do
-  flags <- getDynFlags
-  lift $ reportError (mkErrMsg flags l neverQualify
-    "Overloaded lists are not supported by the plugin")
-  lift failIfErrsM
-  return e
+  return (L l (ExplicitList x es'))
 preprocessExpr (L l (RecordCon x cn (HsRecFields flds dd))) = do
   flds' <- mapM preprocessField flds
   return (L l (RecordCon x cn (HsRecFields flds' dd)))
 preprocessExpr (L l (RecordUpd x e flds)) = do
   e' <- preprocessExpr e
-  flds' <- mapM preprocessField flds
+  flds' <- either (fmap Left . mapM preprocessField)
+                  (fmap Right . mapM preprocessField) flds
   return (L l (RecordUpd x e' flds'))
 preprocessExpr (L l (ExprWithTySig x e ty)) = do
   e' <- preprocessExpr e
   return (L l (ExprWithTySig x e' ty))
 preprocessExpr (L l (ArithSeq x Nothing i)) = do
-  x' <- unLoc <$> preprocessExpr (noLoc x)
+  x' <- unLoc <$> preprocessExpr (noLocA x)
   i' <- preprocessArithExpr i
   return (L l (ArithSeq x' Nothing i'))
-preprocessExpr e@(L l (ArithSeq _ (Just _) _)) = do
-  flags <- getDynFlags
-  lift $ reportError (mkErrMsg flags l neverQualify
+preprocessExpr e@(L _ (ArithSeq _ (Just _) _)) = do
+  lift $ reportError (mkMsgEnvelope (getLocA e) neverQualify
     "Overloaded lists are not supported by the plugin")
   lift failIfErrsM
   return e
-preprocessExpr (L l (HsSCC a b c e)) = do
-  e' <- preprocessExpr e
-  return (L l (HsSCC a b c e'))
-preprocessExpr (L l (HsCoreAnn a b c e)) = do
-  e' <- preprocessExpr e
-  return (L l (HsCoreAnn a b c e'))
-preprocessExpr e@(L l (HsBracket _ _)) = do
-  flags <- getDynFlags
-  lift $ reportError (mkErrMsg flags l neverQualify
+preprocessExpr e@(L _ (HsBracket _ _)) = do
+  lift $ reportError (mkMsgEnvelope (getLocA e) neverQualify
     "Template Haskell and Quotation are not supported by the plugin")
   lift failIfErrsM
   return e
-preprocessExpr e@(L l (HsSpliceE _ _)) =  do
-  flags <- getDynFlags
-  lift $ reportError (mkErrMsg flags l neverQualify
+preprocessExpr e@(L _ (HsSpliceE _ _)) =  do
+  lift $ reportError (mkMsgEnvelope (getLocA e) neverQualify
     "Template Haskell and Quotation are not supported by the plugin")
   lift failIfErrsM
   return e
-preprocessExpr e@(L l HsTcBracketOut {}) = do
-  flags <- getDynFlags
-  lift $ reportError (mkErrMsg flags l neverQualify
+preprocessExpr e@(L _ HsTcBracketOut {}) = do
+  lift $ reportError (mkMsgEnvelope (getLocA e) neverQualify
     "Template Haskell and Quotation are not supported by the plugin")
   lift failIfErrsM
   return e
-preprocessExpr e@(L l HsProc {}) =  do
-  flags <- getDynFlags
-  lift $ reportError (mkErrMsg flags l neverQualify
+preprocessExpr e@(L _ HsProc {}) =  do
+  lift $ reportError (mkMsgEnvelope (getLocA e) neverQualify
     "Arrow notation is not supported by the plugin")
   lift failIfErrsM
   return e
@@ -398,13 +373,54 @@ preprocessExpr (L l (HsTick a tick e)) = do
 preprocessExpr (L l (HsBinTick a b c e)) = do
   e' <- preprocessExpr e
   return (L l (HsBinTick a b c e'))
-preprocessExpr (L l (HsTickPragma a b c d e)) = do
-  e' <- preprocessExpr e
-  return (L l (HsTickPragma a b c d e'))
-preprocessExpr (L l (HsWrap x w e)) = do
-  e' <- unLoc <$> preprocessExpr (noLoc e)
-  return (L l (HsWrap x w e'))
-preprocessExpr e = panicAny "This expression should not occur after TC" e
+preprocessExpr e@(L _ (HsUnboundVar _ _)) = do
+  lift $ reportError (mkMsgEnvelope (getLocA e) neverQualify
+    "what is this? TODO")
+  lift failIfErrsM
+  return e
+preprocessExpr e@(L _ (HsRecFld _ _)) = do
+  lift $ reportError (mkMsgEnvelope (getLocA e) neverQualify
+    "what is this? TODO")
+  lift failIfErrsM
+  return e
+preprocessExpr e@(L _ (HsOverLabel _ _)) = do
+  lift $ reportError (mkMsgEnvelope (getLocA e) neverQualify
+    "Labels are not supported by the plugin")
+  lift failIfErrsM
+  return e
+preprocessExpr e@(L _ (HsIPVar _ _)) = do
+  lift $ reportError (mkMsgEnvelope (getLocA e) neverQualify
+    "Implicit parameters are not supported by the plugin")
+  lift failIfErrsM
+  return e
+preprocessExpr e@(L _ (HsGetField _ _ _)) = do
+  lift $ reportError (mkMsgEnvelope (getLocA e) neverQualify
+    "what is this? TODO")
+  lift failIfErrsM
+  return e
+preprocessExpr e@(L _ (HsProjection _ _) ) = do
+  lift $ reportError (mkMsgEnvelope (getLocA e) neverQualify
+    "what is this? TODO")
+  lift failIfErrsM
+  return e
+preprocessExpr e@(L _ (HsRnBracketOut _ _ _)) = do
+  lift $ reportError (mkMsgEnvelope (getLocA e) neverQualify
+    "what is this? TODO")
+  lift failIfErrsM
+  return e
+preprocessExpr e@(L _ (HsPragE _ _ _)) = do
+  lift $ reportError (mkMsgEnvelope (getLocA e) neverQualify
+    "what is this? TODO")
+  lift failIfErrsM
+  return e
+preprocessExpr (L l (XExpr (ExpansionExpr (HsExpanded _ tc)))) =
+  preprocessExpr (L l tc)
+preprocessExpr (L l (XExpr (WrapExpr (HsWrap w e)))) = do
+  e' <- unLoc <$> preprocessExpr (noLocA e)
+  case e' of
+    (XExpr (WrapExpr (HsWrap w' e''))) ->
+         return (L l (XExpr (WrapExpr (HsWrap (w <.> w') e''))))
+    _ -> return (L l (XExpr (WrapExpr (HsWrap w e'))))
 
 preprocessArithExpr :: ArithSeqInfo GhcTc -> PM (ArithSeqInfo GhcTc)
 preprocessArithExpr (From e1) = From <$> preprocessExpr e1
@@ -429,18 +445,18 @@ preprocessStmts (s:ss) = do
   ss' <- preprocessStmts ss
   return (s':ss')
   where
+    preprocessStmt :: (ExprLStmt GhcTc) -> PM (ExprLStmt GhcTc)
     preprocessStmt (L l (LastStmt x e a r)) = do
       e' <- preprocessExpr e
       r' <- preprocessSynExpr r
       return (L l (LastStmt x e' a r'))
-    preprocessStmt (L l (BindStmt x p e b f)) = do
+    preprocessStmt (L l (BindStmt (XBindStmtTc b r m f) p e)) = do
       e' <- preprocessExpr e
       b' <- preprocessSynExpr b
-      f'  <- preprocessSynExpr f
-      return (L l (BindStmt x p e' b' f'))
-    preprocessStmt (L l ApplicativeStmt {}) = do
-      flags <- getDynFlags
-      lift $ reportError (mkErrMsg flags l neverQualify
+      f'  <- maybe (return Nothing) (fmap Just . preprocessSynExpr) f
+      return (L l (BindStmt (XBindStmtTc b' r m f') p e'))
+    preprocessStmt (L _ ApplicativeStmt {}) = do
+      lift $ reportError (mkMsgEnvelope (getLocA s) neverQualify
         "Applicative do-notation is not supported by the plugin")
       lift failIfErrsM
       return s
@@ -450,51 +466,48 @@ preprocessStmts (s:ss) = do
       g'  <- preprocessSynExpr g
       return (L l (BodyStmt x e' sq' g'))
     preprocessStmt (L l (LetStmt x bs)) = do
-      bs' <- preprocessLocalBinds bs
-      return (L l (LetStmt x bs'))
-    preprocessStmt (L l ParStmt {}) =  do
-      flags <- getDynFlags
-      lift $ reportError (mkErrMsg flags l neverQualify
+      bs' <- preprocessLocalBinds (noLoc bs)
+      return (L l (LetStmt x (unLoc bs')))
+    preprocessStmt (L _ ParStmt {}) =  do
+      lift $ reportError (mkMsgEnvelope (getLocA s) neverQualify
         "Parallel list comprehensions are not supported by the plugin")
       lift failIfErrsM
       return s
-    preprocessStmt (L l TransStmt {}) = do
-      flags <- getDynFlags
-      lift $ reportError (mkErrMsg flags l neverQualify
+    preprocessStmt (L _ TransStmt {}) = do
+      lift $ reportError (mkMsgEnvelope (getLocA s) neverQualify
         "Transformative list comprehensions are not supported by the plugin")
       lift failIfErrsM
       return s
-    preprocessStmt (L l RecStmt {}) =  do
-      flags <- getDynFlags
-      lift $ reportError (mkErrMsg flags l neverQualify
+    preprocessStmt (L _ RecStmt {}) =  do
+      lift $ reportError (mkMsgEnvelope (getLocA s) neverQualify
         "Recursive do-notation is not supported by the plugin")
       lift failIfErrsM
       return s
-    preprocessStmt s' = return s'
 
 preprocessSynExpr :: SyntaxExpr GhcTc -> PM (SyntaxExpr GhcTc)
-preprocessSynExpr (SyntaxExpr e ws w) = do
-  e' <- unLoc <$> preprocessExpr (noLoc e)
-  return (SyntaxExpr e' ws w)
+preprocessSynExpr (SyntaxExprTc e ws w) = do
+  e' <- unLoc <$> preprocessExpr (noLocA e)
+  return (SyntaxExprTc e' ws w)
+preprocessSynExpr NoSyntaxExprTc = return NoSyntaxExprTc
 
-preprocessField :: Located (HsRecField' a (LHsExpr GhcTc))
-                -> PM (Located (HsRecField' a (LHsExpr GhcTc)))
-preprocessField (L l (HsRecField v e p)) = do
+preprocessField :: XRec GhcTc (HsRecField' a (LHsExpr GhcTc))
+                -> PM (XRec GhcTc (HsRecField' a (LHsExpr GhcTc)))
+preprocessField (L l (HsRecField a v e p)) = do
   e' <- preprocessExpr e
-  return (L l (HsRecField v e' p))
+  return (L l (HsRecField a v e' p))
 
-preprocessTupleArg :: LHsTupArg GhcTc -> PM (LHsTupArg GhcTc)
-preprocessTupleArg (L l (Present x e)) =
-  L l . Present x <$> preprocessExpr e
+preprocessTupleArg :: HsTupArg GhcTc -> PM (HsTupArg GhcTc)
+preprocessTupleArg (Present x e) =
+  Present x <$> preprocessExpr e
 preprocessTupleArg x = return x
 
-preprocessLocalBinds :: LHsLocalBinds GhcTc -> PM (LHsLocalBinds GhcTc)
+preprocessLocalBinds :: GenLocated l (HsLocalBinds GhcTc)
+                     -> PM (GenLocated l (HsLocalBinds GhcTc))
 preprocessLocalBinds (L l (HsValBinds x b)) = do
   b' <- preprocessValBinds b
   return (L l (HsValBinds x b'))
-preprocessLocalBinds bs@(L l (HsIPBinds _ _)) =  do
-  flags <- getDynFlags
-  lift $ reportError (mkErrMsg flags l neverQualify
+preprocessLocalBinds bs@(L _ (HsIPBinds _ _)) =  do
+  lift $ reportError (mkMsgEnvelope noSrcSpan neverQualify
     "Implicit parameters are not supported by the plugin")
   lift failIfErrsM
   return bs
@@ -511,5 +524,5 @@ preprocessValBinds (XValBindsLR (NValBinds bs sigs)) = do
     preprocessNV :: (RecFlag, LHsBinds GhcTc)
                  -> PM (RecFlag, LHsBinds GhcTc)
     preprocessNV (rf, b) = do
-      bs' <- liftBag (preprocessBinding True) b
+      bs' <- listToBag <$> concatMapM (\(L l bind) -> Prelude.map (L l) <$> preprocessBinding True bind) (bagToList b)
       return (rf, bs')

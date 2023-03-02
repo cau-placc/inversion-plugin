@@ -1,12 +1,11 @@
 cabal-version:       3.0
-
 name:                sandbox
-version:             0.1.0.0
+version:             0.2.0.0
 license:             BSD-3-Clause
 license-file:        LICENSE
-copyright:           (c) 2020-2021, Kai-Oliver Prott, Finn Teegen, Niels Bunkenburg
-author:              Kai-Oliver Prott, Finn Teegen, Niels Bunkenburg
-maintainer:          kai.prott@hotmail.de
+copyright:           (c) 2020-2022, Finn Teegen, Kai-Oliver Prott, Niels Bunkenburg
+author:              Finn Teegen, Kai-Oliver Prott, Niels Bunkenburg
+maintainer:          fte@informatik.uni-kiel.de
 build-type:          Simple
 
 common deps
@@ -15,55 +14,41 @@ common deps
   default-extensions:  TemplateHaskell
   other-extensions:    NoImplicitPrelude
   build-depends:
-    base             ^>=4.14.0.0,
+    base             ^>=4.16.1.0,
     inversion-plugin -any,
-    template-haskell -any
+    template-haskell -any,
+    containers       -any,
+    deepseq          -any,
+    parallel         -any
 
 library
   import: deps
   exposed-modules:
-    Example
-    Example0
-    Compression
-    Peano
-    NonLinear
-    Main
     Arith
+    FunPat
+    FunPatSrc
+    Graph
+    Huffman
+    Interpreter
+    Match
+    Palindrome
+    P
+    RunLength
+    TreeTraversal
+    Z
 
-    ExampleSubmission
-    MainSubmission
-
-benchmark benchmarks
+executable main
   import:        deps
-  build-depends: criterion, mini-egison
-  main-is:       Bench.hs
+  main-is:       Main.hs
   other-modules:
-    App
-    Egison
-    RunEgison
-    Example
-    Example0
-    Compression
-    Peano
-    NonLinear
-    Main
-    Arith
-  ghc-options:   -O2
-  type:          exitcode-stdio-1.0
-
-executable benchEx
-  import:        deps
-  build-depends: criterion, mini-egison
-  main-is:       Bench.hs
-  other-modules:
-    App
-    Egison
-    RunEgison
-    Example
-    Example0
-    Compression
-    Peano
-    NonLinear
-    Main
-    Arith
-  ghc-options:   -O2 -main-is Bench
+    Conquer
+    Divide
+    Eden.Edi
+    Eden.Merge
+    Eden.EdenConcHs
+    Eden.ParPrimConcHs
+    Eden.Map
+    Eden.MapReduce
+    Eden.Auxiliary
+    Z
+  ghc-options:   -O2 -threaded -rtsopts -main-is Main

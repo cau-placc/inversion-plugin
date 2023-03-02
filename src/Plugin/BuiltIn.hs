@@ -1,20 +1,32 @@
-{-# LANGUAGE DataKinds              #-}
-{-# LANGUAGE FlexibleContexts       #-}
-{-# LANGUAGE FlexibleInstances      #-}
-{-# LANGUAGE LambdaCase             #-}
-{-# LANGUAGE MagicHash              #-}
-{-# LANGUAGE NoStarIsType           #-}
-{-# LANGUAGE PolyKinds              #-}
-{-# LANGUAGE RankNTypes             #-}
-{-# LANGUAGE RecordWildCards        #-}
-{-# LANGUAGE ScopedTypeVariables    #-}
-{-# LANGUAGE TemplateHaskell        #-}
-{-# LANGUAGE TypeFamilies           #-}
-{-# LANGUAGE TypeOperators          #-}
-{-# LANGUAGE UnboxedTuples          #-}
-{-# LANGUAGE UndecidableInstances   #-}
-{-# OPTIONS_GHC -Wno-orphans        #-}
-{-# OPTIONS_GHC -Wno-unused-foralls #-}
+{-# LANGUAGE BangPatterns             #-}
+{-# LANGUAGE DataKinds                #-}
+{-# LANGUAGE FlexibleContexts         #-}
+{-# LANGUAGE FlexibleInstances        #-}
+{-# LANGUAGE LambdaCase               #-}
+{-# LANGUAGE MagicHash                #-}
+{-# LANGUAGE MultiParamTypeClasses    #-}
+{-# LANGUAGE NoStarIsType             #-}
+{-# LANGUAGE PolyKinds                #-}
+{-# LANGUAGE QuantifiedConstraints    #-}
+{-# LANGUAGE RankNTypes               #-}
+{-# LANGUAGE RecordWildCards          #-}
+{-# LANGUAGE ScopedTypeVariables      #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
+{-# LANGUAGE TemplateHaskell          #-}
+{-# LANGUAGE TypeApplications         #-}
+{-# LANGUAGE TypeFamilies             #-}
+{-# LANGUAGE TypeOperators            #-}
+{-# LANGUAGE UnboxedTuples            #-}
+{-# LANGUAGE UndecidableInstances     #-}
+{-# LANGUAGE NoMonoLocalBinds         #-}
+
+{-# OPTIONS_GHC -Wno-orphans              #-}
+{-# OPTIONS_GHC -Wno-unused-foralls       #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+
+{-# HLINT ignore "Use newtype instead of data" #-}
+{-# HLINT ignore "Use >=>" #-}
+{-# HLINT ignore "Reduce duplication" #-}
 
 -- |
 -- Module      : Plugin.InversionPlugin.BuiltIn
@@ -29,718 +41,1565 @@
 -- 'Plugin.InversionPlugin.Prelude' instead.
 module Plugin.BuiltIn where
 
-import qualified Control.Monad.State as S
 import qualified Control.Monad as P
-import qualified Data.Functor  as P
 import qualified GHC.Base      as P hiding (mapM)
 import qualified GHC.Real      as P
-import qualified GHC.Int       as P
-import qualified GHC.Stack     as P
+import qualified GHC.Exts      as P
 import qualified Prelude       as P hiding (mapM)
-import           GHC.Types (RuntimeRep)
+import           GHC.Types (RuntimeRep, Type, Multiplicity)
+import           GHC.Int   (Int(..))
 import           Unsafe.Coerce ( unsafeCoerce )
-import           Prelude ( Bool (..), Double, Float, Int, Integer, Ordering (..), ($) )
-import           Data.SBV (SymVal, (.===), (./==), (.>=), (.<=), (.>), (.<), SDivisible (..), SBV, SBool, sNot)
-
+import           Prelude ( Bool (..), Double, Float, Integer, Ordering (..), ($) )
+import           Plugin.BuiltIn.Primitive
 import           Plugin.Effect.Monad as M
 import           Plugin.Effect.TH
 import           Plugin.Effect.Util  as M
+import           Plugin.Lifted
 import           Plugin.Trans.TysWiredIn
+import           Data.Tuple.Solo
+
+-- * Lifted unrestricted function type
+type (:--->#) (m :: Type -> Type) (mult :: Multiplicity) (r1 :: RuntimeRep) (r2 :: RuntimeRep) = (-->) m
+
+-- * Lifted restricted function type
+type (:--->) (m :: Type -> Type) (r1 :: RuntimeRep) (r2 :: RuntimeRep) = (-->) m
 
 -- * Lifted tuple types and internal instances
-    
-P.concat P.<$> P.mapM genLiftedTupleDataDeclAndInstances [2 .. maxTupleArity]
+
+data SoloFL (m :: Type -> Type) a = SoloFL (m a)
+
+type instance Lifted m Solo = SoloFL m
+type instance Lifted m (Solo a) = SoloFL m (Lifted m a)
+
+instance HasPrimitiveInfo a => HasPrimitiveInfo (SoloFL FL a) where
+  primitiveInfo = NoPrimitive
+
+instance HasPrimitiveInfo a => Narrowable (SoloFL FL a) where
+  narrow = [SoloFL P.<$> share free]
+
+instance To a => To (Solo a) where
+  toWith tf (Solo x) = SoloFL (tf x)
+
+instance From a => From (Solo a) where
+  from (SoloFL x) = Solo (fromFL x)
+
+instance (To a, Matchable a) => Matchable (Solo a) where
+  match (SoloFL x) (Solo y) = matchFL x y
+
+instance Unifiable a => Unifiable (Solo a) where
+  lazyUnify (SoloFL x) (SoloFL y) = lazyUnifyFL x y
+
+instance NormalForm a => NormalForm (Solo a) where
+  normalFormWith nf = \case
+    SoloFL x -> FL $
+      unFL (nf x) P.>>= \y ->
+        unFL (P.return (SoloFL (FL (P.return y))))
+-- instance NormalForm a => NormalForm (SoloFL FL a) where
+--   normalFormWith nf = \case
+--     SoloFL x ->
+--       nf x P.>>= \y ->
+--         P.return (SoloFL (P.return y))
+
+instance ShowFree a => ShowFree (Solo a) where
+  showsFreePrec' d (Solo x) = P.showParen (d P.> 10) $
+    P.showString "Solo " P.. showsFreePrec 11 x
+
+instance Invertible a => Invertible (Solo a)
+
+data Tuple2FL (m :: Type -> Type) a b = Tuple2FL (m a) (m b)
+
+type instance Lifted m (,) = Tuple2FL m
+type instance Lifted m ((,) a) = Tuple2FL m (Lifted m a)
+type instance Lifted m (a, b) = Tuple2FL m (Lifted m a) (Lifted m b)
+
+instance (HasPrimitiveInfo a, HasPrimitiveInfo b) => HasPrimitiveInfo (Tuple2FL FL a b) where
+  primitiveInfo = NoPrimitive
+
+instance (HasPrimitiveInfo a, HasPrimitiveInfo b) => Narrowable (Tuple2FL FL a b) where
+  narrow = [Tuple2FL P.<$> share free P.<*> share free]
+
+instance (To a, To b) => To (a, b) where
+  toWith tf (x1, x2) = Tuple2FL (tf x1) (tf x2)
+
+instance (From a, From b) => From (a, b) where
+  from (Tuple2FL x1 x2) = (fromFL x1, fromFL x2)
+
+instance (To a, To b, Matchable a, Matchable b) => Matchable (a, b) where
+  match (Tuple2FL x1 x2) (y1, y2) = matchFL x1 y1 P.>> matchFL x2 y2
+
+instance (Unifiable a, Unifiable b) => Unifiable (a, b) where
+  lazyUnify (Tuple2FL x1 x2) (Tuple2FL y1 y2) = lazyUnifyFL x1 y1 P.>> lazyUnifyFL x2 y2
+
+{-instance (NormalForm a, NormalForm b) => NormalForm (a, b) where
+  normalFormWith nf = \case
+    Tuple2FL x1 x2 ->
+      nf x1 P.>>= \y1 ->
+        nf x2 P.>>= \y2 ->
+        P.return (Result (P.pure (Tuple2FL y1 y2)))-}
+instance (NormalForm a, NormalForm b) => NormalForm (a, b) where
+  normalFormWith nf = \case
+    Tuple2FL x1 x2 -> FL $
+      unFL (nf x1) P.>>= \y1 ->
+        unFL(nf x2) P.>>= \y2 ->
+          unFL (P.return (Tuple2FL (FL (P.return y1)) (FL (P.return y2))))
+-- instance (NormalForm a, NormalForm b) => NormalForm (Tuple2FL FL a b) where
+--   normalFormWith nf = \case
+--     Tuple2FL x1 x2 ->
+--       nf x1 P.>>= \y1 ->
+--         nf x2 P.>>= \y2 ->
+--           P.return (Tuple2FL (P.return y1) (P.return y2))
+
+instance (ShowFree a, ShowFree b) => ShowFree (a, b) where
+  showsFreePrec' _ (x1, x2) = P.showString "(" P.. showsFree x1 P.. P.showString "," P.. showsFree x2 P.. P.showString ")"
+
+instance (Invertible a, Invertible b) => Invertible (a, b)
+
+P.concat P.<$> P.mapM genLiftedTupleDataDeclAndInstances [3 .. maxTupleArity]
 
 -- * Lifted list type and internal instances
 
-data ListFL a = NilFL | ConsFL (FL a) (FL (ListFL a))
+data ListFL (m :: Type -> Type) a = NilFL | ConsFL (m a) (m (ListFL m a))
 
-type StringFL = ListFL CharFL
+type StringFL m = ListFL m (CharFL m)
 
-type instance Lifted [] = ListFL
+type instance Lifted m [] = ListFL m
+type instance Lifted m [a] = ListFL m (Lifted m a)
 
-instance HasPrimitiveInfo (ListFL a)
+instance HasPrimitiveInfo a => HasPrimitiveInfo (ListFL FL a) where
+  primitiveInfo = NoPrimitive
 
-instance (Narrowable a, HasPrimitiveInfo a) => Narrowable (ListFL a) where
-  narrow _ j _ = [(NilFL, 0), (ConsFL (freeFL j) (freeFL (j P.+ 1)), 2)]
+instance (HasPrimitiveInfo a, HasPrimitiveInfo (ListFL FL a)) => Narrowable (ListFL FL a) where
+  narrow = [P.return NilFL, ConsFL P.<$> share free P.<*> share free]
 
-instance (Convertible a) => Convertible [a] where
-  to [] = NilFL
-  to (x : xs) = ConsFL (toFL x) (toFL xs)
+instance (To a, To [a]) => To [a] where
+  toWith _  [] = NilFL
+  toWith tf (x : xs) = ConsFL (tf x) (tf xs)
+
+instance (From a, From [a]) => From [a] where
   from NilFL = []
   from (ConsFL x xs) = fromFL x : fromFL xs
 
-instance (Convertible a, Matchable a, HasPrimitiveInfo (Lifted a)) => Matchable [a] where
-  match [] NilFL = P.return ()
-  match (x : xs) (ConsFL y ys) = matchFL x y P.>> matchFL xs ys
+instance (Matchable a, To a, Matchable [a], To [a]) => Matchable [a] where
+  match NilFL [] = P.return ()
+  match (ConsFL x xs) (y:ys) = matchFL x y P.>> matchFL xs ys
   match _ _ = P.empty
 
-instance NF a => NF (ListFL a) where
-  nf f =  \case
+instance (Unifiable a, Unifiable [a]) => Unifiable [a] where
+  lazyUnify NilFL NilFL = P.return ()
+  lazyUnify (ConsFL x xs) (ConsFL y ys) = lazyUnifyFL x y P.>> lazyUnifyFL xs ys
+  lazyUnify _ _ = P.empty
+
+instance (NormalForm a, NormalForm [a]) => NormalForm [a] where
+  normalFormWith nf = \case
       NilFL -> P.return NilFL
-      ConsFL x xs ->
-        f x P.>>= \y ->
-          f xs P.>>= \ys ->
-            P.return (ConsFL (P.return y) (P.return ys))
+      ConsFL x xs -> FL $
+        unFL (nf x) P.>>= \y ->
+          unFL (nf xs) P.>>= \ys ->
+            unFL (P.return (ConsFL (FL (P.return y)) (FL (P.return ys))))
+
+instance (ShowFree a, ShowFree [a]) => ShowFree [a] where
+  showsFreePrec' _ []     = P.showString "[]"
+  showsFreePrec' d (x:xs) = P.showParen (d P.> 5) $
+    showsFreePrec 6 x P..
+    P.showString " : " P..
+    showsFreePrec 6 xs
 
 instance Invertible a => Invertible [a]
 
--- | Lifted defintion for Haskell's 'Ratio' type
-data RatioFL a = FL a :% FL a
+instance FunctorFL (MaybeFL FL) where
+  fmapFL = returnFLF $ \f -> returnFLF $ \x -> x P.>>= \case
+    NothingFL -> P.return NothingFL
+    JustFL y -> P.return (JustFL (f `appFL` y))
 
--- | Lifted defintion for Haskell's 'Rational' type
-type RationalFL = RatioFL Integer
+instance ApplicativeFL (MaybeFL FL) where
+  pureFL = returnFLF $ \x -> P.return (JustFL x)
+  (<*>#) = returnFLF $ \x -> returnFLF $ \y -> x P.>>= \case
+    NothingFL -> P.return NothingFL
+    JustFL f -> y P.>>= \case
+      NothingFL -> P.return NothingFL
+      JustFL z -> P.return (JustFL (f `appFL` z))
 
-type instance Lifted P.Ratio = RatioFL
+instance MonadFL (MaybeFL FL) where
+  (>>=#) = returnFLF $ \x -> returnFLF $ \f -> x P.>>= \case
+    NothingFL -> P.return NothingFL
+    JustFL y -> f `appFL` y
 
-instance HasPrimitiveInfo (RatioFL a)
+-- * Lifted Maybe type and internal instances
 
-instance (Narrowable a, HasPrimitiveInfo a) => Narrowable (RatioFL a) where
-  narrow _ j _ = [(freeFL j :% freeFL (j P.+ 1), 2)]
+data MaybeFL (m :: Type -> Type) a = NothingFL | JustFL (m a)
 
-instance (Convertible a) => Convertible (P.Ratio a) where
-  to (a P.:% b) = toFL a :% toFL b
-  from (a :% b) = fromFL a P.:% fromFL b
+type instance Lifted m P.Maybe = MaybeFL m
+type instance Lifted m (P.Maybe a) = MaybeFL m (Lifted m a)
 
-instance (Convertible a, Matchable a, HasPrimitiveInfo (Lifted a)) => Matchable (P.Ratio a) where
-  match (a1 P.:% b1) (a2 :% b2) = matchFL a1 a2 P.>> matchFL b1 b2
+instance HasPrimitiveInfo a => HasPrimitiveInfo (MaybeFL FL a) where
+  primitiveInfo = NoPrimitive
 
-instance (NF a) => NF (RatioFL a) where
-  nf f = \case
-      a :% b ->
-        f a P.>>= \a' ->
-          f b P.>>= \b' ->
-            P.return (P.return a' :% P.return b')
+instance HasPrimitiveInfo a => Narrowable (MaybeFL FL a) where
+  narrow = [P.return NothingFL, JustFL P.<$> share free]
+
+instance To a => To (P.Maybe a) where
+  toWith _  P.Nothing = NothingFL
+  toWith tf (P.Just x) = JustFL (tf x)
+
+instance From a => From (P.Maybe a) where
+  from NothingFL = P.Nothing
+  from (JustFL x) = P.Just (fromFL x)
+
+instance (To a, Matchable a) => Matchable (P.Maybe a) where
+  match NothingFL P.Nothing = P.return ()
+  match (JustFL x) (P.Just y) = matchFL x y
+  match _ _ = P.empty
+
+instance Unifiable a => Unifiable (P.Maybe a) where
+  lazyUnify NothingFL NothingFL = P.return ()
+  lazyUnify (JustFL x) (JustFL y) = lazyUnifyFL x y
+  lazyUnify _ _ = P.empty
+
+instance NormalForm a => NormalForm (P.Maybe a) where
+  normalFormWith nf = \case
+      NothingFL -> P.return NothingFL
+      JustFL x -> FL $
+        unFL (nf x) P.>>= \y ->
+          unFL (P.return (JustFL (FL (P.return y))))
+
+instance ShowFree a => ShowFree (P.Maybe a) where
+  showsFreePrec' _ P.Nothing  = P.showString "Nothing"
+  showsFreePrec' d (P.Just x) = P.showParen (d P.> 10) $
+    P.showString "Just " P.. showsFreePrec 11 x
+
+instance Invertible a => Invertible (P.Maybe a)
+
+data RatioFL m a = m a :%# m a
+
+type instance Lifted m P.Ratio = RatioFL m
+type instance Lifted m (P.Ratio a) = RatioFL m (Lifted m a)
+
+instance HasPrimitiveInfo a => HasPrimitiveInfo (RatioFL FL a) where
+  primitiveInfo = NoPrimitive
+
+instance HasPrimitiveInfo a => Narrowable (RatioFL FL a) where
+  narrow = [(:%#) P.<$> share free P.<*> share free]
+
+instance To a => To (P.Ratio a) where
+  toWith tf (a P.:% b) = tf a :%# tf b
+
+instance From a => From (P.Ratio a) where
+  from (a :%# b) = fromFL a P.:% fromFL b
+
+instance (To a, Matchable a) => Matchable (P.Ratio a) where
+  match (a :%# b) (x P.:% y) = matchFL a x P.>> matchFL b y
+
+instance Unifiable a => Unifiable (P.Ratio a) where
+  lazyUnify (a :%# b) (x :%# y) = lazyUnifyFL a x P.>> lazyUnifyFL b y
+
+instance NormalForm a => NormalForm (P.Ratio a) where
+  normalFormWith nf = \case
+      a :%# b -> FL $
+        unFL (nf a) P.>>= \x ->
+          unFL (nf b) P.>>= \y ->
+            unFL (P.return (FL (P.return x) :%# FL (P.return y)))
+
+instance ShowFree a => ShowFree (P.Ratio a) where
+  showsFreePrec' d (x P.:% y) = P.showParen (d P.> 7) $
+    showsFreePrec 8 x P.. P.showString " % " P.. showsFreePrec 8 y
+
+instance Invertible a => Invertible (P.Ratio a)
+
+type RationalFL m = RatioFL m (IntegerFL m)
 
 -- * For plugin purposes only.
 
-failFLStr :: FL (StringFL --> a)
-failFLStr = P.return $ Func $ P.const P.empty
+failFLStr :: P.String -> a
+failFLStr = P.error
 
-failFLStrFL :: FL (StringFL --> a)
-failFLStrFL = failFLStr
+failFLStrFL :: FL (StringFL FL :--> a)
+failFLStrFL = P.return $ Func $ P.const P.empty
 
 -- Lifted seq operator to force evaluation. Forces the effect and value.
-seq ::
-  forall (k :: RuntimeRep) a b.
-  (HasPrimitiveInfo a, Narrowable a) =>
-  FL (FL a -> FL (FL b -> FL b))
-seq = P.return $ \a -> P.return $ \b ->
+seq :: forall (k :: RuntimeRep) a b. a -> b -> b
+seq = P.seq
+
+seqFL :: forall (k :: RuntimeRep) a b. FL (a :--> b :--> b)
+seqFL = returnFLF $ \a -> returnFLF $ \b ->
   a P.>>= \a' -> P.seq a' b
+
+seqValue :: FL a -> FL b -> FL b
+seqValue a b = a P.>>= \a' -> a' `seq` b
 
 -- | Lifted coercion function to replace coercion in newtype-derived instances
 -- We need to introduce this unused dummy k,
 -- because we replace Data.Coerce.coerce (which has this k).
-coerce :: forall (k :: RuntimeRep) a b. FL (a --> b)
-coerce = returnFLF $ \(FL a) -> FL $ a P.>>= unsafeCoerce
+coerce :: forall (k :: RuntimeRep) a b. a -> b
+coerce = unsafeCoerce
+
+coerceFL :: forall (k :: RuntimeRep) a b. FL (a :--> b)
+coerceFL = returnFLF $ \(FL a) -> FL $ a P.>>= unsafeCoerce
 
 -- | Lifted equality test for strings
-eqString :: FL (StringFL --> StringFL --> Bool)
-eqString = (==#)
+eqString :: P.String -> P.String -> Bool
+eqString = (P.==)
+
+-- | Lifted equality test for strings
+eqStringFL :: FL (StringFL FL :--> StringFL FL :--> BoolFL FL)
+eqStringFL = (==#)
 
 -- | Lifted equality test for characters
-eqChar :: FL (CharFL --> CharFL --> Bool)
-eqChar = (==#)
+eqChar :: P.Char -> P.Char -> Bool
+eqChar = (P.==)
 
-(<##) :: FL (IntFL --> IntFL --> IntFL)
-(<##) = returnFLF $ \a -> returnFLF $ \b ->
-  a P.>>= \ (P.I64# a') -> b P.>>= \ (P.I64# b') -> P.return (P.I64# (a' P.<# b'))
+-- | Lifted equality test for strings
+eqCharFL :: FL (CharFL FL :--> CharFL FL :--> BoolFL FL)
+eqCharFL = (==#)
 
-(==##) :: FL (IntFL --> IntFL --> IntFL)
-(==##) = returnFLF $ \a -> returnFLF $ \b ->
-  a P.>>= \ (P.I64# a') -> b P.>>= \ (P.I64# b') -> P.return (P.I64# (a' P.==# b'))
+(<##) :: FL (IntFL FL :--> IntFL FL :--> IntFL FL)
+(<##) = liftFL1Convert op
+  where
+    op (I# i1) (I# i2) = I# (i1 P.<# i2)
+
+(==##) :: FL (IntFL FL :--> IntFL FL :--> IntFL FL)
+(==##) = liftFL1Convert op
+  where
+    op (I# i1) (I# i2) = I# (i1 P.==# i2)
 
 -- * Prelude stuff
 
-undefinedFL :: forall (r :: RuntimeRep) . forall (a :: P.Type) . P.HasCallStack => FL a
-undefinedFL = P.empty
-
-errorFL :: forall (r :: RuntimeRep) . forall (a :: P.Type) . P.HasCallStack => FL (StringFL --> a)
-errorFL = failFLStrFL
-
-notFL :: FL (Bool --> Bool)
-notFL = P.return $
-  Func $ \x ->
-    x P.>>= \case
-      True -> P.return False
-      False -> P.return True
-
-idFL :: FL (a --> a)
-idFL = returnFLF P.id
-
-fstFL :: FL (Tuple2FL a b --> a)
-fstFL = returnFLF $ \t -> t P.>>= \case
+fstFL :: forall a b. FL (Tuple2FL FL a b :--> a)
+fstFL = returnFLF $ \x -> x P.>>= \case
   Tuple2FL a _ -> a
 
-sndFL :: FL (Tuple2FL a b --> b)
-sndFL = returnFLF $ \t -> t P.>>= \case
+sndFL :: forall a b. FL (Tuple2FL FL a b :--> b)
+sndFL = returnFLF $ \x -> x P.>>= \case
   Tuple2FL _ b -> b
 
-seqFL ::
-  forall (k :: RuntimeRep) a b.
-  (Narrowable a, HasPrimitiveInfo a) =>
-  FL (FL a -> FL (FL b -> FL b))
-seqFL = seq
+undefinedFL :: forall (r :: RuntimeRep) . forall (a :: P.Type) . FL a
+undefinedFL = P.empty
+
+errorFL :: forall (r :: RuntimeRep) . forall (a :: P.Type) . FL (StringFL FL :--> a)
+errorFL = failFLStrFL
+
+-- Lifted function to desugar left sections.
+leftSectionFL :: forall (r1 :: RuntimeRep) (r2 :: RuntimeRep)
+                        (n :: Multiplicity) a b.
+                 FL ((a :--> b) :--> a :--> b)
+leftSectionFL = returnFLF $ \f -> returnFLF $ \a ->
+  f `appFL` a
+
+-- Lifted function to desugar right sections.
+rightSectionFL :: forall (r1 :: RuntimeRep) (r2 :: RuntimeRep) (r3 :: RuntimeRep)
+                         (n1 :: Multiplicity) (n2 :: Multiplicity) a b c.
+                  FL ((a :--> b :--> c) :--> b :--> a :--> c)
+rightSectionFL = returnFLF $ \f -> returnFLF $ \b -> returnFLF $ \a ->
+  f `appFL` a `appFL` b
+
+notFL :: FL (BoolFL FL :--> BoolFL FL)
+notFL = liftFL1Convert P.not
+
+idFL :: FL (a :--> a)
+idFL = returnFLF P.id
+
+(.#) :: forall a b c. FL ((b :--> c) :--> (a :--> b) :--> a :--> c)
+(.#) = returnFLF $ \f -> returnFLF $ \g -> returnFLF $ \a ->
+  f `appFL` (g `appFL` a)
+
+flipFL :: forall a b c. FL ((a :--> b :--> c) :--> b :--> a :--> c)
+flipFL = returnFLF $ \f -> returnFLF $ \x -> returnFLF $ \y ->
+  f `appFL` y `appFL` x
+
+curryFL :: forall a b c. FL ((Tuple2FL FL a b :--> c) :--> a :--> b :--> c)
+curryFL = returnFLF $ \f -> returnFLF $ \x -> returnFLF $ \y ->
+  f `appFL` P.return (Tuple2FL x y)
+
+uncurryFL :: forall a b c. FL ((a :--> b :--> c) :--> Tuple2FL FL a b :--> c)
+uncurryFL = returnFLF $ \f -> returnFLF $ \p ->
+  p P.>>= \case
+    Tuple2FL x y -> f `appFL` x `appFL` y
 
 -- | Lifted const function
-constFL :: FL (a --> b --> a)
+constFL :: FL (a :--> b :--> a)
 constFL = returnFLF $ \a -> returnFLF $ P.const a
 
 -- | Lifted logical and
-(&&#) :: FL (Bool --> Bool --> Bool)
-(&&#) = returnFLF $ \a1 -> returnFLF $ \a2 ->
-  a1 P.>>= \case
-    False -> P.return False
-    True -> a2
+(&&#) :: FL (BoolFL FL :--> BoolFL FL :--> BoolFL FL)
+(&&#) = returnFLF $ \a -> returnFLF $ \b -> a P.>>= \case
+  FalseFL -> P.return FalseFL
+  TrueFL  -> b
 
--- | Lifted guard function used to desugar monad comprehensions
-guardFL :: (AlternativeFL f) => FL (Bool --> f ())
-guardFL = returnFLF $ \b ->
-  b P.>>= \case
-    True -> pureFL `appFL` P.return ()
-    False -> emptyFL
+-- | Lifted logical and
+(||#) :: FL (BoolFL FL :--> BoolFL FL :--> BoolFL FL)
+(||#) = returnFLF $ \a -> returnFLF $ \b -> a P.>>= \case
+  FalseFL -> b
+  TrueFL  -> P.return TrueFL
 
--- | Lifted append function for lists
-appendFL :: FL (ListFL a --> ListFL a --> ListFL a)
-appendFL = returnFLF $ \xs -> returnFLF $ \ys ->
+-- | Lifted otherwise
+otherwiseFL :: FL (BoolFL FL)
+otherwiseFL = P.return TrueFL
+
+-- | Lifted head function
+headFL :: FL (ListFL FL a :--> a)
+headFL = returnFLF $ \xs -> xs P.>>= \case
+  NilFL -> P.empty
+  ConsFL x _ -> x
+
+-- | Lifted tail function
+tailFL :: FL (ListFL FL a :--> ListFL FL a)
+tailFL = returnFLF $ \xs -> xs P.>>= \case
+  NilFL -> P.empty
+  ConsFL _ ys -> ys
+
+-- | Lifted (++) function
+(++#) :: FL (ListFL FL a :--> ListFL FL a :--> ListFL FL a)
+(++#) = returnFLF $ \xs -> returnFLF $ \ys ->
   xs P.>>= \case
     NilFL -> ys
-    ConsFL a as -> P.return (ConsFL a (appendFL `appFL` as `appFL` ys))
+    ConsFL a as -> P.return (ConsFL a ((++#) `appFL` as `appFL` ys))
 
--- | Lifted concatMap function for lists
-concatMapFL :: FL ((a --> ListFL b) --> ListFL a --> ListFL b)
-concatMapFL = returnFLF $ \f -> returnFLF $ \xs ->
+
+appendListNoShare :: FL (ListFL FL a :--> ListFL FL a :--> ListFL FL a)
+appendListNoShare = returnFLF $ \xs -> returnFLF $ \ys ->
   xs P.>>= \case
-    NilFL -> P.return NilFL
-    ConsFL a as -> appendFL `appFL` (f `appFL` a) `appFL` (concatMapFL `appFL` f `appFL` as)
+    NilFL -> ys
+    ConsFL a as -> P.return (ConsFL a (appendListNoShare `appFL` as `appFL` ys))
+
+-- | Lifted reverse function
+reverseFL :: FL (ListFL FL a :--> ListFL FL a)
+reverseFL = foldlFL `appFL` (flipFL `appFL` returnFLF (\x -> returnFLF $ \xs -> P.return (ConsFL x xs))) `appFL` P.return NilFL
 
 -- | Lifted map function for lists
-mapFL :: FL ((a --> b) --> ListFL a --> ListFL b)
-mapFL = returnFLF $ \f -> returnFLF $ \xs ->
+mapFL :: forall a b. FL ((a :--> b) :--> ListFL FL a :--> ListFL FL b)
+mapFL = returnFLF $ \f' -> share f' P.>>= \f -> returnFLF $ \xs ->
   xs P.>>= \case
     NilFL -> P.return NilFL
     ConsFL a as -> P.return (ConsFL (f `appFL` a) (mapFL `appFL` f `appFL` as))
 
-coerceFL :: forall (k :: RuntimeRep) a b. FL (a --> b)
-coerceFL = coerce
+-- | Lifted map function for lists
+mapFLNoShare :: FL ((a :--> b) :--> ListFL FL a :--> ListFL FL b)
+mapFLNoShare = returnFLF $ \f -> returnFLF $ \xs ->
+  xs P.>>= \case
+    NilFL -> P.return NilFL
+    ConsFL a as -> P.return (ConsFL (f `appFL` a) (mapFLNoShare `appFL` f `appFL` as))
 
--- | Lifted equality test for strings
-eqStringFL :: FL (StringFL --> StringFL --> Bool)
-eqStringFL = eqString
+-- | Lifted concat function
+concatFL :: forall t a. FoldableFL t
+         => FL (t (ListFL FL a) :--> ListFL FL a)
+concatFL = foldrFL `appFL` (++#) `appFL` P.return NilFL
 
--- | Lifted equality test for strings
-eqCharFL :: FL (CharFL --> CharFL --> Bool)
-eqCharFL = eqChar
+-- | Lifted concatMap function
+concatMapFL :: forall t a b. FoldableFL t
+            => FL ((a :--> ListFL FL b) :--> t a :--> ListFL FL b)
+concatMapFL = returnFLF $ \f -> foldrFL `appFL` ((.#) `appFL` (++#) `appFL` f) `appFL` P.return NilFL
 
--- |  Lifted composition operator for functions
-(.#) :: FL ((b --> c) --> (a --> b) --> a --> c)
-(.#) = returnFLF $ \f1 -> returnFLF $ \f2 -> returnFLF $ \a ->
-  f1 `appFL` (f2 `appFL` a)
+-- | Lifted takeWhile function for lists
+takeWhileFL :: FL ((a :--> BoolFL FL) :--> ListFL FL a :--> ListFL FL a)
+takeWhileFL = returnFLF $ \p' -> share p' P.>>= \p -> returnFLF $ \xs ->
+  xs P.>>= \case
+    NilFL -> P.return NilFL
+    ConsFL a as -> (p `appFL` a) P.>>= \case
+      FalseFL -> P.return NilFL
+      TrueFL -> P.return (ConsFL a (takeWhileFL `appFL` p `appFL` as))
 
--- | Lifted append function for lists
-(++#) :: FL (ListFL a --> ListFL a --> ListFL a)
-(++#) = appendFL
+-- | Lifted dropWhile function for lists
+dropWhileFL :: FL ((a :--> BoolFL FL) :--> ListFL FL a :--> ListFL FL a)
+dropWhileFL = returnFLF $ \p' -> share p' P.>>= \p -> returnFLF $ \xs ->
+  xs P.>>= \case
+    NilFL -> P.return NilFL
+    ConsFL a as -> (p `appFL` a) P.>>= \case
+      FalseFL -> P.return (ConsFL a as)
+      TrueFL -> dropWhileFL `appFL` p `appFL` as
 
-iterateFL :: FL ((a --> a) --> a --> ListFL a)
-iterateFL = returnFLF (\f -> returnFLF (\x -> P.return (ConsFL x (iterateFL `appFL` f `appFL` (f `appFL` x)))))
+-- | Lifted replicate function
+replicateFL :: FL (IntFL FL :--> a :--> ListFL FL a)
+replicateFL = returnFLF $ \n' -> share n' P.>>= \n -> returnFLF $ \x' -> share x' P.>>= \x ->
+  ((==#) `appFL` n `appFL` P.return (IntFL 0)) P.>>= \case
+  FalseFL -> ((>#) `appFL` n `appFL` P.return (IntFL 0)) P.>>= \case
+    FalseFL -> P.empty
+    TrueFL -> P.return (ConsFL x (replicateFL `appFL` ((-#) `appFL` n `appFL` P.return (IntFL 1)) `appFL` x))
+  TrueFL -> P.return NilFL
 
-takeWhileFL :: FL ((a --> BoolFL) --> ListFL a --> ListFL a)
-takeWhileFL = returnFLF (\p -> returnFLF (\xs -> xs P.>>= \case
-  NilFL       -> P.return NilFL
-  ConsFL y ys -> (p `appFL` y) P.>>= \case
-    False -> P.return NilFL
-    True  -> P.return (ConsFL y (takeWhileFL `appFL` p `appFL` ys))))
+-- | Lifted take function for lists
+takeFL :: FL (IntFL FL :--> ListFL FL a :--> ListFL FL a)
+takeFL = returnFLF $ \n' -> share n' P.>>= \n -> returnFLF $ \xs ->
+  (<=#) `appFL` n `appFL` P.return (IntFL 0) P.>>= \case
+    FalseFL -> xs P.>>= \case
+      NilFL -> P.return NilFL
+      ConsFL a as -> P.return (ConsFL a (takeFL `appFL` ((-#) `appFL` n `appFL` P.return (IntFL 1)) `appFL` as))
+    TrueFL -> P.return NilFL
 
--- * Lifted Show type class, instances and functions
+-- | Lifted drop function for lists
+dropFL :: FL (IntFL FL :--> ListFL FL a :--> ListFL FL a)
+dropFL = returnFLF $ \n' -> share n' P.>>= \n -> returnFLF $ \xs ->
+  (<=#) `appFL` n `appFL` P.return (IntFL 0) P.>>= \case
+    FalseFL -> xs P.>>= \case
+      NilFL -> P.return NilFL
+      ConsFL _ as -> dropFL `appFL` ((-#) `appFL` n `appFL` P.return (IntFL 1)) `appFL` as
+    TrueFL -> xs
+
+-- | Lifted maybe function
+maybeFL :: forall b a. FL (b :--> (a :--> b) :--> MaybeFL FL a :--> b)
+maybeFL = returnFLF $ \n -> returnFLF $ \j -> returnFLF $ \m -> m P.>>= \case
+  NothingFL -> n
+  JustFL x -> j `appFL` x
+
+-- | Lifted lookup function
+lookupFL :: forall a b. EqFL a
+         => FL (a :--> ListFL FL (Tuple2FL FL a b) :--> MaybeFL FL b)
+lookupFL = returnFLF $ \k' -> share k' P.>>= \k -> returnFLF $ \xs -> xs P.>>= \case
+  NilFL -> P.return NothingFL
+  ConsFL y kvs -> y P.>>= \case
+    Tuple2FL k2 v -> ((==#) `appFL` k `appFL` k2) P.>>= \case
+      FalseFL -> lookupFL `appFL` k `appFL` kvs
+      TrueFL -> P.return (JustFL v)
+
+-- | Lifted notElem function
+notElemFL :: forall t a. (FoldableFL t, EqFL a)
+           => FL (a :--> t a :--> BoolFL FL)
+notElemFL = returnFLF $ \x -> (.#) `appFL` notFL `appFL` (elemFL `appFL` x)
+
+--TODO: Move
+data NonEmptyFL a = a :|# [a]
+--TODO: Eq, Ord, Functor, Applicative, Monad
+
+--TODO: Move
+class SemigroupFL a where
+  (<>#) :: FL (a :--> a :--> a)
+
+  sconcat :: FL (NonEmptyFL a :--> a)
+  {-sconcat (a :| as) = go a as where
+    go b (c:cs) = b <> go c cs
+    go b []     = b-}
+
+  stimes :: forall b. IntegralFL b => FL (b :--> a :--> a)
+  --stimes = stimesDefault
+
+instance SemigroupFL (ListFL FL a) where
+  (<>#) = appendListNoShare
+  --stimesFL = stimesListFL
+
+--TODO: Move
+class SemigroupFL a => MonoidFL a where
+  memptyFL  :: FL a
+
+  mappendFL :: FL (a :--> a :--> a)
+  mappendFL = (<>#)
+
+  -- we can only do this because we know that Shareable for Anything is just return.
+  mconcatFL :: FL (ListFL FL a :--> a)
+  mconcatFL = foldrFL `appFL` mappendFL `appFL` memptyFL
+
+instance MonoidFL (ListFL FL a) where
+  memptyFL = P.return NilFL
+
+--TODO: Move to BuiltIn.Foldable
+class FoldableFL t where
+    foldFL :: MonoidFL m => FL (t m :--> m)
+    foldFL = foldMapFL `appFL` idFL
+
+    foldMapFL :: forall a m. MonoidFL m => FL ((a :--> m) :--> t a :--> m)
+    foldMapFL = returnFLF $ \f' -> share f' P.>>= \f -> foldrFL `appFL` ((.#) `appFL` mappendFL `appFL` f) `appFL` memptyFL
+
+    foldMap'FL :: forall a m. MonoidFL m => FL ((a :--> m) :--> t a :--> m)
+    foldMap'FL = returnFLF $ \f' -> share f' P.>>= \f -> foldl'FL `appFL` returnFLF (\acc -> returnFLF $ \a -> (<>#) `appFL` acc `appFL` (f `appFL` a)) `appFL` memptyFL
+
+    foldrFL :: forall a b. FL ((a :--> b :--> b) :--> b :--> t a :--> b)
+    --foldrFL f z t = appEndo (foldMap (Endo #. f) t) z
+
+    foldr'FL :: forall a b. FL ((a :--> b :--> b) :--> b :--> t a :--> b)
+    --foldr' f z0 xs = foldl f' id xs z0
+    --  where f' k x z = k $! f x z
+
+    foldlFL :: forall a b. FL ((b :--> a :--> b) :--> b :--> t a :--> b)
+    --foldl f z t = appEndo (getDual (foldMap (Dual . Endo . flip f) t)) z
+
+    foldl'FL :: forall a b. FL ((b :--> a :--> b) :--> b :--> t a :--> b)
+
+    foldr1FL :: forall a. FL ((a :--> a :--> a) :--> t a :--> a)
+    --foldr1FL f xs = fromMaybe (errorWithoutStackTrace "foldr1: empty structure")
+    --                (foldr mf Nothing xs)
+    --  where
+    --    mf x m = Just (case m of
+    --                     Nothing -> x
+    --                     Just y  -> f x y)
+
+    foldl1FL :: FL ((a :--> a :--> a) :--> t a :--> a)
+    {-foldl1 f xs = fromMaybe (errorWithoutStackTrace "foldl1: empty structure")
+                    (foldl mf Nothing xs)
+      where
+        mf m y = Just (case m of
+                         Nothing -> y
+                         Just x  -> f x y)-}
+
+    toListFL :: FL (t a :--> ListFL FL a)
+    --toList t = build (\ c n -> foldr c n t)
+
+    nullFL :: FL (t a :--> BoolFL FL)
+    --null = foldr (\_ _ -> False) True
+
+    lengthFL :: FL (t a :--> IntFL FL)
+    --length = foldl' (\c _ -> c+1) 0
+
+    elemFL :: EqFL a => FL (a :--> t a :--> BoolFL FL)
+    --elem = any . (==)
+
+
+    maximumFL :: OrdFL a => FL (t a :--> a)
+    {-maximum = fromMaybe (errorWithoutStackTrace "maximum: empty structure") .
+       getMax . foldMap' (Max #. (Just :: a -> Maybe a))
+    {-# INLINEABLE maximum #-}-}
+
+    minimumFL :: OrdFL a => FL (t a :--> a)
+    {-minimumFL = fromMaybe (errorWithoutStackTrace "minimum: empty structure") .
+       getMin . foldMap' (Min #. (Just :: a -> Maybe a))
+    {-# INLINEABLE minimum #-}-}
+
+    sumFL :: NumFL a => FL (t a :--> a)
+    --sum = getSum #. foldMap' Sum
+
+    productFL :: NumFL a => FL (t a :--> a)
+    --product = getProduct #. foldMap' Product
+
+instance FoldableFL (ListFL FL) where
+  elemFL = returnFLF $ \x' -> share x' P.>>= \x -> returnFLF $ \xs -> xs P.>>= \case
+    NilFL -> P.return FalseFL
+    ConsFL y ys -> ((==#) `appFL` x `appFL` y) P.>>= \case
+      FalseFL -> elemFL `appFL` x `appFL` ys
+      TrueFL -> P.return TrueFL
+  foldlFL = returnFLF $ \f' -> share f' P.>>= \f -> returnFLF $ \e -> returnFLF $ \xs -> xs P.>>= \case
+    NilFL -> e
+    ConsFL y ys -> foldlFL `appFL` f `appFL` (f `appFL` e `appFL` y) `appFL` ys
+  foldl1FL = returnFLF $ \f' -> share f' P.>>= \f -> returnFLF $ \xs -> xs P.>>= \case
+    NilFL -> P.empty
+    ConsFL y ys -> foldlFL `appFL` f `appFL` y `appFL` ys
+  foldl'FL = returnFLF $ \f' -> share f' P.>>= \f -> returnFLF $ \z -> returnFLF $ \xs -> xs P.>>= \case
+    NilFL -> z
+    ConsFL y ys -> share (f `appFL` z `appFL` y) P.>>= \z' -> seqFL `appFL` z' `appFL` (foldl'FL `appFL` f `appFL` z' `appFL` ys)
+  foldrFL = returnFLF $ \f' -> share f' P.>>= \f -> returnFLF $ \e -> returnFLF $ \xs -> xs P.>>= \case
+    NilFL -> e
+    ConsFL y ys -> f `appFL` y `appFL` (foldrFL `appFL` f `appFL` e `appFL` ys)
+  foldr1FL = returnFLF $ \f' -> share f' P.>>= \f -> returnFLF $ \xs -> xs P.>>= \case
+    NilFL -> P.empty
+    ConsFL y ys -> ys P.>>= \case
+      NilFL -> y
+      zs -> f `appFL` y `appFL` (foldr1FL `appFL` f `appFL` P.return zs)
+  lengthFL = returnFLF $ \xs -> xs P.>>= \case
+    NilFL -> P.return (IntFL 0)
+    ConsFL _ ys -> (+#) `appFL` (lengthFL `appFL` ys) `appFL` P.return (IntFL 1)
+  nullFL = returnFLF $ \xs -> xs P.>>= \case
+    NilFL -> P.return TrueFL
+    ConsFL _ _ -> P.return FalseFL
+  maximumFL = foldl1FL `appFL` maxFL
+  minimumFL = foldl1FL `appFL` minFL
+  -- TODO: originally strict
+  sumFL = foldlFL `appFL` (+#) `appFL` (fromIntegerFL `appFL` P.return (IntegerFL 0))
+  -- TODO: originally strict
+  productFL = foldlFL `appFL` (*#) `appFL` (fromIntegerFL `appFL` P.return (IntegerFL 1))
+  toListFL = idFL
+  --TODO: add missing implementations
+  {-elem    = List.elem
+  foldl   = List.foldl
+  foldl'  = List.foldl'
+  foldl1  = List.foldl1
+  foldr   = List.foldr
+  foldr1  = List.foldr1
+  length  = List.length
+  maximum = List.maximum
+  minimum = List.minimum
+  null    = List.null
+  product = List.product
+  sum     = List.sum
+  toList  = id-}
+
+allFL :: forall t a. FoldableFL t
+      => FL ((a :--> BoolFL FL) :--> t a :--> BoolFL FL)
+allFL = returnFLF $ \p' -> share p' P.>>= \p -> foldrFL `appFL` returnFLF (\x -> returnFLF $ \acc -> (&&#) `appFL` (p `appFL` x) `appFL` acc) `appFL` P.return TrueFL
+
+anyFL :: forall t a. FoldableFL t
+      => FL ((a :--> BoolFL FL) :--> t a :--> BoolFL FL)
+anyFL = returnFLF $ \p' -> share p' P.>>= \p -> foldrFL `appFL` returnFLF (\x -> returnFLF $ \acc -> (||#) `appFL` (p `appFL` x) `appFL` acc) `appFL` P.return FalseFL
+
+andFL :: forall t. FoldableFL t
+      => FL (t (BoolFL FL) :--> BoolFL FL)
+andFL = foldrFL `appFL` (&&#) `appFL` P.return TrueFL
+
+orFL :: forall t. FoldableFL t
+     => FL (t (BoolFL FL) :--> BoolFL FL)
+orFL = foldrFL `appFL` (||#) `appFL` P.return TrueFL
+
+data BoolFL (m :: Type -> Type) = FalseFL | TrueFL
+
+boolFLtoBool :: BoolFL FL -> Bool
+boolFLtoBool FalseFL = False
+boolFLtoBool TrueFL  = True
+
+type instance Lifted m Bool = BoolFL m
+
+instance HasPrimitiveInfo (BoolFL FL) where
+  primitiveInfo = NoPrimitive
+
+instance Narrowable (BoolFL FL) where
+  narrow = [P.return FalseFL, P.return TrueFL]
+
+instance To Bool where
+  toWith _ False = FalseFL
+  toWith _ True = TrueFL
+
+instance From Bool where
+  from FalseFL = False
+  from TrueFL  = True
+
+instance Matchable Bool where
+  match FalseFL False = P.return ()
+  match TrueFL  True  = P.return ()
+  match _       _     = P.empty
+
+instance Unifiable Bool where
+  lazyUnify FalseFL FalseFL = P.return ()
+  lazyUnify TrueFL  TrueFL  = P.return ()
+  lazyUnify _       _       = P.empty
+
+instance NormalForm Bool where
+  normalFormWith _ FalseFL = P.return FalseFL
+  normalFormWith _ TrueFL  = P.return TrueFL
+
+instance ShowFree Bool where
+  showFree' False = "False"
+  showFree' True  = "True"
+
+instance Invertible Bool
+
+data UnitFL (m :: Type -> Type) = UnitFL
+
+type instance Lifted m () = UnitFL m
+
+instance HasPrimitiveInfo (UnitFL FL) where
+  primitiveInfo = NoPrimitive
+
+instance Narrowable (UnitFL FL) where
+  narrow = [P.return UnitFL]
+
+instance To () where
+  toWith _ () = UnitFL
+
+instance From () where
+  from UnitFL = ()
+
+instance Matchable () where
+  match UnitFL () = P.return ()
+
+instance Unifiable () where
+  lazyUnify UnitFL UnitFL = P.return ()
+
+instance NormalForm () where
+  normalFormWith _ UnitFL = P.return UnitFL
+
+instance ShowFree () where
+  showFree' () = "()"
+
+instance Invertible ()
+
+data OrderingFL (m :: Type -> Type) = LTFL | EQFL | GTFL
+
+type instance Lifted m Ordering = OrderingFL m
+
+instance HasPrimitiveInfo (OrderingFL FL) where
+  primitiveInfo = NoPrimitive
+
+instance Narrowable (OrderingFL FL) where
+  narrow = [P.return LTFL, P.return EQFL, P.return GTFL]
+
+instance To Ordering where
+  toWith _ LT = LTFL
+  toWith _ EQ = EQFL
+  toWith _ GT = GTFL
+
+instance From Ordering where
+  from = \case
+    LTFL -> LT
+    EQFL -> EQ
+    GTFL -> GT
+
+instance Matchable Ordering where
+  match LTFL LT = P.return ()
+  match EQFL EQ = P.return ()
+  match GTFL GT = P.return ()
+  match _    _  = P.empty
+
+instance Unifiable Ordering where
+  lazyUnify LTFL LTFL = P.return ()
+  lazyUnify EQFL EQFL = P.return ()
+  lazyUnify GTFL GTFL = P.return ()
+  lazyUnify _    _    = P.empty
+
+instance NormalForm Ordering where
+  normalFormWith _ LTFL = P.return LTFL
+  normalFormWith _ EQFL = P.return EQFL
+  normalFormWith _ GTFL = P.return GTFL
+
+instance ShowFree Ordering where
+  showFree' LT = "LT"
+  showFree' EQ = "EQ"
+  showFree' GT = "GT"
+
+instance Invertible Ordering
+
+instance HasPrimitiveInfo (IntegerFL FL) where
+  primitiveInfo = Primitive
+
+instance To Integer where
+  toWith _ = IntegerFL
+
+instance From Integer where
+  from (IntegerFL x) = x
+
+instance Matchable Integer where
+  match (IntegerFL x) y = P.guard (x P.== y)
+
+instance Unifiable Integer where
+  lazyUnify (IntegerFL x) (IntegerFL y) = P.guard (x P.== y)
+
+instance NormalForm Integer where
+  normalFormWith _ (IntegerFL x) = P.return (IntegerFL x)
+
+instance ShowFree Integer where
+  showFree' = P.show
+
+instance Invertible Integer
+
+instance HasPrimitiveInfo (IntFL FL) where
+  primitiveInfo = Primitive
+
+instance To Int where
+  toWith _ = P.coerce
+
+instance From Int where
+  from = P.coerce
+
+instance Matchable Int where
+  match (IntFL x) y = P.guard (x P.== y)
+
+instance Unifiable Int where
+  lazyUnify (IntFL x) (IntFL y) = P.guard (x P.== y)
+
+instance NormalForm Int where
+  normalFormWith _ (IntFL x) = P.return (IntFL x)
+
+instance ShowFree Int where
+  showFree' = P.show
+
+instance Invertible Int
+
+instance HasPrimitiveInfo (FloatFL FL) where
+  primitiveInfo = Primitive
+
+instance To Float where
+  toWith _ = P.coerce
+
+instance From Float where
+  from = P.coerce
+
+instance Matchable Float where
+  match (FloatFL x) y = P.guard (x P.== y)
+
+instance Unifiable Float where
+  lazyUnify (FloatFL x) (FloatFL y) = P.guard (x P.== y)
+
+instance NormalForm Float where
+  normalFormWith _ (FloatFL x) = P.return (FloatFL x)
+
+instance ShowFree Float where
+  showFree' = P.show
+
+instance Invertible Float
+
+instance HasPrimitiveInfo (DoubleFL FL) where
+  primitiveInfo = Primitive
+
+instance To Double where
+  toWith _ = P.coerce
+
+instance From Double where
+  from = P.coerce
+
+instance Matchable Double where
+  match (DoubleFL x) y = P.guard (x P.== y)
+
+instance Unifiable Double where
+  lazyUnify (DoubleFL x) (DoubleFL y) = P.guard (x P.== y)
+
+instance NormalForm Double where
+  normalFormWith _ (DoubleFL x) = P.return (DoubleFL x)
+
+instance ShowFree Double where
+  showFree' = P.show
+
+instance Invertible Double
+
+instance HasPrimitiveInfo (CharFL FL) where
+  primitiveInfo = Primitive
+
+instance To P.Char where
+  toWith _ = P.coerce
+
+instance From P.Char where
+  from = P.coerce
+
+instance Matchable P.Char where
+  match (CharFL x) y = P.guard (x P.== y)
+
+instance Unifiable P.Char where
+  lazyUnify (CharFL x) (CharFL y) = P.guard (x P.== y)
+
+instance NormalForm P.Char where
+  normalFormWith _ (CharFL x) = P.return (CharFL x)
+
+instance ShowFree P.Char where
+  showFree' = P.show
+
+instance Invertible P.Char
 
 -- | Lifted ShowS type
-type ShowSFL = StringFL --> StringFL
+type ShowSFL m = (-->) m (StringFL m) (StringFL m)
 
-type instance Lifted P.Show = ShowFL
-
+type instance Lifted FL P.Show = ShowFL
+type instance Lifted FL (P.Show f) = ShowFL (Lifted FL f)
 -- | Lifted Show type class
 class ShowFL a where
   {-# MINIMAL showsPrecFL | showFL #-}
-  showsPrecFL :: FL (IntFL --> a --> ShowSFL)
+  showsPrecFL :: FL (IntFL FL :--> a :--> ShowSFL FL)
   showsPrecFL = returnFLF $ \_ -> returnFLF $ \x -> returnFLF $ \s ->
-    appendFL `appFL` (showFL `appFL` x) `appFL` s
+    apply2FL (++#) (showFL `appFL` x) s
 
-  showFL :: FL (a --> StringFL)
-  showFL = returnFLF $ \x -> showsFL `appFL` x `appFL` P.return NilFL
+  showFL :: FL (a :--> StringFL FL)
+  showFL = returnFLF $ \x -> apply2FL showsFLNoShare x (P.return NilFL)
 
-  showListFL :: FL (ListFL a --> ShowSFL)
-  showListFL = returnFLF $ \ls -> returnFLF $ \s -> showsList__ `appFL` showsFL `appFL` ls `appFL` s
+  showListFL :: FL (ListFL FL a :--> ShowSFL FL)
+  showListFL = returnFLF $ \ls -> returnFLF $ \s -> apply3FL showsList__ showsFLNoShare ls s
 
-showsList__ :: FL ((a --> ShowSFL) --> ListFL a --> ShowSFL)
-showsList__ = returnFLF $ \showx -> returnFLF $ \list -> returnFLF $ \s ->
+showsList__ :: FL ((a :--> ShowSFL FL) :--> ListFL FL a :--> ShowSFL FL)
+showsList__ = returnFLF $ \showx' -> share showx' P.>>= \showx -> returnFLF $ \list -> returnFLF $ \s ->
   list P.>>= \case
-    NilFL -> appendFL `appFL` M.toFL "[]" `appFL` s
+    NilFL       -> apply2FL (++#) (toFL "[]") s
     ConsFL x xs ->
-      P.return (ConsFL (toFL '[') (showx `appFL` x `appFL` (showl `appFL` showx `appFL` xs `appFL` s)))
+      P.return (ConsFL (toFL '[') (apply2FL showx x (apply3FL showl showx xs s)))
   where
     showl = returnFLF $ \showx -> returnFLF $ \list -> returnFLF $ \s ->
       list P.>>= \case
-        NilFL ->
+        NilFL       ->
           P.return (ConsFL (toFL ']') s)
         ConsFL y ys ->
-          P.return
-            ( ConsFL
-                (toFL ',')
-                (showx `appFL` y `appFL` (showl `appFL` showx `appFL` ys `appFL` s))
-            )
+          P.return (ConsFL (toFL ',')
+            (apply2FL showx y (apply3FL showl showx ys s)))
 
-showsFL :: ShowFL a => FL (a --> ShowSFL)
-showsFL = showsPrecFL `appFL` P.return 0
+shows :: P.Show a => a -> P.ShowS
+shows = P.showsPrec 0
 
-showStringFL :: FL (StringFL --> ShowSFL)
-showStringFL = appendFL
+showsFL :: ShowFL a => FL (a :--> ShowSFL FL)
+showsFL = showsPrecFL `appFL` toFL 0
 
-showCommaSpaceFL :: FL ShowSFL
+showsFLNoShare :: ShowFL a => FL (a :--> ShowSFL FL)
+showsFLNoShare = showsPrecFL `appFL` toFL 0
+
+showString :: P.String -> P.ShowS
+showString = (P.++)
+
+showStringFL :: FL (StringFL FL :--> ShowSFL FL)
+showStringFL = (++#)
+
+showCommaSpace :: P.ShowS
+showCommaSpace = showString ", "
+
+showCommaSpaceFL :: FL (ShowSFL FL)
 showCommaSpaceFL = showStringFL `appFL` toFL ", "
 
-showSpaceFL :: FL ShowSFL
-showSpaceFL = showStringFL `appFL` toFL " "
+showSpace :: P.ShowS
+showSpace =  showString " "
 
-showParenFL :: FL (Bool --> ShowSFL --> ShowSFL)
-showParenFL = returnFLF $ \b -> returnFLF $ \s ->
-  b P.>>= \case
-    True ->
-      (.#)
-        `appFL` (showStringFL `appFL` toFL "(")
-        `appFL` ((.#) `appFL` s `appFL` (showStringFL `appFL` toFL ")"))
-    False -> s
+showSpaceFL :: FL (ShowSFL FL)
+showSpaceFL =  showStringFL `appFL` toFL " "
 
-instance ShowFL BoolFL where
-  showFL = returnFLF $ \x -> x P.>>= \x' -> toFL (P.show x')
+showParen :: Bool -> P.ShowS -> P.ShowS
+showParen b s = if b then showString "(" P.. (s P.. showString ")") else s
 
-instance ShowFL () where
-  showFL = returnFLF $ \x -> x P.>>= \x' -> toFL (P.show x')
+showParenFL :: FL (BoolFL FL :--> ShowSFL FL :--> ShowSFL FL)
+showParenFL = returnFLF $ \b -> returnFLF $ \s -> b P.>>= \case
+  TrueFL  -> apply2FL (.#) (showStringFL `appFL` toFL "(")
+          (apply2FL (.#) s (showStringFL `appFL` toFL ")"))
+  FalseFL -> s
 
-instance (ShowFL a) => ShowFL (ListFL a) where
-  showFL = returnFLF $ \xs -> showListFL `appFL` xs `appFL` P.return NilFL
+instance ShowFL (BoolFL FL) where
+  showFL = liftFL1Convert P.show
 
-instance ShowFL IntFL where
-  showFL = returnFLF $ \x -> x P.>>= \x' -> toFL (P.show x')
+instance ShowFL (UnitFL FL) where
+  showFL = liftFL1Convert P.show
 
-instance ShowFL IntegerFL where
-  showFL = returnFLF $ \x -> x P.>>= \x' -> toFL (P.show x')
+instance ShowFL (IntFL FL) where
+  showFL = liftFL1Convert P.show
 
-instance ShowFL FloatFL where
-  showFL = returnFLF $ \x -> x P.>>= \x' -> toFL (P.show x')
+instance ShowFL (IntegerFL FL) where
+  showFL = liftFL1Convert P.show
 
-instance ShowFL DoubleFL where
-  showFL = returnFLF $ \x -> x P.>>= \x' -> toFL (P.show x')
+instance ShowFL (FloatFL FL) where
+  showFL = liftFL1Convert P.show
+
+instance ShowFL (DoubleFL FL) where
+  showFL = liftFL1Convert P.show
+
+instance ShowFL (CharFL FL) where
+  showFL = liftFL1Convert P.show
+  showListFL = returnFLF $ \x -> groundNormalFormFL x P.>>= \v -> toFL (P.showList (from v))
+
+instance ShowFL a => ShowFL (ListFL FL a) where
+  showFL = returnFLF $ \xs -> apply2FL showListFL xs (P.return NilFL)
+
 
 -- * Lifted Eq type class, instances and functions
 
-type instance Lifted P.Eq = EqFL
-
+type instance Lifted FL P.Eq = EqFL
+type instance Lifted FL (P.Eq f) = EqFL (Lifted FL f)
 -- | Lifted Eq type class
 class EqFL a where
-  (==#) :: FL (a --> a --> BoolFL)
-  (==#) = returnFLF $ \a1 -> returnFLF $ \a2 -> notFL `appFL` ((/=#) `appFL` a1 `appFL` a2)
+  (==#) :: FL (a :--> a :--> BoolFL FL)
+  (==#) = returnFLF $ \a1 -> returnFLF $ \a2 -> notFL `appFL` apply2FL (/=#) a1 a2
 
-  (/=#) :: FL (a --> a --> BoolFL)
-  (/=#) = returnFLF $ \a1 -> returnFLF $ \a2 -> notFL `appFL` ((==#) `appFL` a1 `appFL` a2)
+  (/=#) :: FL (a :--> a :--> BoolFL FL)
+  (/=#) = returnFLF $ \a1 -> returnFLF $ \a2 -> notFL `appFL` apply2FL (==#) a1 a2
 
-instance EqFL BoolFL where
-  (==#) = liftFL2 (P.==)
-  (/=#) = liftFL2 (P./=)
+instance EqFL (BoolFL FL) where
+  (==#) = liftFL2Convert (P.==)
+  (/=#) = liftFL2Convert (P./=)
 
-instance EqFL () where
-  (==#) = returnFLF $ \_ -> returnFLF $ \_ -> P.return True
-  (/=#) = returnFLF $ \_ -> returnFLF $ \_ -> P.return False
+instance EqFL (OrderingFL FL) where
+  (==#) = liftFL2Convert (P.==)
+  (/=#) = liftFL2Convert (P./=)
 
-instance (EqFL a) => EqFL (ListFL a) where
-  (==#) = returnFLF $ \a1 -> returnFLF $ \a2 ->
-    a1 P.>>= \case
-      NilFL ->
-        a2 P.>>= \case
-          NilFL -> P.return True
-          ConsFL _ _ -> P.return False
-      ConsFL x xs ->
-        a2 P.>>= \case
-          NilFL -> P.return False
-          ConsFL y ys -> eqOn x y xs ys
+instance EqFL (UnitFL FL) where
+  (==#) = liftFL2Convert (P.==)
+  (/=#) = liftFL2Convert (P./=)
 
-instance (EqFL a, EqFL b) => EqFL (Tuple2FL a b) where
-  (==#) = returnFLF $ \x1 -> returnFLF $ \x2 ->
-    x1 P.>>= \(Tuple2FL a1 b1) ->
-      x2 P.>>= \(Tuple2FL a2 b2) ->
-        eqOn a1 a2 b1 b2
+instance EqFL (IntFL FL) where
+  (==#) = primitiveOrd2 (P.==) (P.Just eqConstraint)
+  (/=#) = primitiveOrd2 (P./=) (P.Just neqConstraint)
 
-eqOn :: (EqFL a1, EqFL a2) => FL a1 -> FL a1 -> FL a2 -> FL a2 -> FL Bool
-eqOn x y xs ys = (&&#) `appFL` ((==#) `appFL` x `appFL` y) `appFL` ((==#) `appFL` xs `appFL` ys)
+instance EqFL (IntegerFL FL) where
+  (==#) = primitiveOrd2 (P.==) (P.Just eqConstraint)
+  (/=#) = primitiveOrd2 (P./=) (P.Just neqConstraint)
+
+instance EqFL (FloatFL FL) where
+  (==#) = primitiveOrd2 (P.==) (P.Just eqConstraint)
+  (/=#) = primitiveOrd2 (P./=) (P.Just neqConstraint)
+
+instance EqFL (DoubleFL FL) where
+  (==#) = primitiveOrd2 (P.==) (P.Just eqConstraint)
+  (/=#) = primitiveOrd2 (P./=) (P.Just neqConstraint)
+
+instance EqFL (CharFL FL) where
+  (==#) = primitiveOrd2 (P.==) (P.Just eqConstraint)
+  (/=#) = primitiveOrd2 (P./=) (P.Just neqConstraint)
+
+instance EqFL a => EqFL (ListFL FL a) where
+  (==#) = returnFLF $ \a1 -> returnFLF $ \a2 -> a1 P.>>= \case
+    NilFL       -> a2 P.>>= \case
+      NilFL       -> P.return TrueFL
+      ConsFL _ _  -> P.return FalseFL
+    ConsFL x xs -> a2 P.>>= \case
+      NilFL       -> P.return FalseFL
+      ConsFL y ys -> eqOn2 x y xs ys
+
+instance EqFL a => EqFL (RatioFL FL a) where
+  (==#) = returnFLF $ \x1 -> returnFLF $ \x2 -> do
+    (a1 :%# b1) <- x1
+    (a2 :%# b2) <- x2
+    eqOn2 a1 a2 b1 b2
+
+eqOn2 :: (EqFL a1, EqFL a2)
+      => FL a1 -> FL a1 -> FL a2 -> FL a2 -> FL (BoolFL FL)
+eqOn2 x y xs ys = apply2FL (&&#) (apply2FL (==#) x y) (apply2FL (==#) xs ys)
 
 -- * Lifted Ord type class, instances and functions
 
-type instance Lifted P.Ord = OrdFL
-
+type instance Lifted FL P.Ord = OrdFL
+type instance Lifted FL (P.Ord f) = OrdFL (Lifted FL f)
 -- | Lifted Ord type class
 class EqFL a => OrdFL a where
   {-# MINIMAL compareFL | (<=#) #-}
-  compareFL :: FL (a --> a --> OrderingFL)
-  compareFL = returnFLF $ \a1 -> returnFLF $ \a2 ->
-    (==#) `appFL` a1 `appFL` a2 P.>>= \b1 ->
-      if b1
-        then P.return EQ
-        else
-          (<=#) `appFL` a1 `appFL` a2 P.>>= \b2 ->
-            if b2
-              then P.return LT
-              else P.return GT
+  compareFL :: FL (a :--> a :--> OrderingFL FL)
+  compareFL = returnFLF $ \a1' -> share a1' P.>>= \a1 -> returnFLF $ \a2' -> share a2' P.>>= \a2 ->
+    apply2FL (==#) a1 a2 P.>>= \case
+      TrueFL  -> P.return EQFL
+      FalseFL -> apply2FL (<=#) a1 a2 P.>>= \case
+        TrueFL  -> P.return LTFL
+        FalseFL -> P.return GTFL
 
-  (<#) :: FL (a --> a --> BoolFL)
+  (<#) :: FL (a :--> a :--> BoolFL FL)
   (<#) = returnFLF $ \a1 -> returnFLF $ \a2 ->
-    compareFL `appFL` a1 `appFL` a2 P.>>= \case
-      LT -> P.return True
-      _ -> P.return False
+    apply2FL compareFL a1 a2 P.>>= \case
+      LTFL -> P.return TrueFL
+      _    -> P.return FalseFL
 
-  (<=#) :: FL (a --> a --> BoolFL)
+  (<=#) :: FL (a :--> a :--> BoolFL FL)
   (<=#) = returnFLF $ \a1 -> returnFLF $ \a2 ->
-    compareFL `appFL` a1 `appFL` a2 P.>>= \case
-      GT -> P.return False
-      _ -> P.return True
+    apply2FL compareFL a1 a2 P.>>= \case
+      GTFL -> P.return FalseFL
+      _    -> P.return TrueFL
 
-  (>#) :: FL (a --> a --> BoolFL)
+  (>#) :: FL (a :--> a :--> BoolFL FL)
   (>#) = returnFLF $ \a1 -> returnFLF $ \a2 ->
-    compareFL `appFL` a1 `appFL` a2 P.>>= \case
-      GT -> P.return True
-      _ -> P.return False
+    apply2FL compareFL a1 a2 P.>>= \case
+      GTFL -> P.return TrueFL
+      _    -> P.return FalseFL
 
-  (>=#) :: FL (a --> a --> BoolFL)
+  (>=#) :: FL (a :--> a :--> BoolFL FL)
   (>=#) = returnFLF $ \a1 -> returnFLF $ \a2 ->
-    compareFL `appFL` a1 `appFL` a2 P.>>= \case
-      LT -> P.return False
-      _ -> P.return True
+    apply2FL compareFL a1 a2 P.>>= \case
+      LTFL -> P.return FalseFL
+      _    -> P.return TrueFL
 
-  maxFL :: FL (a --> a --> a)
-  maxFL = returnFLF $ \a1 -> returnFLF $ \a2 ->
-    (>=#) `appFL` a1 `appFL` a2 P.>>= \case
-      True -> a1
-      _ -> a2
+  maxFL :: FL (a :--> a :--> a)
+  maxFL = returnFLF $ \a1' -> share a1' P.>>= \a1 -> returnFLF $ \a2' -> share a2' P.>>= \a2 ->
+    apply2FL (>=#) a1 a2 P.>>= \case
+      TrueFL -> a1
+      _      -> a2
 
-  minFL :: FL (a --> a --> a)
-  minFL = returnFLF $ \a1 -> returnFLF $ \a2 ->
-    (<=#) `appFL` a1 `appFL` a2 P.>>= \case
-      True -> a1
-      _ -> a2
+  minFL :: FL (a :--> a :--> a)
+  minFL = returnFLF $ \a1' -> share a1' P.>>= \a1 -> returnFLF $ \a2' -> share a2' P.>>= \a2 ->
+    apply2FL (<=#) a1 a2 P.>>= \case
+      TrueFL -> a1
+      _      -> a2
 
-instance OrdFL BoolFL where
-  compareFL = liftFL2 P.compare
+instance OrdFL (BoolFL FL) where
+  compareFL = liftFL2Convert P.compare
 
-instance OrdFL () where
-  compareFL = returnFLF $ \_ -> returnFLF $ \_ -> P.return EQ
+instance OrdFL (UnitFL FL) where
+  compareFL = liftFL2Convert P.compare
 
-instance (OrdFL a) => OrdFL (ListFL a) where
+instance OrdFL (IntFL FL) where
+  (>=#) = primitiveOrd2 (P.>=) intGeqConstraint
+  (<=#) = primitiveOrd2 (P.<=) intLeqConstraint
+  (>#)  = primitiveOrd2 (P.>)  intGtConstraint
+  (<#)  = primitiveOrd2 (P.<)  intLtConstraint
+  maxFL = primitive2    P.max  intMaxConstraint
+  minFL = primitive2    P.max  intMinConstraint
+
+instance OrdFL (IntegerFL FL) where
+  (>=#) = primitiveOrd2 (P.>=) integerGeqConstraint
+  (<=#) = primitiveOrd2 (P.<=) integerLeqConstraint
+  (>#)  = primitiveOrd2 (P.>)  integerGtConstraint
+  (<#)  = primitiveOrd2 (P.<)  integerLtConstraint
+  maxFL = primitive2    P.max  integerMaxConstraint
+  minFL = primitive2    P.min  integerMinConstraint
+
+instance OrdFL (FloatFL FL) where
+  (>=#) = primitiveOrd2 (P.>=) floatGeqConstraint
+  (<=#) = primitiveOrd2 (P.<=) floatLeqConstraint
+  (>#)  = primitiveOrd2 (P.>)  floatGtConstraint
+  (<#)  = primitiveOrd2 (P.<)  floatLtConstraint
+  maxFL = primitive2    P.max  floatMaxConstraint
+  minFL = primitive2    P.min  floatMinConstraint
+
+instance OrdFL (DoubleFL FL) where
+  (>=#) = primitiveOrd2 (P.>=) doubleGeqConstraint
+  (<=#) = primitiveOrd2 (P.<=) doubleLeqConstraint
+  (>#)  = primitiveOrd2 (P.>)  doubleGtConstraint
+  (<#)  = primitiveOrd2 (P.<)  doubleLtConstraint
+  maxFL = primitive2    P.max  doubleMaxConstraint
+  minFL = primitive2    P.min  doubleMinConstraint
+
+instance OrdFL (CharFL FL) where
+  (>=#) = primitiveOrd2 (P.>=) charGeqConstraint
+  (<=#) = primitiveOrd2 (P.<=) charLeqConstraint
+  (>#)  = primitiveOrd2 (P.>)  charGtConstraint
+  (<#)  = primitiveOrd2 (P.<)  charLtConstraint
+  maxFL = primitive2    P.max  charMaxConstraint
+  minFL = primitive2    P.min  charMinConstraint
+
+instance OrdFL a => OrdFL (ListFL FL a) where
   compareFL = returnFLF $ \x -> returnFLF $ \y ->
-    x P.>>= \x' ->
-      y P.>>= \y' -> case (x', y') of
-        (NilFL, NilFL) -> P.return EQ
-        (NilFL, ConsFL _ _) -> P.return LT
-        (ConsFL _ _, NilFL) -> P.return GT
-        (ConsFL a as, ConsFL b bs) ->
-          compareFL `appFL` a `appFL` b P.>>= \case
-            EQ -> compareFL `appFL` as `appFL` bs
-            o -> P.return o
-
-instance (OrdFL a, OrdFL b) => OrdFL (Tuple2FL a b) where
-  compareFL = returnFLF $ \x -> returnFLF $ \y ->
-    x P.>>= \x' ->
-      y P.>>= \y' -> case (x', y') of
-        (Tuple2FL a1 b1, Tuple2FL a2 b2) ->
-          compareFL `appFL` a1 `appFL` a2 P.>>= \case
-            EQ -> compareFL `appFL` b1 `appFL` b2
-            o -> P.return o
+    x P.>>= \x' -> y P.>>= \y' -> case (x', y') of
+      (NilFL      , NilFL      ) -> P.return EQFL
+      (NilFL      , ConsFL _ _ ) -> P.return LTFL
+      (ConsFL _ _ , NilFL      ) -> P.return GTFL
+      (ConsFL a as, ConsFL b bs) -> apply2FL compareFL a b P.>>= \case
+        EQFL -> apply2FL compareFL as bs
+        o  -> P.return o
 
 -- * Lifted Num type class, instances and functions
 
-type instance Lifted P.Num = NumFL
-
+type instance Lifted FL P.Num = NumFL
+type instance Lifted FL (P.Num f) = NumFL (Lifted FL f)
 -- | Lifted Num type class
 class NumFL a where
-  (+#) :: FL (a --> a --> a)
-  (-#) :: FL (a --> a --> a)
+  (+#) :: FL (a :--> a :--> a)
+  (-#) :: FL (a :--> a :--> a)
   (-#) = returnFLF $ \a -> returnFLF $ \b ->
     (+#) `appFL` a `appFL` (negateFL `appFL` b)
-  (*#) :: FL (a --> a --> a)
-  negateFL :: FL (a --> a)
-  negateFL = returnFLF $ \a ->
-    (-#) `appFL` (fromIntegerFL `appFL` P.return 1) `appFL` a
-  absFL :: FL (a --> a)
-  signumFL :: FL (a --> a)
-  fromIntegerFL :: FL (IntegerFL --> a)
+  (*#) :: FL (a :--> a :--> a)
+  negateFL :: FL (a :--> a)
+  negateFL = returnFLF $ \a -> (-#) `appFL` (fromIntegerFL `appFL` toFL 0) `appFL` a
+  absFL    :: FL (a :--> a)
+  signumFL :: FL (a :--> a)
+  fromIntegerFL :: FL (IntegerFL FL :--> a)
+
+instance NumFL (IntFL FL) where
+  (+#) = primitive2 (P.+) intPlusConstraint
+  (-#) = primitive2 (P.-) intMinusConstraint
+  (*#) = primitive2 (P.*) intMulConstraint
+  negateFL = primitive1 P.negate intNegateConstraint
+  absFL    = primitive1 P.abs    intAbsConstraint
+  signumFL = primitive1 P.signum intSignumConstraint
+  fromIntegerFL = liftFL1Convert P.fromInteger --TODO:
+
+instance NumFL (IntegerFL FL) where
+  (+#) = primitive2 (P.+) integerPlusConstraint
+  (-#) = primitive2 (P.-) integerMinusConstraint
+  (*#) = primitive2 (P.*) integerMulConstraint
+  negateFL = primitive1 P.negate integerNegateConstraint
+  absFL    = primitive1 P.abs    integerAbsConstraint
+  signumFL = primitive1 P.signum integerSignumConstraint
+  fromIntegerFL = returnFLF P.id
+
+instance NumFL (FloatFL FL) where
+  (+#) = primitive2 (P.+) floatPlusConstraint
+  (-#) = primitive2 (P.-) floatMinusConstraint
+  (*#) = primitive2 (P.*) floatMulConstraint
+  negateFL = primitive1 P.negate floatNegateConstraint
+  absFL    = primitive1 P.abs    floatAbsConstraint
+  signumFL = primitive1 P.signum floatSignumConstraint
+  fromIntegerFL = liftFL1Convert P.fromInteger
+
+instance NumFL (DoubleFL FL) where
+  (+#) = primitive2 (P.+) doublePlusConstraint
+  (-#) = primitive2 (P.-) doubleMinusConstraint
+  (*#) = primitive2 (P.*) doubleMulConstraint
+  negateFL = primitive1 P.negate doubleNegateConstraint
+  absFL    = primitive1 P.abs    doubleAbsConstraint
+  signumFL = primitive1 P.signum doubleSignumConstraint
+  fromIntegerFL = liftFL1Convert P.fromInteger
+-- * Lifted Fractional type class, instances and functions
+
+type instance Lifted FL P.Fractional = FractionalFL
+type instance Lifted FL (P.Fractional f) = FractionalFL (Lifted FL f)
+-- | Lifted Fractional type class
+class NumFL a => FractionalFL a where
+  {-# MINIMAL fromRationalFL, (recipFL | (/#)) #-}
+
+  (/#) :: FL (a :--> a :--> a)
+  (/#) = returnFLF $ \x -> returnFLF $ \y -> apply2FL (*#) x  (recipFL `appFL` y)
+
+  recipFL :: FL (a :--> a)
+  recipFL = returnFLF $ \x -> apply2FL (/#) (fromIntegerFL `appFL` toFL 1) x
+
+  fromRationalFL :: FL (RationalFL FL :--> a)
+
+instance FractionalFL (FloatFL FL) where
+  (/#) = primitive2 (P./) floatDivConstraint
+  fromRationalFL = liftFL1Convert P.fromRational
+
+instance FractionalFL (DoubleFL FL) where
+  (/#) = primitive2 (P./) doubleDivConstraint
+  fromRationalFL = liftFL1Convert P.fromRational
 
 -- * Lifted Real type class, instances and functions
 
-type instance Lifted P.Real = RealFL
-
+type instance Lifted FL P.Real = RealFL
+type instance Lifted FL (P.Real f) = RealFL (Lifted FL f)
 -- | Lifted Real type class
 class (NumFL a, OrdFL a) => RealFL a where
-  toRationalFL :: FL (a --> RationalFL)
+  toRationalFL :: FL (a :--> RationalFL FL)
 
-instance RealFL IntFL where
-  toRationalFL = returnFLF $ \x -> P.return ((toIntegerFL `appFL` x ) :% P.return 1)
+instance RealFL (IntFL FL) where
+  toRationalFL = liftFL1Convert P.toRational
 
-instance RealFL IntegerFL where
-  toRationalFL = returnFLF $ \x -> P.return (x :% P.return 1)
+instance RealFL (IntegerFL FL) where
+  toRationalFL = liftFL1Convert P.toRational
+
+instance RealFL (FloatFL FL) where
+  toRationalFL = liftFL1Convert P.toRational
+
+instance RealFL (DoubleFL FL) where
+  toRationalFL = liftFL1Convert P.toRational
 
 -- * Lifted Integral type class, instances and functions
 
-type instance Lifted P.Integral = IntegralFL
-
+type instance Lifted FL P.Integral = IntegralFL
+type instance Lifted FL (P.Integral f) = IntegralFL (Lifted FL f)
+-- | Lifted Integral type class
 class (RealFL a, EnumFL a) => IntegralFL a where
-  quotFL :: FL (a --> a --> a)
-  remFL  :: FL (a --> a --> a)
-  divFL  :: FL (a --> a --> a)
-  modFL  :: FL (a --> a --> a)
-  quotRemFL :: FL (a --> a --> Tuple2FL a a)
-  divModFL  :: FL (a --> a --> Tuple2FL a a)
-  toIntegerFL :: FL (a --> IntegerFL)
+  quotFL      :: FL (a :--> a :--> a)
+  remFL       :: FL (a :--> a :--> a)
+  divFL       :: FL (a :--> a :--> a)
+  modFL       :: FL (a :--> a :--> a)
+  quotRemFL   :: FL (a :--> a :--> Tuple2FL FL a a)
+  divModFL    :: FL (a :--> a :--> Tuple2FL FL a a)
+  toIntegerFL :: FL (a :--> IntegerFL FL)
 
-  quotFL   = returnFLF $ \n -> returnFLF $ \d -> fstFL `appFL` (quotRemFL `appFL` n `appFL` d)
-  remFL    = returnFLF $ \n -> returnFLF $ \d -> sndFL `appFL` (quotRemFL `appFL` n `appFL` d)
-  divFL    = returnFLF $ \n -> returnFLF $ \d -> fstFL `appFL` (divModFL `appFL` n `appFL` d)
-  modFL    = returnFLF $ \n -> returnFLF $ \d -> sndFL `appFL` (divModFL `appFL` n `appFL` d)
+  quotFL   = returnFLF $ \n -> returnFLF $ \d -> fstFL `appFL` apply2FL quotRemFL n d
+  remFL    = returnFLF $ \n -> returnFLF $ \d -> sndFL `appFL` apply2FL quotRemFL n d
+  divFL    = returnFLF $ \n -> returnFLF $ \d -> fstFL `appFL` apply2FL divModFL n d
+  modFL    = returnFLF $ \n -> returnFLF $ \d -> sndFL `appFL` apply2FL divModFL n d
 
-  divModFL = returnFLF $ \n -> returnFLF $ \d ->
-    let qr = quotRemFL `appFL` n `appFL` d
-        q = fstFL `appFL` qr
-        r = sndFL `appFL` qr
-    in ((==#) `appFL` (signumFL `appFL` r) `appFL` (negateFL `appFL` (signumFL `appFL` d))) P.>>= \case
-          True  -> P.return $ Tuple2FL ((-#) `appFL` q `appFL` (fromIntegerFL `appFL` P.return 1)) ((+#) `appFL` r `appFL` d)
-          False -> qr
+  divModFL = returnFLF $ \n -> returnFLF $ \d' -> share d' P.>>= \d ->
+    share (apply2FL quotRemFL n d) P.>>= \qr ->
+    qr P.>>= \(Tuple2FL q r') -> share r' P.>>= \r -> apply2FL (==#) (signumFL `appFL` r)
+                                                               (negateFL `appFL` (signumFL `appFL` d))
+       P.>>= \case
+         TrueFL -> P.return (Tuple2FL (apply2FL (-#) q
+                                 (fromIntegerFL `appFL` toFL 1))
+                                 (apply2FL (+#) r d))
+         FalseFL -> qr
 
-instance IntegralFL IntFL where
-  quotFL = primitive2 P.quot sQuot
-  remFL  = primitive2 P.rem sRem
-  divFL  = primitive2 P.div sDiv
-  modFL  = primitive2 P.mod sMod
+instance IntegralFL (IntFL FL) where
+  quotFL      = primitive2     P.quot      intQuotConstraint
+  remFL       = primitive2     P.rem       intRemConstraint
+  divFL       = primitive2     P.div       intDivConstraint
+  modFL       = primitive2     P.mod       intModConstraint
+  divModFL    = primitive2Pair P.divMod    P.undefined
+  quotRemFL   = primitive2Pair P.quotRem   P.undefined
+  toIntegerFL = liftFL1Convert P.toInteger --TODO: constraint
 
-  divModFL = returnFLF $ \x -> returnFLF $ \y ->
-    P.return (Tuple2FL (divFL `appFL` x `appFL` y) (modFL `appFL` x `appFL` y))
-
-  quotRemFL = returnFLF $ \x -> returnFLF $ \y ->
-    P.return (Tuple2FL (quotFL `appFL` x `appFL` y) (remFL `appFL` x `appFL` y))
-
-  toIntegerFL = liftFL1 P.toInteger
-
-instance IntegralFL IntegerFL where
-  quotFL = primitive2 P.quot sQuot
-  remFL  = primitive2 P.rem sRem
-  divFL  = primitive2 P.div sDiv
-  modFL  = primitive2 P.mod sMod
-
-  divModFL = returnFLF $ \x -> returnFLF $ \y ->
-    P.return (Tuple2FL (divFL `appFL` x `appFL` y) (modFL `appFL` x `appFL` y))
-
-  quotRemFL = returnFLF $ \x -> returnFLF $ \y ->
-    P.return (Tuple2FL (quotFL `appFL` x `appFL` y) (remFL `appFL` x `appFL` y))
-
-  toIntegerFL = idFL
+instance IntegralFL (IntegerFL FL) where
+  quotFL      = primitive2     P.quot    integerQuotConstraint
+  remFL       = primitive2     P.rem     integerRemConstraint
+  divFL       = primitive2     P.div     integerDivConstraint
+  modFL       = primitive2     P.mod     integerModConstraint
+  divModFL    = primitive2Pair P.divMod  P.undefined
+  quotRemFL   = primitive2Pair P.quotRem P.undefined
+  toIntegerFL = returnFLF P.id
 
 -- * Lifted Monad & Co type classes and instances
 
-type instance Lifted P.Functor = FunctorFL
-
 infixl 1 >>=#, >>#
-
 infixl 4 <$#, <*#, *>#, <*>#
 
+type instance Lifted FL P.Functor = FunctorFL
+type instance Lifted FL (P.Functor f) = FunctorFL (Lifted FL f)
 -- | Lifted Functor type class
 class FunctorFL f where
-  fmapFL :: FL ((a --> b) --> f a --> f b)
-  (<$#) :: FL (a --> f b --> f a)
+  fmapFL :: forall a b. FL ((a :--> b) :--> f a :--> f b)
+  (<$#) :: forall a b. FL (a :--> f b :--> f a)
   (<$#) = returnFLF $ \a -> returnFLF $ \f ->
-    Plugin.BuiltIn.fmapFL `appFL` (constFL `appFL` a) `appFL` f
+    apply2FL fmapFL (constFL `appFL` a) f
 
-instance FunctorFL (Tuple2FL a) where
-  fmapFL = returnFLF $ \f -> returnFLF $ \t ->
-    t P.>>= \case
-      Tuple2FL a b -> P.return (Tuple2FL a (f `appFL` b))
+instance FunctorFL (ListFL FL) where
+  fmapFL = returnFLF $ \f' -> share f' P.>>= \f -> returnFLF $ \l -> l P.>>= \case
+    NilFL       -> P.return NilFL
+    ConsFL x xs -> P.return (ConsFL (f `appFL` x) (apply2FL fmapFL f xs))
 
-instance FunctorFL ListFL where
-  fmapFL = returnFLF $ \f -> returnFLF $ \l ->
-    l P.>>= \case
-      NilFL -> P.return NilFL
-      ConsFL x xs -> P.return (ConsFL (f `appFL` x) (Plugin.BuiltIn.fmapFL `appFL` f `appFL` xs))
+(<$>#) :: forall f a b. FunctorFL f
+       => FL ((a :--> b) :--> (f a :--> f b))
+(<$>#) = fmapFL
 
-type instance Lifted P.Applicative = ApplicativeFL
-
+type instance Lifted FL P.Applicative = ApplicativeFL
+type instance Lifted FL (P.Applicative f) = ApplicativeFL (Lifted FL f)
 -- | Lifted Applicative type class
 class FunctorFL f => ApplicativeFL f where
-  pureFL :: FL (a --> f a)
+  pureFL :: forall a. FL (a :--> f a)
 
-  (<*>#) :: FL (f (a --> b) --> f a --> f b)
+  (<*>#) :: forall a b. FL (f (a :--> b) :--> f a :--> f b)
   (<*>#) = returnFLF $ \f -> returnFLF $ \a ->
-    liftA2FL `appFL` idFL `appFL` f `appFL` a
+    apply3FL liftA2FL (liftFL1 P.id) f a
 
-  liftA2FL :: FL ((a --> b --> c) --> f a --> f b --> f c)
+  liftA2FL :: forall a b c. FL ((a :--> b :--> c) :--> f a :--> f b :--> f c)
   liftA2FL = returnFLF $ \f -> returnFLF $ \a -> returnFLF $ \b ->
-    (<*>#) `appFL` (Plugin.BuiltIn.fmapFL `appFL` f `appFL` a) `appFL` b
+    apply2FL (<*>#) (apply2FL fmapFL f a) b
 
-  (*>#) :: FL (f a --> f b --> f b)
+  (*>#) :: forall a b. FL (f a :--> f b :--> f b)
   (*>#) = returnFLF $ \a -> returnFLF $ \b ->
-    liftA2FL `appFL` (constFL `appFL` idFL) `appFL` a `appFL` b
+    apply3FL liftA2FL (liftFL2 (P.const P.id)) a b
 
-  (<*#) :: FL (f a --> f b --> f a)
+  (<*#) :: forall a b. FL (f a :--> f b :--> f a)
   (<*#) = returnFLF $ \a -> returnFLF $ \b ->
-    liftA2FL `appFL` constFL `appFL` a `appFL` b
+    apply3FL liftA2FL constFL a b
   {-# MINIMAL pureFL, ((<*>#) | liftA2FL) #-}
 
-instance ApplicativeFL ListFL where
+instance ApplicativeFL (ListFL FL) where
   pureFL = returnFLF $ \a -> P.return (ConsFL a (P.return NilFL))
   (<*>#) = returnFLF $ \fs -> returnFLF $ \as ->
-    concatMapFL
-      `appFL` returnFLF (\a -> Plugin.BuiltIn.fmapFL `appFL` returnFLF (`appFL` a) `appFL` fs)
-      `appFL` as
+    apply2FL concatMapFL (returnFLF $ \a ->
+    apply2FL fmapFL      (returnFLF $ \f -> f `appFL` a) fs) as
 
--- | Lifted smart constructor for 'Cons'
-cons :: FL (a --> ListFL a --> ListFL a)
-cons = returnFLF $ \a -> returnFLF $ \as -> P.return (ConsFL a as)
-
-type instance Lifted P.Alternative = AlternativeFL
-
+type instance Lifted FL P.Alternative = AlternativeFL
+type instance Lifted FL (P.Alternative f) = AlternativeFL (Lifted FL f)
 -- | Lifted Alternative type class
 class ApplicativeFL f => AlternativeFL f where
-  emptyFL :: FL (f a)
-  (<|>#) :: FL (f a --> f a --> f a)
-  someFL :: FL (f a --> f (ListFL a))
-  someFL = returnFLF $ \v ->
-    let many_v = (<|>#) `appFL` some_v `appFL` (pureFL `appFL` P.return NilFL)
-        some_v = liftA2FL `appFL` cons `appFL` v `appFL` many_v
-     in some_v
-  manyFL :: FL (f a --> f (ListFL a))
-  manyFL = returnFLF $ \v ->
-    let many_v = (<|>#) `appFL` some_v `appFL` (pureFL `appFL` P.return NilFL)
-        some_v = liftA2FL `appFL` cons `appFL` v `appFL` many_v
-     in many_v
+  emptyFL :: forall a. FL (f a)
+  (<|>#) :: forall a. FL (f a :--> f a :--> f a)
+  someFL  :: forall a. FL (f a :--> f (ListFL FL a))
+  someFL = returnFLF $ \v' -> share v' P.>>= \v ->
+    let many_v = apply2FL (<|>#) some_v (pureFL `appFL` P.return NilFL)
+        some_v = apply3FL liftA2FL consFL v many_v
+        consFL = returnFLF $ \x -> returnFLF $ \y -> P.return (ConsFL x y)
+    in some_v
+  manyFL  :: forall a. FL (f a :--> f (ListFL FL a))
+  manyFL = returnFLF $ \v' -> share v' P.>>= \v ->
+    let many_v = apply2FL (<|>#) some_v (pureFL `appFL` P.return NilFL)
+        some_v = apply3FL liftA2FL consFL v many_v
+        consFL = returnFLF $ \x -> returnFLF $ \y -> P.return (ConsFL x y)
+    in many_v
 
-instance AlternativeFL ListFL where
+instance AlternativeFL (ListFL FL) where
   emptyFL = P.return NilFL
-  (<|>#) = appendFL
+  (<|>#) = (++#)
 
-type instance Lifted P.Monad = MonadFL
 
+type instance Lifted FL P.Monad = MonadFL
+type instance Lifted FL (P.Monad f) = MonadFL (Lifted FL f)
 -- | Lifted Monad type class
 class ApplicativeFL m => MonadFL m where
-  (>>=#) :: FL (m a --> (a --> m b) --> m b)
-  (>>#) :: FL (m a --> m b --> m b)
+  (>>=#) :: forall a b. FL (m a :--> (a :--> m b) :--> m b)
+  (>>#)  :: forall a b. FL (m a :--> m b :--> m b)
   (>>#) = returnFLF $ \a -> returnFLF $ \b ->
-    (>>=#) `appFL` a `appFL` returnFLF (P.const b)
-  returnFL :: FL (a --> m a)
+    apply2FL (>>=#) a (returnFLF (P.const b))
+  returnFL :: forall a. FL (a :--> m a)
   returnFL = pureFL
   {-# MINIMAL (>>=#) #-}
 
-instance MonadFL ListFL where
-  (>>=#) = returnFLF $ \a -> returnFLF $ \f ->
-    a P.>>= \case
-      NilFL -> P.return NilFL
-      ConsFL x xs -> appendFL `appFL` (f `appFL` x) `appFL` ((>>=#) `appFL` xs `appFL` f)
+instance MonadFL (ListFL FL) where
+  (>>=#) = returnFLF $ \a -> returnFLF $ \f' -> share f' P.>>= \f -> a P.>>= \case
+    NilFL       -> P.return NilFL
+    ConsFL x xs -> apply2FL (++#) (f `appFL` x) (apply2FL (>>=#) xs f)
 
-type instance Lifted P.MonadFail = MonadFailFL
-
+type instance Lifted FL P.MonadFail = MonadFailFL
+type instance Lifted FL (P.MonadFail f) = MonadFailFL (Lifted FL f)
 -- | Lifted MonadFail type class
 class MonadFL m => MonadFailFL m where
-  failFL :: FL (StringFL --> m a)
+  failFL :: forall a. FL (StringFL FL :--> m a)
 
-instance MonadFailFL ListFL where
+instance MonadFailFL (ListFL FL) where
   failFL = returnFLF $ \_ -> P.return NilFL
 
 -- * Lifted Enum type class, instances and functions
 
+type instance Lifted FL P.Enum = EnumFL
+type instance Lifted FL (P.Enum f) = EnumFL (Lifted FL f)
+-- | Lifted Enum type class
 class EnumFL a where
-    succFL           :: FL (a --> a)
-    predFL           :: FL (a --> a)
-    toEnumFL         :: FL (IntFL --> a)
-    fromEnumFL       :: FL (a --> IntFL)
-    enumFromFL       :: FL (a --> ListFL a)
-    enumFromThenFL   :: FL (a --> a --> ListFL a)
-    enumFromToFL     :: FL (a --> a --> ListFL a)
-    enumFromThenToFL :: FL (a --> a --> a --> ListFL a)
+  succFL :: FL (a :--> a)
+  succFL = returnFLF $ \a ->
+    toEnumFL `appFL` apply2FL (+#) (toFL 1) (fromEnumFL `appFL` a)
+  predFL :: FL (a :--> a)
+  predFL = returnFLF $ \a ->
+    toEnumFL `appFL` apply2FL (-#) (toFL 1) (fromEnumFL `appFL` a)
 
-    succFL = returnFLF (\x -> toEnumFL `appFL` ((+#) `appFL` P.return 1 `appFL` (fromEnumFL `appFL` x)))
+  toEnumFL   :: FL (IntFL FL :--> a)
+  fromEnumFL :: FL (a :--> IntFL FL)
 
-    predFL = returnFLF (\x -> toEnumFL `appFL` ((-#) `appFL` (fromEnumFL `appFL` x) `appFL` P.return 1))
+  enumFromFL       :: FL (a               :--> ListFL FL a)
+  enumFromFL       = returnFLF $ \x1 ->
+    apply2FL mapFLNoShare toEnumFL (enumFromFL `appFL`
+      (fromEnumFL `appFL` x1))
 
-    enumFromFL = returnFLF (\x -> mapFL `appFL` toEnumFL `appFL` (enumFromFL `appFL` (fromEnumFL `appFL` x)))
+  enumFromThenFL   :: FL (a :--> a        :--> ListFL FL a)
+  enumFromThenFL   = returnFLF $ \x1 -> returnFLF $ \x2 ->
+    apply2FL mapFLNoShare toEnumFL (apply2FL enumFromThenFL
+      (fromEnumFL `appFL` x1) (fromEnumFL `appFL` x2))
 
-    enumFromThenFL = returnFLF (\x -> returnFLF (\y -> mapFL `appFL` toEnumFL `appFL`
-      (enumFromThenFL `appFL` (fromEnumFL `appFL` x) `appFL` (fromEnumFL `appFL` y))))
+  enumFromToFL     :: FL (a        :--> a :--> ListFL FL a)
+  enumFromToFL     = returnFLF $ \x1 ->                   returnFLF $ \x3 ->
+    apply2FL mapFLNoShare toEnumFL (apply2FL enumFromToFL
+      (fromEnumFL `appFL` x1)                         (fromEnumFL `appFL` x3))
 
-    enumFromToFL = returnFLF (\x -> returnFLF (\y -> mapFL `appFL` toEnumFL `appFL`
-      (enumFromToFL `appFL` (fromEnumFL `appFL` x) `appFL` (fromEnumFL `appFL` y))))
+  enumFromThenToFL :: FL (a :--> a :--> a :--> ListFL FL a)
+  enumFromThenToFL = returnFLF $ \x1 -> returnFLF $ \x2 -> returnFLF $ \x3 ->
+    apply2FL mapFLNoShare toEnumFL (apply3FL enumFromThenToFL
+      (fromEnumFL `appFL` x1) (fromEnumFL `appFL` x2) (fromEnumFL `appFL` x3))
 
-    enumFromThenToFL = returnFLF (\x -> returnFLF (\y -> returnFLF (\z -> mapFL `appFL` toEnumFL `appFL`
-      (enumFromThenToFL `appFL` (fromEnumFL `appFL` x) `appFL` (fromEnumFL `appFL` y) `appFL` (fromEnumFL `appFL` z)))))
+instance EnumFL (IntFL FL) where
+  succFL = (+#) `appFL` toFL 1
+  predFL = (-#) `appFL` toFL 1
+
+  toEnumFL   = returnFLF P.id
+  fromEnumFL = returnFLF P.id
+
+  enumFromFL = returnFLF $ \x1 ->
+    x1 P.>>= \(IntFL v1) ->
+    toFL (P.map P.fromIntegral (P.enumFrom v1))
+
+  enumFromThenFL = returnFLF $ \x1 -> returnFLF $ \x2 ->
+    x1 P.>>= \(IntFL v1) -> x2 P.>>= \(IntFL v2) ->
+    toFL (P.map P.fromIntegral (P.enumFromThen v1 v2))
+
+  enumFromToFL = returnFLF $ \x1 -> returnFLF $ \x3 ->
+    x1 P.>>= \(IntFL v1) -> x3 P.>>= \(IntFL v3) ->
+    toFL (P.map P.fromIntegral (P.enumFromTo v1 v3))
+
+  enumFromThenToFL = returnFLF $ \x1 -> returnFLF $ \x2 -> returnFLF $ \x3 ->
+    x1 P.>>= \(IntFL v1) -> x2 P.>>= \(IntFL v2) -> x3 P.>>= \(IntFL v3) ->
+    toFL (P.map P.fromIntegral (P.enumFromThenTo v1 v2 v3))
+
+instance EnumFL (IntegerFL FL) where
+  succFL = (+#) `appFL` toFL 1
+  predFL = (-#) `appFL` toFL 1
+
+  toEnumFL   = toIntegerFL
+  fromEnumFL = fromIntegerFL
+
+  enumFromFL = returnFLF $ \x1 ->
+    x1 P.>>= \(IntegerFL v1) ->
+    toFL (P.enumFrom v1)
+
+  enumFromThenFL = returnFLF $ \x1 -> returnFLF $ \x2 ->
+    x1 P.>>= \(IntegerFL v1) -> x2 P.>>= \(IntegerFL v2) ->
+    toFL (P.enumFromThen v1 v2)
+
+  enumFromToFL = returnFLF $ \x1 -> returnFLF $ \x3 ->
+    x1 P.>>= \(IntegerFL v1) -> x3 P.>>= \(IntegerFL v3) ->
+    toFL (P.enumFromTo v1 v3)
+
+  enumFromThenToFL = returnFLF $ \x1 -> returnFLF $ \x2 -> returnFLF $ \x3 ->
+    x1 P.>>= \(IntegerFL v1) -> x2 P.>>= \(IntegerFL v2) -> x3 P.>>= \(IntegerFL v3) ->
+    toFL (P.enumFromThenTo v1 v2 v3)
 
 -- * Lifted Bounded type class, instances and functions
 
-type instance Lifted P.Bounded = BoundedFL
-
+type instance Lifted FL P.Bounded = BoundedFL
+type instance Lifted FL (P.Bounded f) = BoundedFL (Lifted FL f)
 -- | Lifted Bounded type class
 class BoundedFL a where
   minBoundFL :: FL a
   maxBoundFL :: FL a
 
-instance BoundedFL () where
-  minBoundFL = P.return ()
-  maxBoundFL = P.return ()
+instance BoundedFL (IntFL FL) where
+  minBoundFL = toFL P.minBound
+  maxBoundFL = toFL P.maxBound
 
-instance BoundedFL BoolFL where
-  minBoundFL = P.return False
-  maxBoundFL = P.return True
-
+type instance Lifted FL P.IsString = IsStringFL
+type instance Lifted FL (P.IsString f) = IsStringFL (Lifted FL f)
 class IsStringFL a where
-  fromStringFL :: FL (StringFL --> a)
+  fromStringFL :: FL (StringFL FL :--> a)
 
-instance (a ~ CharFL) => IsStringFL (ListFL a) where
+instance (a ~ CharFL FL) => IsStringFL (ListFL FL a) where
   fromStringFL = returnFLF P.id
 
-instance EqFL CharFL where
-  (==#) = primitiveOrd2 (P.==) (.===)
-  (/=#) = primitiveOrd2 (P./=) (./==)
+primitive1 :: HasPrimitiveInfo (Lifted FL b) => (a -> b) -> P.Maybe (FLVal (Lifted FL a) -> FLVal (Lifted FL b) -> Constraint) -> FL (Lifted FL a :--> Lifted FL b)
+primitive1 f mConstraint = returnFLF $ \x ->
+  case mConstraint of
+    P.Just constraint -> FL $
+      resolveFL x P.>>= \case
+        Val a -> unFL $ P.return (coerce (f (coerce a)))
+        HaskellVal a -> unFL $ P.return (coerce (f (unsafeCoerce a)))
+        x'    -> do
+          j <- freshVarID
+          assertConstraintND (constraint x' (Var j)) (j: varOf x')
+          -- Consistency not necessary, see comment in primitive2
+          P.return (Var j)
+            where
+              varOf (Var i) = [i]
+              varOf _       = [] --TODO: auslagern und wiederverwenden
+    P.Nothing         -> x P.>>= \a -> P.return (coerce (f (coerce a))) --TODO: unFL überall im Nothing-Branch
 
-instance OrdFL CharFL where
-  (>=#) = primitiveOrd2 (P.>=) (.>=)
-  (<=#) = primitiveOrd2 (P.<=) (.<=)
-  (>#) = primitiveOrd2 (P.>) (.>)
-  (<#) = primitiveOrd2 (P.<) (.<)
-
-withFLVal :: ND FLState (FLVal a) -> (FLVal a -> ND FLState b) -> ND FLState b
-withFLVal nd f = nd P.>>= \case
-  Var i -> S.get P.>>= \FLState {..} -> f (P.maybe (Var i) Val $ findBinding i heap)
-  Val a -> f (Val a)
-
-primitive1 :: ( SymVal a, Narrowable a, HasPrimitiveInfo a
-              , SymVal b, Narrowable b, HasPrimitiveInfo b)
-           => (a -> b) -> (SBV a -> SBV b) -> FL (a --> b)
-primitive1 f sF = returnFLF $ \x ->
-  FL $
-    unFL x `withFLVal` \case
-      Val a -> unFL $ returnFL' (f a)
-      x'    -> do
-        j <- freshIdentifierND
-        assertConstraintND (toSBV (Var j) .=== sF (toSBV x')) (j : varOf x')
-        -- Consistency not necessary, see comment in primitive2
-        P.return (Var j)
-        where
-          varOf (Var i) = [i]
-          varOf _       = []
-
-primitive2 :: ( SymVal a, Narrowable a, HasPrimitiveInfo a
-              , SymVal b, Narrowable b, HasPrimitiveInfo b
-              , SymVal c, Narrowable c, HasPrimitiveInfo c)
-           => (a -> b -> c) -> (SBV a -> SBV b -> SBV c) -> FL (a --> b --> c)
-primitive2 op sOp = returnFLF $ \x -> returnFLF $ \y ->
-  FL $
-    unFL x `withFLVal` \x' ->
-      unFL y `withFLVal` \y' ->
+--TODO: aufräumen
+primitive2 :: HasPrimitiveInfo (Lifted FL c) => (a -> b -> c) -> P.Maybe (FLVal (Lifted FL a) -> FLVal (Lifted FL b) -> FLVal (Lifted FL c) -> Constraint) -> FL (Lifted FL a :--> Lifted FL b :--> Lifted FL c)
+primitive2 op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
+  case mConstraint of
+    P.Just constraint -> FL $
+      resolveFL x P.>>= \x' -> resolveFL y P.>>= \y' ->
         case (# x', y' #) of
-          (# Val a, Val b #) -> unFL $ returnFL' (a `op` b)
+          (# Val a, Val b #) -> unFL $ P.return $ coerce (coerce a `op` coerce b)
+          (# Val a, HaskellVal b #) -> unFL $ P.return $ coerce (coerce a `op` unsafeCoerce b)
+          (# HaskellVal a, Val b #) -> unFL $ P.return $ coerce (unsafeCoerce a `op` coerce b)
+          (# HaskellVal a, HaskellVal b #) -> unFL $ P.return $ coerce (unsafeCoerce a `op` unsafeCoerce b)
+          --TODO:
           _                  -> do
-            j <- freshIdentifierND
-            assertConstraintND (toSBV (Var j) .=== toSBV x' `sOp` toSBV y') (j : varsOf x' y')
+            j <- freshVarID
+            assertConstraintND (constraint x' y' (Var j)) (j : varsOf x' y')
             -- Diss: Checking consistency is unnecessary, because "j" is fresh.
             -- However, it is important to enter x and y in the set of constrained vars, because
             -- they might get constrained indirectly via "j". Example:
@@ -752,278 +1611,62 @@ primitive2 op sOp = returnFLF $ \x -> returnFLF $ \y ->
             where
               varsOf x'' y'' = varOf x'' P.++ varOf y''
               varOf (Var i) = [i]
-              varOf _       = []
+              varOf _       = [] --TODO: auslagern und wiederverwenden
+    P.Nothing         -> x P.>>= \a -> y P.>>= \b -> P.return $ coerce (coerce a `op` coerce b)
 
-primitiveOrd2 :: (SymVal a, SymVal b) => (a -> b -> Bool) -> (SBV a -> SBV b -> SBool) -> FL (a --> b --> BoolFL)
-primitiveOrd2 op opS = returnFLF $ \x -> returnFLF $ \y ->
-  FL $
-    unFL x `withFLVal` \x' ->
-      unFL y `withFLVal` \y' ->
-        unFL $ case (# x', y' #) of
-          (# Val a, Val b #) -> P.return (a `op` b)
-          _                  -> FL $ (trueBranch P.$> Val True) P.<|> (falseBranch P.$> Val False)
+--TODO: Note on usage, true and false branch are important
+--TODO: Important to mention in the disseration, as the implementation differs from the other constraints!
+--TODO: why are here no convertible, to or from constraints?
+primitiveOrd2 :: (a -> a -> Bool) -> P.Maybe (FLVal (Lifted FL a) -> FLVal (Lifted FL a) -> Constraint) -> FL (Lifted FL a :--> Lifted FL a :--> Lifted FL Bool)
+primitiveOrd2 op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
+  case mConstraint of
+    P.Just constraint -> FL $
+      resolveFL x P.>>= \x' -> resolveFL y P.>>= \y' ->
+        case (# x', y' #) of
+          (# Val a, Val b #) -> unFL $ toFL $ coerce a `op` coerce b
+          (# Val a, HaskellVal b #) -> unFL $ toFL $ coerce a `op` unsafeCoerce b
+          (# HaskellVal a, Val b #) -> unFL $ toFL $ unsafeCoerce a `op` coerce b
+          (# HaskellVal a, HaskellVal b #) -> unFL $ toFL $ unsafeCoerce a `op` unsafeCoerce b
+          _                  -> trueBranch P.<|> falseBranch
             where
               trueBranch = do
-                assertConstraintND (toSBV x' `opS` toSBV y') (varsOf x' y')
+                assertConstraintND (constraint x' y') (varsOf x' y')
                 checkConsistencyND -- DISS: optional, iff x and y were unconstrained
+                P.return (Val TrueFL)
               falseBranch = do
-                assertConstraintND (sNot (toSBV x' `opS` toSBV y')) (varsOf x' y')
+                assertConstraintND (notConstraint (constraint x' y')) (varsOf x' y')
                 checkConsistencyND -- DISS: optional, iff x and y were unconstrained
+                P.return (Val FalseFL)
               varsOf x'' y'' = varOf x'' P.++ varOf y''
               varOf (Var i) = [i]
               varOf _       = []
-
-instance EqFL IntFL where
-  (==#) = primitiveOrd2 (P.==) (.===)
-  (/=#) = primitiveOrd2 (P./=) (./==)
-
-instance OrdFL IntFL where
-  (>=#) = primitiveOrd2 (P.>=) (.>=)
-  (<=#) = primitiveOrd2 (P.<=) (.<=)
-  (>#) = primitiveOrd2 (P.>) (.>)
-  (<#) = primitiveOrd2 (P.<) (.<)
-
-instance NumFL IntFL where
-  (+#) = primitive2 (P.+) (P.+)
-  (*#) = primitive2 (P.*) (P.*)
-  (-#) = primitive2 (P.-) (P.-)
-  negateFL = primitive1 P.negate P.negate
-  absFL = primitive1 P.abs P.abs
-  signumFL = primitive1 P.signum P.signum
-  fromIntegerFL = liftFL1 P.fromInteger
-
-instance EnumFL IntFL where
-  toEnumFL   = idFL
-  fromEnumFL = idFL
-  succFL = returnFLF (\x -> (+#) `appFL` x `appFL` P.return 1)
-  predFL = returnFLF (\x -> (-#) `appFL` x `appFL` P.return 1)
-  enumFromFL = returnFLF (\x -> P.return (ConsFL x (enumFromFL `appFL` (succFL `appFL` x))))
-  enumFromToFL = returnFLF (\x -> returnFLF (\y -> ((>#) `appFL` x `appFL` y) P.>>= \case
-    False -> P.return (ConsFL x (enumFromToFL `appFL` (succFL `appFL` x) `appFL` y))
-    True  -> P.return NilFL))
-  enumFromThenFL = returnFLF (\x -> returnFLF (\y ->
-    iterateFL `appFL` ((+#) `appFL` ((-#) `appFL` y `appFL` x)) `appFL` x))
-  enumFromThenToFL = returnFLF (\x -> returnFLF (\y -> returnFLF (\z ->
-    let
-      test = returnFLF (\x' -> ((>=#) `appFL` y `appFL` x) P.>>= \case
-        False -> (>=#) `appFL` x' `appFL` z
-        True  -> (<=#) `appFL` x' `appFL` z)
-    in takeWhileFL `appFL` test `appFL` (enumFromThenFL `appFL` x `appFL` y))))
-
-instance EqFL IntegerFL where
-  (==#) = primitiveOrd2 (P.==) (.===)
-  (/=#) = primitiveOrd2 (P./=) (./==)
-
-instance OrdFL IntegerFL where
-  (>=#) = primitiveOrd2 (P.>=) (.>=)
-  (<=#) = primitiveOrd2 (P.<=) (.<=)
-  (>#) = primitiveOrd2 (P.>) (.>)
-  (<#) = primitiveOrd2 (P.<) (.<)
-
-instance NumFL IntegerFL where
-  (+#) = primitive2 (P.+) (P.+)
-  (*#) = primitive2 (P.*) (P.*)
-  (-#) = primitive2 (P.-) (P.-)
-  negateFL = primitive1 P.negate P.negate
-  absFL = primitive1 P.abs P.abs
-  signumFL = primitive1 P.signum P.signum
-  fromIntegerFL = idFL
-
-instance EnumFL IntegerFL where
-  toEnumFL   = toIntegerFL
-  fromEnumFL = fromIntegerFL
-  succFL = returnFLF (\x -> (+#) `appFL` x `appFL` P.return 1)
-  predFL = returnFLF (\x -> (-#) `appFL` x `appFL` P.return 1)
-  enumFromFL = returnFLF (\x -> P.return (ConsFL x (enumFromFL `appFL` (succFL `appFL` x))))
-  enumFromToFL = returnFLF (\x -> returnFLF (\y -> ((>#) `appFL` x `appFL` y) P.>>= \case
-    False -> P.return (ConsFL x (enumFromToFL `appFL` (succFL `appFL` x) `appFL` y))
-    True  -> P.return NilFL))
-  enumFromThenFL = returnFLF (\x -> returnFLF (\y ->
-    iterateFL `appFL` ((+#) `appFL` ((-#) `appFL` y `appFL` x)) `appFL` x))
-  enumFromThenToFL = returnFLF (\x -> returnFLF (\y -> returnFLF (\z ->
-    let
-      test = returnFLF (\x' -> ((>=#) `appFL` y `appFL` x) P.>>= \case
-        False -> (>=#) `appFL` x' `appFL` z
-        True  -> (<=#) `appFL` x' `appFL` z)
-    in takeWhileFL `appFL` test `appFL` (enumFromThenFL `appFL` x `appFL` y))))
-
-instance EqFL FloatFL where
-  (==#) = primitiveOrd2 (P.==) (.===)
-  (/=#) = primitiveOrd2 (P./=) (./==)
-
-instance OrdFL FloatFL where
-  (>=#) = primitiveOrd2 (P.>=) (.>=)
-  (<=#) = primitiveOrd2 (P.<=) (.<=)
-  (>#) = primitiveOrd2 (P.>) (.>)
-  (<#) = primitiveOrd2 (P.<) (.<)
-
-instance NumFL FloatFL where
-  (+#) = primitive2 (P.+) (P.+)
-  (*#) = primitive2 (P.*) (P.*)
-  (-#) = primitive2 (P.-) (P.-)
-  negateFL = primitive1 P.negate P.negate
-  absFL = primitive1 P.abs P.abs
-  signumFL = primitive1 P.signum P.signum
-  fromIntegerFL = liftFL1 P.fromInteger
-
-instance EqFL DoubleFL where
-  (==#) = primitiveOrd2 (P.==) (.===)
-  (/=#) = primitiveOrd2 (P./=) (./==)
-
-instance OrdFL DoubleFL where
-  (>=#) = primitiveOrd2 (P.>=) (.>=)
-  (<=#) = primitiveOrd2 (P.<=) (.<=)
-  (>#) = primitiveOrd2 (P.>) (.>)
-  (<#) = primitiveOrd2 (P.<) (.<)
-
-instance NumFL DoubleFL where
-  (+#) = primitive2 (P.+) (P.+)
-  (*#) = primitive2 (P.*) (P.*)
-  (-#) = primitive2 (P.-) (P.-)
-  negateFL = primitive1 P.negate P.negate
-  absFL = primitive1 P.abs P.abs
-  signumFL = primitive1 P.signum P.signum
-  fromIntegerFL = liftFL1 P.fromInteger
-
------------------------------------------------------------------------------------
-
-type BoolFL = Bool
-
-type instance Lifted Bool = BoolFL
-
-instance HasPrimitiveInfo BoolFL
-
-instance Narrowable BoolFL
-
-instance Convertible Bool
-
-instance Matchable Bool
-
-instance NF BoolFL
-
-instance Invertible Bool
-
-type instance Lifted () = ()
-
-instance HasPrimitiveInfo ()
-
-instance Narrowable ()
-
-instance Convertible ()
-
-instance Matchable ()
-
-instance NF ()
-
-instance Invertible ()
-
-type OrderingFL = Ordering
-
-type instance Lifted Ordering = OrderingFL
-
-instance HasPrimitiveInfo OrderingFL
-
-instance Narrowable OrderingFL
-
-instance Convertible Ordering
-
-instance Matchable Ordering
-
-instance NF OrderingFL
-
-instance Invertible Ordering
-
-type IntegerFL = Integer
-
-type instance Lifted Integer = IntegerFL
-
-instance HasPrimitiveInfo IntegerFL where
-  primitiveInfo = Primitive
-
-instance Narrowable IntegerFL where
-  narrow = narrowPrimitive
-
-instance Convertible Integer
-
-instance Matchable Integer
-
-instance NF IntegerFL
-
-instance Invertible Integer
-
-type IntFL = P.Int64
-
-type instance Lifted Int = IntFL
-
-instance HasPrimitiveInfo IntFL where
-  primitiveInfo = Primitive
-
-instance Narrowable IntFL where
-  narrow = narrowPrimitive
-
-instance Convertible Int where
-  to = P.fromIntegral
-  from = P.fromIntegral
-
-instance Matchable Int where
-  match i64 iFL = if iFL P.== P.fromIntegral i64
-    then P.return ()
-    else P.empty
-
-instance NF IntFL
-
-instance Invertible Int
-
-type FloatFL = Float
-
-type instance Lifted Float = FloatFL
-
-instance HasPrimitiveInfo FloatFL where
-  primitiveInfo = Primitive
-
-instance Narrowable FloatFL where
-  narrow = narrowPrimitive
-
-instance Convertible Float
-
-instance Matchable Float
-
-instance NF FloatFL
-
-instance Invertible Float
-
-type DoubleFL = Double
-
-type instance Lifted Double = DoubleFL
-
-instance HasPrimitiveInfo DoubleFL where
-  primitiveInfo = Primitive
-
-instance Narrowable DoubleFL where
-  narrow = narrowPrimitive
-
-instance Convertible Double
-
-instance Matchable Double
-
-instance NF DoubleFL
-
-instance Invertible Double
-
-type CharFL = P.Char
-
-type instance Lifted P.Char = CharFL
-
-instance HasPrimitiveInfo CharFL where
-  primitiveInfo = Primitive
-
-instance Narrowable CharFL where
-  narrow = narrowPrimitive
-
-instance Convertible P.Char
-
-instance Matchable P.Char
-
-instance NF CharFL
-
-instance Invertible P.Char
+    P.Nothing         -> x P.>>= \a -> y P.>>= \b -> P.return $ coerce (coerce a `op` coerce b) --TODO: lift2FL-irgendetwas verwenden
+
+--TODO: Use coerce instead of convertible
+primitive2Pair :: (From a, From b, To c, To d, HasPrimitiveInfo (Lifted FL c), HasPrimitiveInfo  (Lifted FL d)) => (a -> b -> (c, d)) -> P.Maybe (FLVal (Lifted FL a) -> FLVal (Lifted FL b) -> FLVal (Lifted FL c) -> FLVal (Lifted FL d) -> Constraint) -> FL (Lifted FL a :--> Lifted FL b :--> Lifted FL (c, d))
+primitive2Pair op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
+  case mConstraint of
+    P.Just constraint -> FL $
+      resolveFL x P.>>= \x' -> resolveFL y P.>>= \y' ->
+        case (# x', y' #) of
+          (# Val a, Val b #) -> unFL $ toFL $ coerce a `op` coerce b
+          (# Val a, HaskellVal b #) -> unFL $ toFL $ coerce a `op` unsafeCoerce b
+          (# HaskellVal a, Val b #) -> unFL $ toFL $ unsafeCoerce a `op` coerce b
+          (# HaskellVal a, HaskellVal b #) -> unFL $ toFL $ unsafeCoerce a `op` unsafeCoerce b
+          _                  -> do
+            j <- freshVarID
+            k <- freshVarID
+            assertConstraintND (constraint x' y' (Var j) (Var k)) (j : k : varsOf x' y')
+            -- Diss: Checking consistency is unnecessary, because "j" and "k" are fresh.
+            -- However, it is important to enter x and y in the set of constrained vars, because
+            -- they might get constrained indirectly via "j". Example:
+            -- j <- x + y
+            -- j <- 1
+            -- matchFL 9 x
+            -- matchFL 0 y
+            P.return (Val (Tuple2FL (FL $ P.return $ Var j) (FL $ P.return $ Var k)))
+            where
+              varsOf x'' y'' = varOf x'' P.++ varOf y''
+              varOf (Var i) = [i]
+              varOf _       = []
+    P.Nothing         -> apply2FL (liftFL2Convert op) x y

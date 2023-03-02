@@ -13,21 +13,20 @@ module Plugin.Trans.TysWiredIn (loadDefaultTyConMap, builtInModule, maxTupleArit
 import Data.IORef
 import Data.Tuple
 
-import GhcPlugins hiding (int)
-import TcRnTypes
-import TysPrim
-import UniqMap
-import Finder
-import IfaceEnv
-import TcRnMonad
-import PrelNames
+import GHC.Builtin.Names
+import GHC.Builtin.Types.Prim
+import GHC.Iface.Env
+import GHC.Plugins
+import GHC.Tc.Utils.Monad
+import GHC.Types.TyThing
+import GHC.Unit.Finder (FindResult(..), findImportedModule)
 
 import Plugin.Trans.Type
 
 -- | Load the mapping between lifted and unlifted
 -- for all built-in type constructors.
-loadDefaultTyConMap :: TcM (IORef (UniqMap TyCon TyCon,
-                                   UniqMap TyCon TyCon,
+loadDefaultTyConMap :: TcM (IORef (UniqFM TyCon TyCon,
+                                   UniqFM TyCon TyCon,
                                    UniqSet TyCon,
                                    UniqSet TyCon))
 loadDefaultTyConMap = do
@@ -39,21 +38,19 @@ loadDefaultTyConMap = do
   let allLoaded  = others ++ loaded
   let allSwap    = map swap allLoaded
   let (old, new) = unzip allLoaded
-  liftIO (newIORef (listToUniqMap allLoaded,
-                    listToUniqMap allSwap,
+  liftIO (newIORef (listToUFM allLoaded,
+                    listToUFM allSwap,
                     mkUniqSet old,
                     mkUniqSet new))
 
 -- | Get the lifted and unlifted TyCons
 -- for the given original and replacement name.
-load :: (Name, String) -> TcM (TyCon, TyCon)
-load (n, s) = do
+load :: (Name, String, String) -> TcM (TyCon, TyCon)
+load (n, m, s) = do
   old <- lookupTyCon n
-  new <- getTyCon builtInModule s
+  new <- getTyCon m s
   return (old, new)
 
--- | Get the lifted and unlifted TyCons of type constructors that are
--- not in 'PrelNames' for some reason.
 loadAdditional :: TcM [(TyCon, TyCon)]
 loadAdditional = do
   -- AlternativeClassName in PrelNames is incorrect, so we look it up manually
@@ -67,8 +64,11 @@ loadAdditional = do
   altS <- lookupTyCon =<< lookupOrig bse ( mkTcOcc "String" )
   newS <- getTyCon builtInModule "StringFL"
 
-  let altF = funTyCon
-  newF <- getFunTycon
+  let altF = unrestrictedFunTyCon
+  newF <- getTyCon builtInModule ":--->#"
+
+  let altFR = funTyCon
+  newFR <- getTyCon builtInModule ":--->"
 
   -- And again for ShowS.
   Found _ shw  <- liftIO $
@@ -82,44 +82,47 @@ loadAdditional = do
   altR <- lookupTyCon =<< lookupOrig real ( mkTcOcc "Real" )
   newR <- getTyCon builtInModule "RealFL"
 
-  -- And again for Int# -> Int64
-  Found _ int <- liftIO $
-    findImportedModule hscEnv (mkModuleName "GHC.Int") Nothing
-  newIntPrim <- lookupTyCon =<< lookupOrig int ( mkTcOcc "Int64" )
-
-  return [ (altH, newH), (altR, newR), (altA, newA)
-         , (altS, newS), (altF, newF), (intPrimTyCon, newIntPrim)]
+  return [ (altH, newH), (altR, newR), (altA, newA), (altS, newS)
+         , (altF, newF), (altFR, newFR)
+         , (intPrimTyCon, intTyCon)
+         , (manyDataConTyCon, manyDataConTyCon)
+         , (oneDataConTyCon, oneDataConTyCon)
+         , (liftedRepTyCon, liftedRepTyCon)]
 
 
 -- | A list of GHC's built-in type constructor names and the names of
 -- their plugin replacement version.
-originalNamesToLoad :: [(Name, String)]
+originalNamesToLoad :: [(Name, String, String)]
 originalNamesToLoad = names
   where
     names =
-      [ (eqClassName          , "EqFL")
-      , (ordClassName         , "OrdFL")
-      , (showClassName        , "ShowFL")
-      , (enumClassName        , "EnumFL")
-      , (numClassName         , "NumFL")
-      , (integralClassName    , "IntegralFL")
-      , (boundedClassName     , "BoundedFL")
-      , (functorClassName     , "FunctorFL")
-      , (applicativeClassName , "ApplicativeFL")
-      , (monadClassName       , "MonadFL")
-      , (monadFailClassName   , "MonadFailFL")
-      , (isStringClassName    , "IsStringFL")
-      , (listTyConName        , "ListFL")
-      , (rationalTyConName    , "RationalFL")
-      , (ratioTyConName       , "RatioFL")
-      , (charTyConName        , "CharFL")
-      , (intTyConName         , "IntFL")
+      [ (eqClassName         , builtInModule         , "EqFL")
+      , (ordClassName        , builtInModule         , "OrdFL")
+      , (showClassName       , builtInModule         , "ShowFL")
+      , (enumClassName       , builtInModule         , "EnumFL")
+      , (numClassName        , builtInModule         , "NumFL")
+      , (integralClassName   , builtInModule         , "IntegralFL")
+      , (boundedClassName    , builtInModule         , "BoundedFL")
+      , (functorClassName    , builtInModule         , "FunctorFL")
+      , (applicativeClassName, builtInModule         , "ApplicativeFL")
+      , (monadClassName      , builtInModule         , "MonadFL")
+      , (monadFailClassName  , builtInModule         , "MonadFailFL")
+      , (isStringClassName   , builtInModule         , "IsStringFL")
+      , (listTyConName       , builtInModule         , "ListFL")
+      , (rationalTyConName   , builtInModule         , "RationalFL")
+      , (ratioTyConName      , builtInModule         , "RatioFL")
+      , (charTyConName       , builtInPrimitiveModule, "CharFL")
+      , (intTyConName        , builtInPrimitiveModule, "IntFL")
+      , (boolTyConName       , builtInModule         , "BoolFL")
+      , (orderingTyConName   , builtInModule         , "OrderingFL")
+      , (tyConName unitTyCon , builtInModule         , "UnitFL")
+      , (integerTyConName    , builtInPrimitiveModule, "IntegerFL")
       ]  ++
       map tupleWithArity [2 .. maxTupleArity]
 
 -- | Create the GHC and plugin names for a tuple of given arity.
-tupleWithArity :: Int -> (Name, String)
-tupleWithArity n = (tupleTyConName BoxedTuple n, "Tuple" ++ show n ++ "FL")
+tupleWithArity :: Int -> (Name, String, String)
+tupleWithArity n = (tupleTyConName BoxedTuple n, builtInModule, "Tuple" ++ show n ++ "FL")
 
 -- | Max tuple arity supported by the plugin.
 -- If this is increased, the new tuples
@@ -130,3 +133,7 @@ maxTupleArity = 15
 -- | Name of the module that contains all built-in plugin definitions
 builtInModule :: String
 builtInModule = "Plugin.BuiltIn"
+
+-- | Name of the module that contains all built-in plugin definitions
+builtInPrimitiveModule :: String
+builtInPrimitiveModule = "Plugin.BuiltIn.Primitive"

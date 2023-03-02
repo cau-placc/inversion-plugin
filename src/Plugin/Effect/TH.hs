@@ -1,98 +1,113 @@
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TemplateHaskell   #-}
+{-# LANGUAGE TupleSections     #-}
+{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE FlexibleInstances #-}
 module Plugin.Effect.TH where
 
 import Control.Applicative
 import Control.Monad
 
-import Data.Bifunctor
-import Data.List ( intercalate, partition, sortOn, subsequences )
+import Data.Tuple.Solo
 
-import FastString
+import GHC.Data.FastString
+import GHC (mkModuleName)
+import GHC.Unit.Types
+import GHC.Utils.Lexeme
+
+import Generics.SYB
 
 import Language.Haskell.TH hiding (match)
-import Language.Haskell.TH.Syntax (Name(..), NameFlavour(..), pkgString, mkNameG_v)
+import Language.Haskell.TH.Syntax (Name(..), NameFlavour(..), mkNameG_v, OccName (OccName), PkgName (PkgName), ModName (ModName), qRecover, trueName, falseName)
 
-import Lexeme
 
+import Plugin.Lifted
 import Plugin.Effect.Monad
-import Plugin.Effect.Tree
 import Plugin.Trans.TysWiredIn
+import Plugin.Trans.Import (lookupSupportedBuiltInModule)
 
+lookupBuiltin :: String -> Maybe String
+lookupBuiltin "[]" = Just "NilFL"
+lookupBuiltin ":"  = Just "ConsFL"
+lookupBuiltin "()" = Just "UnitFL"
+lookupBuiltin s | Just n <- tupleConArity s = Just $ "Tuple" ++ show n ++ "FL"
+                | otherwise                 = Nothing
+  where tupleConArity ('(':rest) = Just $ succ $ length $ takeWhile (== ',') rest
+        tupleConArity _          = Nothing
 
-genInverses :: Name -> Type -> String -> DecsQ
-genInverses liftedName originalTy originalString = do
-  concat <$> sequence [genInverse originalString originalTy fixedArgs useGNF liftedName | fixedArgs <- fixedArgss, useGNF <- [False ..]]
+liftTHName :: Name -> Name
+liftTHName (Name (OccName str) flav) = Name withSuffix flav'
   where
-    (_ ,_ , originalTy') = decomposeForallT originalTy
-    arity = arrowArity originalTy'
-    fixedArgss = subsequences [0.. arity - 1]
+    withSuffix | Just str' <- lookupBuiltin str = OccName str'
+               | isLexVarSym (mkFastString str) = OccName $ str ++ "#"
+               | isLexConSym (mkFastString str) = OccName $ str ++ "#"
+               | otherwise                      = OccName $ str ++ "FL"
+    flav' = case flav of
+      NameS -> NameS
+      NameQ mn -> NameQ mn
+      NameU n -> NameU n
+      NameL n -> NameL n
+      NameG ns (PkgName pn) (ModName mn) ->
+        let ghcModule = mkModule (RealUnit (Definite (UnitId (mkFastString pn)))) (mkModuleName mn)
+            (pkgNm', mdlNm') = maybe (pn, mn) (thisPkgName,) $
+                               lookupSupportedBuiltInModule ghcModule
+        in NameG ns (PkgName pkgNm') (ModName mdlNm')
 
-mkInverseName :: String -> [Int] -> Bool -> Name
-mkInverseName originalName fixedArgs useGNF
-  | isLexVarSym (mkFastString originalName) = mkName $ originalName ++ "$$$" ++ concat ["-%" | useGNF] ++ intercalate "$" (map ((`replicate` '+') . succ) fixedArgs)
-  | otherwise                               = mkName $ originalName ++ "Inv" ++ concat ["NF" | useGNF] ++ intercalate "_" (map show fixedArgs)
+liftTHNameQ :: Name -> Q Name
+liftTHNameQ name = do
+  let liftedName = liftTHName name
+  reifiable <- qRecover (return False) (reify liftedName >> return True)
+  if reifiable
+    then return liftedName
+    else fail $ "No inverse for " ++ show name
 
-genInverse :: String -> Type -> [Int] -> Bool -> Name -> DecsQ
-genInverse originalString originalTy fixedArgs useGNF liftedName = do
-  let invName = mkInverseName originalString fixedArgs useGNF
-      (originalTyVarBndrs, originalCxt, originalTy') = decomposeForallT originalTy
-      (originalArgTys, originalResTy) = arrowUnapply originalTy'
-      (fixedOriginalArgTys, nonFixedOriginalArgTys) = partitionByIndices fixedArgs originalArgTys
+var :: Integer -> a --TODO: Use Int
+var _ = error "var is undefined outside of input and output classes"
 
-  let genPartialInverseSig = do
-        let invArgTys = fixedOriginalArgTys ++ [originalResTy]
-            invResTy = applyType ListT [mkTupleT nonFixedOriginalArgTys]
-            invCxt = originalCxt ++ map mkLifted originalCxt ++
-              map mkInvertibleConstraint  (originalResTy : nonFixedOriginalArgTys) ++
-              map mkConvertibleConstraint fixedOriginalArgTys
-            invTy = ForallT originalTyVarBndrs invCxt $ foldr mkArrowT invResTy invArgTys
-        return $ SigD invName invTy
+getFunArity :: Name -> Q Int
+getFunArity name = do
+  info <- reify name
+  (_, _, ty) <- decomposeForallT <$> case info of
+    VarI _ ty' _     -> return ty'
+    ClassOpI _ ty' _ -> return ty'
+    _                -> fail $ show name ++ " is no function or class method"
+  return $ arrowArity ty
 
-      genPartialInverseFun = do
-        let originalArity = arrowArity originalTy'
-            nonFixedArgs = filter (`notElem` fixedArgs) [0 .. originalArity - 1]
-            ids = take (originalArity - length fixedArgs) [-1, -2 ..]
-            freePExps = zip nonFixedArgs $ map (mkFreeP . mkIntExp) ids --TODO freeP = freeFL
-        fixedArgNames <- replicateM (length fixedArgs) (newName "arg")
-        let toPExps = zip fixedArgs $ map (AppE (VarE 'toFL) . VarE) fixedArgNames
-            argExps = map snd $ sortOn fst $ freePExps ++ toPExps
-        funPatExp <- genLiftedApply (SigE (VarE liftedName) (AppT (ConT ''FL) (mkLifted originalTy'))) argExps
-        resName <- newName "res"
-        let invArgPats = map VarP $ fixedArgNames ++ [resName]
-            matchExp = applyExp (VarE 'matchFL) [VarE resName, funPatExp]
-            tupleExp = mkLiftedTupleE (map snd freePExps)
-            returnExp = AppE (VarE (if useGNF then 'groundNormalFormFL else 'normalFormFL)) tupleExp
-        -- evalExp <- [| \m r -> map from $ bfs $ evalFL (m >> r) |]
-        let bodyExp = applyExp (VarE 'map) [VarE 'from, AppE (VarE 'bfs) (AppE (VarE 'evalFL) (applyExp (VarE '(>>)) [matchExp, returnExp]))]
-            body = NormalB bodyExp
-        return $ FunD invName [Clause invArgPats body []]
+getConArity :: Name -> Q Int
+getConArity name = do
+  info <- reify name
+  (_, _, ty) <- decomposeForallT <$> case info of
+    DataConI _ ty' _ -> return ty'
+    _                -> fail $ show name ++ " is no data constructor"
+  return $ arrowArity ty
 
-  sequence [genPartialInverseSig, genPartialInverseFun]
+--TODO: use elsewhere
+thisPkgName :: String
+thisPkgName = case 'toFL of
+  Name _ (NameG _ (PkgName s) _) -> s
+  _                              -> error "could not deduce package name of the plugin package"
 
 --TODO: lift to q and throw error when length of list is > maxTupleArity
 mkLiftedTupleE :: [Exp] -> Exp
-mkLiftedTupleE [] = AppE (VarE 'return) (ConE '())
-mkLiftedTupleE [x] = x
-mkLiftedTupleE xs = AppE (VarE 'return) (applyExp liftedTupleConE xs)
-  where 
-    liftedTupleConE = ConE $ mkNameG_v pkgName builtInModule ("Tuple" ++ show (length xs) ++ "FL")
-    pkgName = case 'mkLiftedTupleE of 
-      Name _ (NameG _ p _) -> pkgString p 
-      _                    -> "inversion-plugin"
+mkLiftedTupleE xs  = AppE (VarE 'return) (applyExp liftedTupleConE xs)
+  where
+    -- TODO does this really work?
+    liftedTupleConE = ConE $ mkNameG_v thisPkgName builtInModule tupleConName
+    tupleConName | null xs        = "UnitFL"
+                 | length xs == 1 = "SoloFL"
+                 | otherwise      = "Tuple" ++ show (length xs) ++ "FL"
 
-partitionByIndices :: [Int] -> [a] -> ([a], [a])
-partitionByIndices is = bimap (map snd) (map snd) . partition ((`elem` is) . fst) . zip [0 ..]
-
-decomposeForallT :: Type -> ([TyVarBndr], [Type], Type)
-decomposeForallT (ForallT bndrs ctxt ty) = (bndrs, ctxt, ty)
+decomposeForallT :: Type -> ([TyVarBndr Specificity], [Type], Type)
+decomposeForallT (ForallT bndrs ctxt ty) =
+  let (bndrs', ctxt', ty') = decomposeForallT ty
+  in (bndrs ++ bndrs', ctxt ++ ctxt', ty')
 decomposeForallT ty                      = ([], [], ty)
 
-getTyVarBndrName :: TyVarBndr -> Name
-getTyVarBndrName (PlainTV  name  ) = name
-getTyVarBndrName (KindedTV name _) = name
+getTyVarBndrName :: TyVarBndr a -> Name
+getTyVarBndrName (PlainTV  name _  ) = name
+getTyVarBndrName (KindedTV name _ _) = name
 
 mkFreeP :: Exp -> Exp
-mkFreeP = AppE (VarE 'freeFL)
+mkFreeP = AppE (VarE 'Plugin.Effect.Monad.free)
 
 mkIntExp :: Int -> Exp
 mkIntExp = LitE . IntegerL . fromIntegral
@@ -108,19 +123,19 @@ unapplyExp (AppE e1 e2) = let (e, es) = unapplyExp e1 in (e, es ++ [e2])
 unapplyExp e            = (e, [])
 
 genLiftedApply :: Exp -> [Exp] -> ExpQ
-genLiftedApply = foldM (\f arg -> newName "v" >>= \vName -> return $ applyExp (VarE '(>>=)) [f, LamE [ConP 'Func [VarP vName]] $ AppE (VarE vName) arg])
+genLiftedApply = foldM (\f arg -> newName "v" >>= \vName -> return $ applyExp (VarE '(>>=)) [f, LamE [ConP 'Func [] [VarP vName]] $ AppE (VarE vName) arg])
 
 mkTupleE :: [Exp] -> Exp
-mkTupleE [e] = e
+mkTupleE [e] = AppE (ConE 'Solo) e
 mkTupleE es  = TupE $ map Just es
 
 mkTupleT :: [Type] -> Type
-mkTupleT [ty] = ty
+mkTupleT [ty] = AppT (ConT ''Solo) ty
 mkTupleT tys  = applyType (TupleT (length tys)) tys
 
 mkTupleP :: [Pat] -> Pat
-mkTupleP [p] = p
-mkTupleP ps  = TupP ps
+mkTupleP [p] = ConP 'Solo [] [p]
+mkTupleP ps' = TupP ps'
 
 mkArrowT :: Type -> Type -> Type
 mkArrowT ty1 ty2 = applyType ArrowT [ty1, ty2]
@@ -131,32 +146,31 @@ applyType = foldl AppT
 arrowUnapply :: Type -> ([Type], Type)
 arrowUnapply (AppT (AppT ArrowT ty1) ty2) = (ty1 : tys, ty)
   where (tys, ty) = arrowUnapply ty2
+arrowUnapply (AppT (AppT (AppT MulArrowT _) ty1) ty2) = (ty1 : tys, ty)
+  where (tys, ty) = arrowUnapply ty2
 arrowUnapply ty                           = ([], ty)
 
 arrowArity :: Type -> Int
 arrowArity = length . fst . arrowUnapply
 
-liftedArrowUnapply :: Type -> ([Type], Type)
-liftedArrowUnapply (AppT (ConT _) (AppT (AppT ArrowT (AppT (ConT _ ) ty1)) ty2)) = (ty1 : tys, ty)
-  where (tys, ty) = liftedArrowUnapply ty2
-liftedArrowUnapply (AppT (ConT _ ) ty) = ([], ty)
-liftedArrowUnapply ty = error $ "liftedArrowUnapply: " ++ show ty
-
 --------------------------------------------------------------------------------
 
-genLiftedTupleDataDecl :: Int -> DecQ
+genLiftedTupleDataDecl :: Int -> Q (Dec, Dec)
 genLiftedTupleDataDecl ar = do
   let name = mkName $ "Tuple" ++ show ar ++ "FL"
+  mVar <- newName "m"
   tyVarNames <- replicateM ar (newName "a")
-  let con = NormalC name $ map (\tyVarName -> (Bang NoSourceUnpackedness NoSourceStrictness, AppT (ConT ''FL) (VarT tyVarName))) tyVarNames
-  return $ DataD [] name (map PlainTV tyVarNames) Nothing [con] []
+  let con = NormalC name $ map (\tyVarName -> (Bang NoSourceUnpackedness NoSourceStrictness, AppT (VarT mVar) (VarT tyVarName))) tyVarNames
+  let da = DataD [] name (KindedTV mVar () (AppT (AppT ArrowT StarT) StarT) : map (`PlainTV` ()) tyVarNames) Nothing [con] []
+  let ki = KiSigD name ((StarT `mkArrowT` StarT) `mkArrowT` foldr mkArrowT StarT (replicate ar StarT))
+  return (da, ki)
 
 genLiftedTupleDataDeclAndInstances :: Int -> DecsQ
 genLiftedTupleDataDeclAndInstances ar = do
   TyConI originalDataDecl <- reify $ tupleTypeName ar
-  liftedDataDecl <- genLiftedTupleDataDecl ar
+  (liftedDataDecl, kiSig) <- genLiftedTupleDataDecl ar
   instances <- genInstances originalDataDecl liftedDataDecl
-  return $ liftedDataDecl : instances
+  return $ liftedDataDecl : kiSig : instances
 
 --------------------------------------------------------------------------------
 
@@ -165,9 +179,10 @@ data ConInfo = ConInfo { conName :: Name, conArgs :: [Type] }
 conArity :: ConInfo -> Int
 conArity = length . conArgs
 
-extractConInfo :: Con -> ConInfo
-extractConInfo (NormalC n btys) = ConInfo n (map (innerType . snd) btys)
-extractConInfo _ = error "mkConInfo: unsupported"
+extractConInfo :: (Type -> Type) -> Con -> ConInfo
+extractConInfo f (NormalC n btys) = ConInfo sanitized (map (f . snd) btys)
+  where sanitized = mkName (nameBase n)
+extractConInfo _ _ = error "mkConInfo: unsupported"
 --TODO: missing constructors
 
 data TcInfo = TcInfo { tcName :: Name, tcVarNames :: [Name], tcConInfos :: [ConInfo] }
@@ -175,127 +190,225 @@ data TcInfo = TcInfo { tcName :: Name, tcVarNames :: [Name], tcConInfos :: [ConI
 tcArity :: TcInfo -> Int
 tcArity = length . tcVarNames
 
-extractTcInfo :: Dec -> TcInfo
-extractTcInfo (DataD _ tcNm tyVars _ cons _) = TcInfo tcNm (map getTyVarBndrName tyVars) (map extractConInfo cons)
-extractTcInfo (NewtypeD _ tcNm tyVars _ con _) = TcInfo tcNm (map getTyVarBndrName tyVars) [extractConInfo con]
-extractTcInfo _ = error "extractTcInfo: unsupported"
+extractTcInfo :: (Type -> Type) -> Dec -> TcInfo
+extractTcInfo f (DataD _ tcNm tyVars _ cons _) = TcInfo tcNm (map getTyVarBndrName tyVars) (map (extractConInfo f) cons)
+extractTcInfo f (NewtypeD _ tcNm tyVars _ con _) = TcInfo tcNm (map getTyVarBndrName tyVars) [extractConInfo f con]
+extractTcInfo _ _ = error "extractTcInfo: unsupported"
 
-mkNarrowEntry :: Name -> ConInfo -> Exp
-mkNarrowEntry idName conInfo = mkTupleE [conExp, mkIntExp (conArity conInfo)]
-  where conExp = foldl (\conExp' idOffset -> AppE conExp' (mkFreeP (mkPlus (VarE idName) (mkIntExp idOffset)))) (ConE $ conName conInfo) [0 .. conArity conInfo - 1]
+renameTcInfo :: String -> TcInfo -> TcInfo
+renameTcInfo suffix (TcInfo tcNm vs cis) = TcInfo tcNm (map rename vs) (map renameConInfo cis)
+  where renameConInfo (ConInfo conNm tys) = ConInfo conNm (map renameType tys)
+        renameType = everywhere (mkT renameVar)
+        renameVar (VarT varNm) = VarT (rename varNm)
+        renameVar ty = ty
+        rename (Name (OccName str) nf) = Name (OccName (str ++ suffix)) nf
 
 mkPlus :: Exp -> Exp -> Exp
 mkPlus e1 e2 = applyExp (VarE '(+)) [e1, e2]
 
+mkMinus :: Exp -> Exp -> Exp
+mkMinus e1 e2 = applyExp (VarE '(-)) [e1, e2]
+
+genMTy :: Q Type
+genMTy = VarT <$> newName "m"
+
+genLifted :: Type -> Type -> [Type] -> Type -> DecsQ
+genLifted originalTc liftedTc liftedTyVars mTy = do
+  let genLiftedApp n =
+        let relevantVars = take n liftedTyVars
+        in TySynInstD $ TySynEqn Nothing (mkLifted mTy (applyType originalTc relevantVars)) (applyType liftedTc (map (mkLifted mTy) relevantVars))
+  return $ map genLiftedApp [0 .. length liftedTyVars]
+
 genInstances :: Dec -> Dec -> DecsQ
-genInstances (ClassD _ originalName _ _ _) (ClassD _ liftedName _ _ _) = do
-  let originalTc = ConT originalName
-  let liftedTc = ConT liftedName
-  return [TySynInstD $ TySynEqn Nothing (mkLifted originalTc) liftedTc]
-genInstances (TySynD originalName _ _) (TySynD liftedName _ _) = do
-  let originalTc = ConT originalName
-  let liftedTc = ConT liftedName
-  return [TySynInstD $ TySynEqn Nothing (mkLifted originalTc) liftedTc]
+genInstances (ClassD _ originalName _ _ _) (ClassD _ liftedName liftedTyVarBndrs _ _) =
+  let liftedTyVarNames = map getTyVarBndrName liftedTyVarBndrs
+      liftedTyVars = map VarT liftedTyVarNames
+      originalTc = ConT originalName
+      liftedTc = ConT liftedName
+  in genLifted originalTc liftedTc liftedTyVars (ConT ''FL)
+genInstances TySynD {} TySynD {} = do
+  return []
 genInstances originalDataDec liftedDataDec = do
-  let originalTcInfo = extractTcInfo originalDataDec
+
+  let originalTcInfo = renameTcInfo "a" $ extractTcInfo id originalDataDec
       originalTc = ConT $ tcName originalTcInfo
       originalTyVarNames = tcVarNames originalTcInfo
       originalTyVars = map VarT originalTyVarNames
       originalTy = applyType (ConT $ tcName originalTcInfo) originalTyVars
       originalConInfos = tcConInfos originalTcInfo
       originalConArgs = concatMap conArgs originalConInfos
-  let liftedTcInfo = extractTcInfo liftedDataDec
-      liftedTc = ConT $ tcName liftedTcInfo
-      liftedTyVarNames = tcVarNames liftedTcInfo
+  let liftedTcInfo = renameTcInfo "b" $ extractTcInfo innerType liftedDataDec
+      liftedTc = AppT (ConT $ tcName liftedTcInfo) mTy
+      (mvar, liftedTyVarNames) = case tcVarNames liftedTcInfo of { x:xs -> (x,xs); _ -> error "TH: unexpected unlifted constructor"} -- Discard the monad parameter here
       liftedTyVars = map VarT liftedTyVarNames
-      liftedTy = applyType (ConT $ tcName liftedTcInfo) liftedTyVars
+      liftedTy = applyType (ConT $ tcName liftedTcInfo) $ ConT ''FL : liftedTyVars
       liftedConInfos = tcConInfos liftedTcInfo
-      liftedConArgs = concatMap conArgs liftedConInfos
+      liftedConArgs = map (replaceMTyVar mvar (ConT ''FL)) $ concatMap conArgs liftedConInfos
+      mTy = VarT mvar
 
-  let genHasPrimitiveInfo = return $ InstanceD Nothing [] (mkHasPrimitiveInfoConstraint liftedTy) []
+      genHasPrimitiveInfo = do
+        let body = NormalB $ ConE 'NoPrimitive
+            dec = FunD 'primitiveInfo [Clause [] body []]
+            ctxt = map mkHasPrimitiveInfoConstraint liftedConArgs
+        return $ InstanceD Nothing ctxt (mkHasPrimitiveInfoConstraint liftedTy) [dec]
 
       genNarrowable = do
-        jName <- newName "j"
-        let entries = map (mkNarrowEntry jName) liftedConInfos
-            body = NormalB $ ListE entries
-            dec = FunD 'narrow [Clause [WildP, VarP jName, WildP] body []]
-            ctxt = map mkNarrowableConstraint liftedConArgs ++ map mkHasPrimitiveInfoConstraint liftedConArgs
+        let genEntry liftedConInfo = do
+              let numArgs = conArity liftedConInfo
+              args <- replicateM numArgs (newName "x")
+              let returnE = applyExp (VarE 'return) [applyExp (ConE $ conName liftedConInfo) $ map VarE args]
+              return $ DoE Nothing $ map (\arg -> BindS (VarP arg) (applyExp (VarE 'share) [VarE 'free])) args ++ [NoBindS returnE]
+        body <- NormalB . ListE <$> mapM genEntry liftedConInfos
+        let dec = FunD 'narrow [Clause [] body []]
+            ctxt = map mkHasPrimitiveInfoConstraint liftedConArgs
         return $ InstanceD Nothing ctxt (mkNarrowableConstraint liftedTy) [dec]
 
-      genLifted = return $ TySynInstD $ TySynEqn Nothing (mkLifted originalTc) liftedTc
-
-      genConvertible = do
-        let genTo = do
+      genTo = do
+        let genTo' = do
+              tf <- newName "tf"
               let genMatch originalConInfo liftedConInfo = do
                     argNames <- replicateM (conArity originalConInfo) (newName "x")
-                    let pat = ConP (conName originalConInfo) $ map VarP argNames
-                        body = NormalB $ applyExp (ConE $ conName liftedConInfo) $ map (AppE (VarE 'toFL) . VarE) argNames
+                    let pat = ConP (conName originalConInfo) [] $ map VarP argNames
+                        body = NormalB $ applyExp (ConE $ conName liftedConInfo) $ map (AppE (VarE tf) . VarE) argNames
                     return $ Match pat body []
               matches <- zipWithM genMatch originalConInfos liftedConInfos
               arg <- newName "arg"
-              return $ FunD 'to [Clause [VarP arg] (NormalB (CaseE (VarE arg) matches)) []]
-            genFrom = do
+              return $ FunD 'toWith [Clause [VarP tf, VarP arg] (NormalB (CaseE (VarE arg) matches)) []]
+        let ctxt = map mkToConstraint originalConArgs
+        InstanceD Nothing ctxt (mkToConstraint originalTy) <$>
+          sequence [genTo']
+
+      genFrom = do
+        let genFrom' = do
               let genMatch liftedConInfo originalConInfo = do
                     argNames <- replicateM (conArity liftedConInfo) (newName "x")
-                    let pat = ConP (conName liftedConInfo) $ map VarP argNames
+                    let pat = ConP (conName liftedConInfo) [] $ map VarP argNames
                         body = NormalB $ applyExp (ConE $ conName originalConInfo) $ map (AppE (VarE 'fromFL) . VarE) argNames
                     return $ Match pat body []
               arg <- newName "arg"
               matches <- zipWithM genMatch liftedConInfos originalConInfos
               return $ FunD 'from [Clause [VarP arg] (NormalB (CaseE (VarE arg) matches)) []]
-        let ctxt = map mkConvertibleConstraint originalConArgs
-        InstanceD Nothing ctxt (mkConvertibleConstraint originalTy) <$>
-          sequence [genTo, genFrom]
+        let ctxt = map mkFromConstraint originalConArgs
+        InstanceD Nothing ctxt (mkFromConstraint originalTy) <$>
+          sequence [genFrom']
 
       genMatchable = do
         let genMatch = do
-              let genClause originalConInfo liftedConInfo = do
-                    originalArgNames <- replicateM (conArity originalConInfo) (newName "x")
-                    liftedArgNames <- replicateM (conArity liftedConInfo) (newName "y")
-                    let originalPat = ConP (conName originalConInfo) $ map VarP originalArgNames
-                        liftedPat = ConP (conName liftedConInfo) $ map VarP liftedArgNames
-                        body = NormalB $ foldr (\e1 e2 -> applyExp (VarE '(>>)) [e1, e2]) (AppE (VarE 'return) (ConE '())) $ zipWith (\originalArgName liftedArgName -> applyExp (VarE 'matchFL) [VarE originalArgName, VarE liftedArgName]) originalArgNames liftedArgNames
-                    return $ Clause [originalPat, liftedPat] body []
-              clauses <- zipWithM genClause originalConInfos liftedConInfos
-              let failClause = Clause [WildP, WildP] (NormalB $ VarE 'empty) []
+              let genClause liftedConInfo originalConInfo = do
+                    liftedArgNames <- replicateM (conArity liftedConInfo) (newName "x")
+                    originalArgNames <- replicateM (conArity originalConInfo) (newName "y")
+                    let liftedPat = ConP (conName liftedConInfo) [] $ map VarP liftedArgNames
+                        originalPat = ConP (conName originalConInfo) [] $ map VarP originalArgNames
+                        body = NormalB $ foldr (\e1 e2 -> applyExp (VarE '(>>)) [e1, e2]) (AppE (VarE 'return) (ConE '())) $ zipWith (\liftedArgName originalArgName -> applyExp (VarE 'matchFL) [VarE liftedArgName, VarE originalArgName]) liftedArgNames originalArgNames
+                    return $ Clause [liftedPat, originalPat] body []
+              clauses <- zipWithM genClause liftedConInfos originalConInfos
+              let failClause = Clause [WildP, WildP] (NormalB $ VarE 'Control.Applicative.empty) []
               return $ FunD 'match (clauses ++ [failClause])
         dec <- genMatch
-        let ctxt = map mkConvertibleConstraint originalConArgs ++
-                     map mkMatchableConstraint originalConArgs ++
-                     map (mkHasPrimitiveInfoConstraint . mkLifted) originalConArgs
+        let ctxt = map mkToConstraint originalConArgs ++
+                     map mkMatchableConstraint originalConArgs
         return $ InstanceD Nothing ctxt (mkMatchableConstraint originalTy) [dec]
 
-      genGroundable = do
-        fName <- newName "f"
+      genUnifiable = do
+        let genUnify = do
+              let genClause liftedConInfo = do
+                    let liftedConArity = conArity liftedConInfo
+                        liftedConName = conName liftedConInfo
+                    liftedArgNames1 <- replicateM liftedConArity (newName "x")
+                    liftedArgNames2 <- replicateM liftedConArity (newName "y")
+                    let liftedPat1 = ConP liftedConName [] $ map VarP liftedArgNames1
+                        liftedPat2 = ConP liftedConName [] $ map VarP liftedArgNames2
+                        body = NormalB $ foldr (\e1 e2 -> applyExp (VarE '(>>)) [e1, e2]) (AppE (VarE 'return) (ConE '())) $ zipWith (\liftedArgName1 liftedArgName2 -> applyExp (VarE 'lazyUnifyFL) [VarE liftedArgName1, VarE liftedArgName2]) liftedArgNames1 liftedArgNames2
+                    return $ Clause [liftedPat1, liftedPat2] body []
+              clauses <- mapM genClause liftedConInfos
+              let failClause = Clause [WildP, WildP] (NormalB $ VarE 'Control.Applicative.empty) []
+              return $ FunD 'lazyUnify (clauses ++ [failClause])
+        dec <- genUnify
+        let ctxt = map mkUnifiableConstraint originalConArgs
+        return $ InstanceD Nothing ctxt (mkUnifiableConstraint originalTy) [dec]
+
+      genNormalForm = do
+        nfName <- newName "nf"
         let genMatch liftedConInfo = do
               let liftedConName = conName liftedConInfo
                   liftedConArity = conArity liftedConInfo
               liftedArgNames <- replicateM liftedConArity (newName "x")
               freshLiftedArgNames <- replicateM liftedConArity (newName "y")
-              let pat = ConP liftedConName $ map VarP liftedArgNames
-                  body = NormalB $ foldr (\ (liftedArgName, freshLiftedArgName) e -> applyExp (VarE '(>>=)) [AppE (VarE fName) (VarE liftedArgName), LamE [VarP freshLiftedArgName] e]) (AppE (VarE 'return) $ applyExp (ConE liftedConName) $ map (AppE (VarE 'return) . VarE) freshLiftedArgNames) $ zip liftedArgNames freshLiftedArgNames
+              let pat = ConP liftedConName [] $ map VarP liftedArgNames
+                  body = NormalB $ AppE (ConE 'FL) $ foldr (\ (liftedArgName, freshLiftedArgName) e -> applyExp (VarE '(>>=)) [AppE (VarE 'unFL) (AppE (VarE nfName) (VarE liftedArgName)), LamE [VarP freshLiftedArgName] e]) (AppE (VarE 'unFL) $ AppE (VarE 'return) $ applyExp (ConE liftedConName) $ map (AppE (ConE 'FL) . AppE (VarE 'return) . VarE) freshLiftedArgNames) $ zip liftedArgNames freshLiftedArgNames
               return $ Match pat body []
         matches <- mapM genMatch liftedConInfos
         let body = NormalB (LamCaseE matches)
-            dec = FunD 'nf [Clause [VarP fName] body []]
-            ctxt = map mkNFConstraint liftedConArgs
-        return $ InstanceD Nothing ctxt (mkNFConstraint liftedTy) [dec]
+            dec = FunD 'normalFormWith [Clause [VarP nfName] body []]
+            ctxt = map mkNormalFormConstraint originalConArgs
+        return $ InstanceD Nothing ctxt (mkNormalFormConstraint originalTy) [dec]
+      -- genNormalForm = do
+      --   nfName <- newName "nf"
+      --   let genMatch liftedConInfo = do
+      --         let liftedConName = conName liftedConInfo
+      --             liftedConArity = conArity liftedConInfo
+      --         liftedArgNames <- replicateM liftedConArity (newName "x")
+      --         freshLiftedArgNames <- replicateM liftedConArity (newName "y")
+      --         let pat = ConP liftedConName [] $ map VarP liftedArgNames
+      --             body = NormalB $ foldr (\ (liftedArgName, freshLiftedArgName) e -> applyExp (VarE '(>>=)) [AppE (VarE nfName) (VarE liftedArgName), LamE [VarP freshLiftedArgName] e]) (AppE (VarE 'return) $ applyExp (ConE liftedConName) $ map VarE freshLiftedArgNames) $ zip liftedArgNames freshLiftedArgNames
+      --         return $ Match pat body []
+      --   matches <- mapM genMatch liftedConInfos
+      --   let body = NormalB (LamCaseE matches)
+      --       dec = FunD 'normalFormWith [Clause [VarP nfName] body []]
+      --       ctxt = map mkNormalFormConstraint liftedConArgs
+      --   return $ InstanceD Nothing ctxt (mkNormalFormConstraint liftedTy) [dec]
+
+      genShowFree = do
+        --TODO: improve for infix declarations
+        let genShowsFreePrec' = do
+              let genClause originalConInfo = do
+                    dName <- newName "d"
+                    let originalConArity = conArity originalConInfo
+                        originalConName@(Name (OccName originalConOccString) _) = conName originalConInfo
+                    originalArgNames <- replicateM originalConArity (newName "x")
+                    let originalPat = ConP (conName originalConInfo) [] $ map VarP originalArgNames
+                    let isTuple = originalConName == tupleDataName originalConArity
+                        isInfix = head originalConOccString == ':'
+                    body <- NormalB <$> if isTuple
+                      then [| showString "(" . $(foldl (\qExp originalArgName -> [| $(qExp) . showString "," . showsFree $(return $ VarE originalArgName) |]) [| showsFree $(return $ VarE $ head originalArgNames) |] (tail originalArgNames)) . showString ")" |]
+                      else [| showParen ($(return $ ConE $ if originalConArity > 0 then trueName else falseName) && $(return $ VarE dName) > 10) $(foldl (\qExp originalArgExp -> [| $(qExp) . showString " " . showsFreePrec 11 $(return originalArgExp) |]) [| showParen $(return $ ConE $ if isInfix then trueName else falseName) (showString $(return $ LitE $ StringL originalConOccString)) |] (map VarE originalArgNames)) |]
+                    return $ Clause [if isTuple then WildP else VarP dName, originalPat] body []
+              clauses <- mapM genClause originalConInfos
+              return $ FunD 'showsFreePrec' clauses
+        dec <- genShowsFreePrec'
+        let ctxt = map mkShowFreeConstraint originalConArgs
+        return $ InstanceD Nothing ctxt (mkShowFreeConstraint originalTy) [dec]
 
       genInvertible = do
-        let ctxt = [ mkConvertibleConstraint originalTy
+        let ctxt = [ mkToConstraint originalTy
+                   , mkFromConstraint originalTy
                    , mkMatchableConstraint originalTy
-                   , mkNFConstraint (mkLifted originalTy)
-                   ]
-        return $ InstanceD Nothing ctxt (mkInvertibleConstraint originalTy) []
+                   , mkUnifiableConstraint originalTy
+                   , mkNormalFormConstraint originalTy
+                   , mkHasPrimitiveInfoConstraint (mkLifted (ConT ''FL) originalTy)
+                   , mkShowFreeConstraint originalTy
+                   ] ++ map mkInvertibleConstraint originalConArgs
+        return $ InstanceD Nothing ctxt (mkInvertibleConstraint originalTy) [] :: Q Dec
 
-  sequence [genHasPrimitiveInfo, genNarrowable, genLifted, genConvertible, genMatchable, genGroundable, genInvertible]
+  (++) <$> genLifted originalTc liftedTc liftedTyVars mTy
+       <*> sequence [genHasPrimitiveInfo, genNarrowable, genTo, genFrom, genMatchable, genUnifiable, genNormalForm, genShowFree, genInvertible]
+
+replaceMTyVar :: Name -> Type -> Type -> Type
+replaceMTyVar tvar replacement = go
+  where
+    go :: Type -> Type
+    go ty = case ty of
+      AppT ty1 ty2       -> AppT (go ty1) (go ty2)
+      VarT n | n == tvar -> replacement
+             | otherwise -> VarT n
+      _                  -> ty
 
 innerType :: Type -> Type
-innerType (AppT (ConT n) ty) | n == ''FL = ty
-innerType ty = ty
+innerType (AppT (VarT _) ty) = ty
+innerType ty = error $ "Plugin.Effect.TH.innerType: incorrect usage on -> " ++ show ty
 
-mkLifted :: Type -> Type
-mkLifted ty = applyType (ConT ''Lifted) [ty]
+mkLifted :: Type -> Type -> Type
+mkLifted mty ty = applyType (ConT ''Lifted) [mty, ty]
 
 mkHasPrimitiveInfoConstraint :: Type -> Type
 mkHasPrimitiveInfoConstraint ty = applyType (ConT ''HasPrimitiveInfo) [ty]
@@ -303,14 +416,23 @@ mkHasPrimitiveInfoConstraint ty = applyType (ConT ''HasPrimitiveInfo) [ty]
 mkNarrowableConstraint :: Type -> Type
 mkNarrowableConstraint ty = applyType (ConT ''Narrowable) [ty]
 
-mkConvertibleConstraint :: Type -> Type
-mkConvertibleConstraint ty = applyType (ConT ''Convertible) [ty]
+mkToConstraint :: Type -> Type
+mkToConstraint ty = applyType (ConT ''To) [ty]
+
+mkFromConstraint :: Type -> Type
+mkFromConstraint ty = applyType (ConT ''From) [ty]
 
 mkMatchableConstraint :: Type -> Type
 mkMatchableConstraint ty = applyType (ConT ''Matchable) [ty]
 
-mkNFConstraint :: Type -> Type
-mkNFConstraint ty = applyType (ConT ''NF) [ty]
+mkUnifiableConstraint :: Type -> Type
+mkUnifiableConstraint ty = applyType (ConT ''Unifiable) [ty]
+
+mkShowFreeConstraint :: Type -> Type
+mkShowFreeConstraint ty = applyType (ConT ''ShowFree) [ty]
+
+mkNormalFormConstraint :: Type -> Type
+mkNormalFormConstraint ty = applyType (ConT ''NormalForm) [ty]
 
 mkInvertibleConstraint :: Type -> Type
 mkInvertibleConstraint ty = applyType (ConT ''Invertible) [ty]

@@ -13,7 +13,7 @@ module Plugin.Effect.Annotation (InvertTag(..)) where
 
 import Data.Data
 
-import Outputable
+import GHC.Utils.Outputable
 
 -- | This data type is used to tag plugin-compiled modules.
 data InvertTag = Invertible

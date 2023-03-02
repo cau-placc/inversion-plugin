@@ -8,19 +8,29 @@ The idea behind this plugin is described in the paper ["Haskell⁻¹: Automatic 
 ## Table of Contents
 
 - [Inversion plugin for GHC](#inversion-plugin-for-ghc)
-  * [Table of Contents](#table-of-contents)
-  * [Compatibility](#compatibility)
-  * [Using the plugin](#using-the-plugin)
-    + [(Partial) inverses](#-partial--inverses)
-    + [Functional patterns](#functional-patterns)
-  * [Using the plugin in a sandbox](#using-the-plugin-in-a-sandbox)
-  * [Known issues](#known-issues)
-  * [Debugging](#debugging)
+  - [Table of Contents](#table-of-contents)
+  - [Compatibility](#compatibility)
+  - [Building the plugin](#building-the-plugin)
+  - [Using the plugin](#using-the-plugin)
+    - [(Partial) inverses](#partial-inverses)
+    - [Functional patterns](#functional-patterns)
+  - [Using the plugin in a sandbox](#using-the-plugin-in-a-sandbox)
+  - [Known issues](#known-issues)
+  - [Debugging](#debugging)
 
 ## Compatibility
 
-This plugin only works with GHC 8.10.4 and cannot be used with other versions.
+This plugin only works with GHC 8.10.7 and cannot be used with other versions.
 It uses the tool [Stack](https://www.haskellstack.org) to automatically install the required version and Haskell dependencies.
+
+## Building the plugin
+
+```
+stack build inversion-plugin
+```
+
+configurable
+Flags: --flag inversion-plugin:type-safe
 
 ## Using the plugin
 
@@ -72,18 +82,18 @@ splits = $(inv '(++))
 -- [([],[True,False]),([True],[False]),([True,False],[])]
 
 -- Implementing a reverse lookup via a partial inverse of lookup.
--- The list argument `[2]` to `partialInv` denotes
+-- The list argument `[1]` to `partialInv` denotes
 -- that the second argument (key-value list) is fixed.
 reverseLookup :: (Invertible a, Invertible b, Eq a, Lifted (Eq a))
               => v -> [(k,v)] -> [k]
-reverseLookup v xs = $(partialInv 'lookup [2]) (Just v) xs
+reverseLookup v xs = $(partialInv 'lookup [1]) (Just v) xs
 -- ghci> reverseLookup True [(1,True),(2,False),(3,True)]
 -- [1,3]
 ```
-As shown in the example above, the fixed arguments are specified by providing the indices of the corresponding arguments (starting at 1).
+As shown in the example above, the fixed arguments are specified by providing the indices of the corresponding arguments (starting at 0).
 Note that one can fix more than one argument of a partial inverse by giving more than one index in the first argument of `partialInv`.
 However, the order and duplicates in the index list do not matter.
-Consequently, `$(partialInv 'lookup [1,2])` and `$(partialInv 'lookup [2,1,1])` refer to the same partial inverse.
+Consequently, `$(partialInv 'lookup [0,1])` and `$(partialInv 'lookup [1,0,0])` refer to the same partial inverse.
 
 ### Functional patterns
 
@@ -113,7 +123,7 @@ last _                                  = error "last: empty list"
 ## Using the plugin in a sandbox
 
 A sandbox project is available to play around with in `sandbox/`.
-It can be loaded by executing `stack repl sandbox:lib` from the root of the project.
+It can be loaded by executing `stack repl sandbox` from the root of the project.
 
 ## Known issues
 
@@ -122,13 +132,11 @@ However, this is not the case for any subsequent module that uses the plugin.
 * Most of the definitions from the Prelude are not supported at the moment.
 For now, the best idea is to not use any imported definitions from the Prelude or other modules.
 We will lift this restriction in the future.
-* At the moment, it not possible to enable the plugin in a module that uses (partial) inverses or functional patterns.
+TODO
+* At the moment, it not possible to enable the plugin in a module that uses (partial) inverses or functional patterns. There is a TODO restriction in place.
 * Using `:r` in GHCi often does not work.
 Reload the whole module with `:l <module>` instead.
 * HIE and HaskellLanguageServer do not work.
-* ~~Stack outputs some decoding failures while compiling the project.
-This can be ignored safely.~~
-Fixed with stack version 2.3.3 and later.
 * Almost all language extensions are unsupported.
 We only focused on Haskell2010.
 
