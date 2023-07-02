@@ -352,12 +352,12 @@ eqCharFL :: FL (CharFL FL :--> CharFL FL :--> BoolFL FL)
 eqCharFL = (==#)
 
 (<##) :: FL (IntFL FL :--> IntFL FL :--> IntFL FL)
-(<##) = liftFL1Convert op
+(<##) = liftFL2Convert op
   where
     op (I# i1) (I# i2) = I# (i1 P.<# i2)
 
 (==##) :: FL (IntFL FL :--> IntFL FL :--> IntFL FL)
-(==##) = liftFL1Convert op
+(==##) = liftFL2Convert op
   where
     op (I# i1) (I# i2) = I# (i1 P.==# i2)
 
