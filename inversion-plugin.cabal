@@ -19,8 +19,8 @@ source-repository head
   type:     git
   location: https://github.com/cau-placc/inversion-plugin
 
-flag use-sbv {
-  Description: Use SBV instead of What4
+flag use-what4 {
+  Description: Use What4 instead of SBV
   Default:     False
   Manual:      True
 }
@@ -70,8 +70,8 @@ common deps
     bv-sized            -any,
     OneTuple            -any
   ghc-options: -Wall -Wincomplete-uni-patterns
-  if flag(use-sbv)
-    cpp-options: -DUSE_SBV
+  if flag(use-what4)
+    cpp-options: -DUSE_WHAT4
   if flag(use-cvc)
     cpp-options: -DUSE_CVC
   if flag(depth-first-search)

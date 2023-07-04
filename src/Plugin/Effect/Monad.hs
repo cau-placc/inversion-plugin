@@ -35,10 +35,10 @@ import           Data.Set                  (Set)
 import qualified Data.Set           as Set
 import           Data.Typeable             (type (:~:)(..))
 
-#ifdef USE_SBV
-import Plugin.Effect.SolverLibrary.SBV   ()
-#else
+#ifdef USE_WHAT4
 import Plugin.Effect.SolverLibrary.What4 ()
+#else
+import Plugin.Effect.SolverLibrary.SBV   ()
 #endif
 import Plugin.Effect.Tree
 import Plugin.Lifted
