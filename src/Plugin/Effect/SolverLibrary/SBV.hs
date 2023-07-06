@@ -31,8 +31,10 @@ import System.IO.Unsafe
 runSBVSolver :: Symbolic a -> IO a
 #ifdef USE_CVC
 runSBVSolver = runSMTWith cvc5
-#else
+#elif defined(USE_Z3)
 runSBVSolver = runSMTWith z3
+#else
+#error No solver specified
 #endif
 
 instance SolverLibrary where

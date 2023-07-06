@@ -53,8 +53,10 @@ import What4.Utils.StringLiteral
 
 #ifdef USE_CVC
 type What4Solver = CVC4
-#else
+#elif defined(USE_Z3)
 type What4Solver = Z3
+#else
+#error No solver specified
 #endif
 
 what4SolverOptions :: [ConfigDesc]

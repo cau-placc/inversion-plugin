@@ -37,8 +37,10 @@ import           Data.Typeable             (type (:~:)(..))
 
 #ifdef USE_WHAT4
 import Plugin.Effect.SolverLibrary.What4 ()
-#else
+#elif defined(USE_SBV)
 import Plugin.Effect.SolverLibrary.SBV   ()
+#else
+#error No solver library specified
 #endif
 import Plugin.Effect.Tree
 import Plugin.Lifted
@@ -99,12 +101,16 @@ type ND s = StateT s Search
 evalND :: NDState s => ND s a -> [a]
 evalND nd = search (searchTree (evalStateT nd initNDState))
   where
-#ifdef DEPTH_FIRST
+#ifdef USE_DFS
     search = dfs
-#elif defined(PARALLEL)
-    search = ps
-#else
+#elif defined(USE_IDDFS)
+    search = iddfs
+#elif defined(USE_BFS)
     search = bfs
+#elif defined(USE_PS)
+    search = bfs
+#else
+#error No search strategy specified
 #endif
 
 class NDState s where

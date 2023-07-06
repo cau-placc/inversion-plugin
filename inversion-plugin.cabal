@@ -19,26 +19,49 @@ source-repository head
   type:     git
   location: https://github.com/cau-placc/inversion-plugin
 
+flag use-sbv {
+  Description: Use SBV
+  Default:     True
+  Manual:      True
+}
 flag use-what4 {
-  Description: Use What4 instead of SBV
+  Description: Use What4
   Default:     False
   Manual:      True
 }
 
 flag use-cvc {
-  Description: Use CVC4/5 instead of Z3
+  Description: Use CVC4/5
   Default:     False
   Manual:      True
 }
 
-flag depth-first-search {
-  Description: Perform depth-first search instead of breadth-first search
+flag use-z3 {
+  Description: Use Z3
+  Default:     True
+  Manual:      True
+}
+
+flag use-dfs {
+  Description: Perform depth-first search
   Default:     False
   Manual:      True
 }
 
-flag parallel-search {
-  Description: Perform parallel search instead of breadth-first search
+flag use-iddfs {
+  Description: Perform iterative-deepening depth-first search
+  Default:     True
+  Manual:      True
+}
+
+flag use-bfs {
+  Description: Perform breadth-first search
+  Default:     False
+  Manual:      True
+}
+
+flag use-ps {
+  Description: Perform parallel search instead
   Default:     False
   Manual:      True
 }
@@ -70,14 +93,22 @@ common deps
     bv-sized            -any,
     OneTuple            -any
   ghc-options: -Wall -Wincomplete-uni-patterns
+  if flag(use-sbv)
+    cpp-options: -DUSE_SBV
   if flag(use-what4)
     cpp-options: -DUSE_WHAT4
   if flag(use-cvc)
     cpp-options: -DUSE_CVC
-  if flag(depth-first-search)
-    cpp-options: -DDEPTH_FIRST
-  if flag(parallel-search)
-    cpp-options: -DPARALLEL
+  if flag(use-z3)
+    cpp-options: -DUSE_Z3
+  if flag(use-dfs)
+    cpp-options: -DUSE_DFS
+  if flag(use-iddfs)
+    cpp-options: -DUSE_IDDFS
+  if flag(use-bfs)
+    cpp-options: -DUSE_BFS
+  if flag(use-ps)
+    cpp-options: -DUSE_PS
   default-language: Haskell2010
   other-extensions:
     DefaultSignatures,

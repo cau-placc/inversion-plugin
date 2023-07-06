@@ -2,25 +2,52 @@
 
 module Plugin.Effect.Tree
  ( module Control.Monad.SearchTree
- , dfs, bfs, ps )
+ , dfs, iddfs, bfs, ps )
  where
 
 import Control.Concurrent
 import Control.Monad.SearchTree
 
 import           Data.Maybe
+import           Data.Monoid
 import qualified Data.Sequence as Seq
 
 import System.IO.Unsafe
 import System.Mem.Weak
 
 dfs :: SearchTree a -> [a]
+dfs None = []
+dfs (One x) = [x]
+dfs (Choice l r) = dfs l ++ dfs r
+
+{-dfs :: SearchTree a -> [a]
 dfs = dfs' . (: [])
   where dfs' [] = []
         dfs' (t:ts) = case t of
-                        None -> dfs' ts
-                        One x -> x : dfs' ts
-                        Choice l r -> dfs' ([l, r] ++ ts)
+          None -> dfs' ts
+          One x -> x : dfs' ts
+          Choice l r -> dfs' ([l, r] ++ ts)-}
+
+iddfs :: SearchTree a -> [a]
+iddfs t = foldr (\maxDepth ys -> let (xs, All exhausted) = iddfs' t 0 maxDepth
+                                 in xs ++ if exhausted then [] else ys) [] [0 ..]
+  where iddfs' :: SearchTree a -> Int -> Int -> ([a], All)
+        iddfs' None _ _ = ([], All True)
+        iddfs' (One x) depth maxDepth | depth < maxDepth = ([], All True)
+                                      | depth == maxDepth = ([x], All True)
+        iddfs' (Choice l r) depth maxDepth | depth < maxDepth =
+          let (xs, all1) = iddfs' l (depth + 1) maxDepth
+              (ys, all2) = iddfs' r (depth + 1) maxDepth
+          in (xs ++ ys, all1 <> all2)
+        iddfs' _ _ _ = ([], All False)
+
+{-iddfs :: SearchTree a -> [a]
+iddfs t = concatMap (iddfs' t 0) [0 ..]
+  where iddfs' :: SearchTree a -> Int -> Int -> [a]
+        iddfs' None _ _ = []
+        iddfs' (One x) d maxD | d == maxD = [x]
+        iddfs' (Choice l r) d maxD | d < maxD = iddfs' l (d + 1) maxD ++ iddfs' r (d + 1) maxD
+        iddfs' _ _ _ = []-}
 
 bfs :: SearchTree a -> [a]
 bfs = bfs' . Seq.singleton
