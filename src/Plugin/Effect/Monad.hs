@@ -470,6 +470,7 @@ decomposeInjectivity = unsafeCoerce Refl
 
 class NormalForm a where
   normalFormWith :: (forall b. NormalForm b => FL (Lifted FL b) -> FL (Lifted FL b)) -> Lifted FL a -> FL (Lifted FL a)
+  --TODO: normalForm and groundNormalForm...
 
 --TODO: rename haskellval y to haskellval x overall
 groundNormalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> FL (Lifted FL a)
@@ -619,6 +620,7 @@ showsVarPrec d i = showParen (d > 10) (showString ("var " ++ showsPrec 11 i ""))
 
 class To a where
   toWith :: (forall b. To b => b -> FL (Lifted FL b)) -> a -> Lifted FL a
+  --TODO: to and to'
 
 to :: To a => a -> Lifted FL a
 to = toWith toFL
@@ -743,6 +745,7 @@ matchFL fl y = FL $ resolveFL fl >>= \case
 --------------------------------------------------------------------------------
 
 class Unifiable a where
+  unify :: Lifted FL a -> Lifted FL a -> FL ()
   lazyUnify :: Lifted FL a -> Lifted FL a -> FL ()
 
 {-TODO:
@@ -760,25 +763,51 @@ narrowSame NilFL = NilFL
 narrowSame (ConsFL _ _) = ConsFL free free
 -}
 
-lazyUnifyVar :: forall a. (Unifiable a, HasPrimitiveInfo (Lifted FL a)) => Lifted FL a -> ID -> FL ()
-lazyUnifyVar x i = FL $ get >>= \ FLState { .. } ->
-  case primitiveInfo @(Lifted FL a) of
-    NoPrimitive -> do
-      --TODO: just narrow a single constructor
-      unFL $ instantiateSameConstructor x i
-      {-
-      x' <- share (return (narrowSame x) --TODO: share necessary because argument might be free calls that need to be shared
-      FL $ do
-        modify $ \ FLState { .. } -> FLState { heap = insertBinding i x' heap, .. }
-        unFL x'
+unifyFL :: forall a. Unifiable a => FL (Lifted FL a) -> FL (Lifted FL a) -> FL ()
+unifyFL fl1 fl2 = FL $ do
+  nd1 <- resolveFL fl1
+  nd2 <- resolveFL fl2
+  FLState { .. } <- get
+  case (nd1, nd2) of
+    (Var i, Var j)
+      | i == j -> return (Val ())
+      | otherwise -> case primitiveInfo @(Lifted FL a) of
+        NoPrimitive -> do
+          put (FLState { varHeap = insertBinding i (FL (return nd2)) varHeap
+                       , .. })
+          return (Val ())
+        Primitive -> let c = eqConstraint @(Lifted FL a) (Var i) (Var j)
+                         constraintStore' = insertConstraint c [i, j] constraintStore
+                     in if isUnconstrained i constraintStore || isUnconstrained j constraintStore || isConsistent constraintStore'
+                          then do
+                            put (FLState { varHeap = insertBinding i (FL (return nd2)) varHeap
+                                         , constraintStore = constraintStore'
+                                         , .. })
+                            return (Val ())
+                          else empty
+    (Var i, Val y) -> unFL $ unifyVar y i
+    (Val x, Var j) -> unFL $ unifyVar x j
+    (Val x, Val y) -> unFL $ unify x y
+    (Var i, HaskellVal y) -> unFL $ unifyVar (to y) i
+    (Val x, HaskellVal y) -> unFL $ unify x (to y)
+    (HaskellVal x, Var j) -> unFL $ unifyVar (to x) j
+    (HaskellVal x, Val y) -> unFL $ unify (to x) y
+    (HaskellVal x, HaskellVal y) -> unFL $ unify (to x) (to y)
 
-      update (narrowSame x)
-      -}
-    Primitive -> do
-      let c = eqConstraint (Var i) (Val x)
-      put (FLState { varHeap = insertBinding i (return @FL x) varHeap
-                   , constraintStore = insertConstraint c [i] constraintStore, .. })
-      return (Val ())
+--TODO: unifyVar und lazyUnifyVar funktionieren quasi gleich. da eines immer eine variable ist und das andere immer ein konstruktor (oder eine variable), passiert da eigentlich nichts unterscheidliches, oder?
+unifyVar :: forall a. (Unifiable a, HasPrimitiveInfo (Lifted FL a)) => Lifted FL a -> ID -> FL ()
+unifyVar x i = FL $ get >>= \ FLState { .. } ->
+  case primitiveInfo @(Lifted FL a) of
+    NoPrimitive -> instantiate i >>= unFL . unify x --TODO: instantiateSameConstructor i x anstelle von instantiate i
+    Primitive -> let c = eqConstraint (Var i) (Val x)
+                     constraintStore' = insertConstraint c [i] constraintStore
+                 in if isUnconstrained i constraintStore || isConsistent constraintStore'
+                      then do
+                        put (FLState { varHeap = insertBinding i (return @FL x) varHeap
+                                     , constraintStore = constraintStore'
+                                     , .. })
+                        return (Val ())
+                      else empty --TODO: auslagern
 
 {-instance Unifiable a => Unifiable [a] where
   lazyUnifyVar j NilFL = FL $ get >>= \ FLState { .. } ->
@@ -810,12 +839,12 @@ lazyUnifyFL fl1 fl2 = FL $ resolveFL fl1 >>= \case
             put (FLState { varHeap = insertBinding i fl2 varHeap
                          , .. })
             return (Val ())
-          else --TODO: i ist constrained, also müssen wir uns den anderen wert anschauen, um zu checken, ob er einem bereits bestehenden constraint widerspricht
+          else --i ist constrained, also müssen wir uns den anderen wert anschauen, um zu checken, ob er einem bereits bestehenden constraint widerspricht
             resolveFL fl2 >>= \case
-              Var j ->
+              Var j -> --TODO: kai: add check if i == j. und außerdem kann es sein, dass j unconstrained ist. dann kann j nichts ändern
                 let c = eqConstraint @(Lifted FL a) (Var i) (Var j)
                     constraintStore' = insertConstraint c [i, j] constraintStore
-                in if isConsistent constraintStore'
+                in if isUnconstrained j constraintStore || isConsistent constraintStore'
                      then do
                        put (FLState { varHeap = insertBinding i (FL (return (Var @(Lifted FL a) j))) varHeap
                                     , constraintStore = constraintStore'
@@ -850,8 +879,22 @@ lazyUnifyFL fl1 fl2 = FL $ resolveFL fl1 >>= \case
   HaskellVal x -> resolveFL fl2 >>= \case
     Var j        -> unFL $ lazyUnifyVar (to x) j
     Val y        -> unFL $ lazyUnify (to x) y
-    HaskellVal y -> unFL $ lazyUnify @a (to x) (to y) --TODO: das wäre im prinzip gleichheit...
+    HaskellVal y -> unFL $ lazyUnify @a (to x) (to y)
 
+--TODO: unifyVarWith?
+lazyUnifyVar :: forall a. (Unifiable a, HasPrimitiveInfo (Lifted FL a)) => Lifted FL a -> ID -> FL ()
+lazyUnifyVar x i = FL $ get >>= \ FLState { .. } ->
+  case primitiveInfo @(Lifted FL a) of
+    NoPrimitive -> instantiate i >>= unFL . lazyUnify x --TODO: instantiateSameConstructor i x anstelle von instantiate i
+    Primitive -> let c = eqConstraint (Var i) (Val x)
+                     constraintStore' = insertConstraint c [i] constraintStore
+                 in if isUnconstrained i constraintStore || isConsistent constraintStore'
+                      then do
+                        put (FLState { varHeap = insertBinding i (return @FL x) varHeap
+                                     , constraintStore = constraintStore'
+                                      , .. })
+                        return (Val ())
+                      else empty --TODO: auslagern
 
 -- "unify (error "bla") (var 1)" zeigt, dass es notwendig ist, dass man wissen muss ob 1 unconstrained ist.
 -- var 1 == var 2

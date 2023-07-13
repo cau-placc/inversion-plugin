@@ -87,6 +87,7 @@ instance (To a, Matchable a) => Matchable (Solo a) where
   match (SoloFL x) (Solo y) = matchFL x y
 
 instance Unifiable a => Unifiable (Solo a) where
+  unify (SoloFL x) (SoloFL y) = unifyFL x y
   lazyUnify (SoloFL x) (SoloFL y) = lazyUnifyFL x y
 
 instance NormalForm a => NormalForm (Solo a) where
@@ -128,6 +129,7 @@ instance (To a, To b, Matchable a, Matchable b) => Matchable (a, b) where
   match (Tuple2FL x1 x2) (y1, y2) = matchFL x1 y1 P.>> matchFL x2 y2
 
 instance (Unifiable a, Unifiable b) => Unifiable (a, b) where
+  unify (Tuple2FL x1 x2) (Tuple2FL y1 y2) = unifyFL x1 y1 P.>> unifyFL x2 y2
   lazyUnify (Tuple2FL x1 x2) (Tuple2FL y1 y2) = lazyUnifyFL x1 y1 P.>> lazyUnifyFL x2 y2
 
 {-instance (NormalForm a, NormalForm b) => NormalForm (a, b) where
@@ -185,17 +187,20 @@ instance (Matchable a, To a, Matchable [a], To [a]) => Matchable [a] where
   match _ _ = P.empty
 
 instance (Unifiable a, Unifiable [a]) => Unifiable [a] where
+  unify NilFL NilFL = P.return ()
+  unify (ConsFL x xs) (ConsFL y ys) = unifyFL x y P.>> unifyFL xs ys
+  unify _ _ = P.empty
   lazyUnify NilFL NilFL = P.return ()
   lazyUnify (ConsFL x xs) (ConsFL y ys) = lazyUnifyFL x y P.>> lazyUnifyFL xs ys
   lazyUnify _ _ = P.empty
 
 instance (NormalForm a, NormalForm [a]) => NormalForm [a] where
   normalFormWith nf = \case
-      NilFL -> P.return NilFL
-      ConsFL x xs -> FL $
-        unFL (nf x) P.>>= \y ->
-          unFL (nf xs) P.>>= \ys ->
-            unFL (P.return (ConsFL (FL (P.return y)) (FL (P.return ys))))
+    NilFL -> P.return NilFL
+    ConsFL x xs -> FL $
+      unFL (nf x) P.>>= \y ->
+        unFL (nf xs) P.>>= \ys ->
+          unFL (P.return (ConsFL (FL (P.return y)) (FL (P.return ys))))
 
 instance (ShowFree a, ShowFree [a]) => ShowFree [a] where
   showsFreePrec' _ []     = P.showString "[]"
@@ -251,6 +256,9 @@ instance (To a, Matchable a) => Matchable (P.Maybe a) where
   match _ _ = P.empty
 
 instance Unifiable a => Unifiable (P.Maybe a) where
+  unify NothingFL NothingFL = P.return ()
+  unify (JustFL x) (JustFL y) = unifyFL x y
+  unify _ _ = P.empty
   lazyUnify NothingFL NothingFL = P.return ()
   lazyUnify (JustFL x) (JustFL y) = lazyUnifyFL x y
   lazyUnify _ _ = P.empty
@@ -290,6 +298,7 @@ instance (To a, Matchable a) => Matchable (P.Ratio a) where
   match (a :%# b) (x P.:% y) = matchFL a x P.>> matchFL b y
 
 instance Unifiable a => Unifiable (P.Ratio a) where
+  unify (a :%# b) (x :%# y) = unifyFL a x P.>> unifyFL b y
   lazyUnify (a :%# b) (x :%# y) = lazyUnifyFL a x P.>> lazyUnifyFL b y
 
 instance NormalForm a => NormalForm (P.Ratio a) where
@@ -751,6 +760,7 @@ instance Matchable Bool where
   match _       _     = P.empty
 
 instance Unifiable Bool where
+  unify = lazyUnify
   lazyUnify FalseFL FalseFL = P.return ()
   lazyUnify TrueFL  TrueFL  = P.return ()
   lazyUnify _       _       = P.empty
@@ -785,6 +795,7 @@ instance Matchable () where
   match UnitFL () = P.return ()
 
 instance Unifiable () where
+  unify = lazyUnify
   lazyUnify UnitFL UnitFL = P.return ()
 
 instance NormalForm () where
@@ -823,6 +834,7 @@ instance Matchable Ordering where
   match _    _  = P.empty
 
 instance Unifiable Ordering where
+  unify = lazyUnify
   lazyUnify LTFL LTFL = P.return ()
   lazyUnify EQFL EQFL = P.return ()
   lazyUnify GTFL GTFL = P.return ()
@@ -853,6 +865,7 @@ instance Matchable Integer where
   match (IntegerFL x) y = P.guard (x P.== y)
 
 instance Unifiable Integer where
+  unify = lazyUnify
   lazyUnify (IntegerFL x) (IntegerFL y) = P.guard (x P.== y)
 
 instance NormalForm Integer where
@@ -876,6 +889,7 @@ instance Matchable Int where
   match (IntFL x) y = P.guard (x P.== y)
 
 instance Unifiable Int where
+  unify = lazyUnify
   lazyUnify (IntFL x) (IntFL y) = P.guard (x P.== y)
 
 instance NormalForm Int where
@@ -899,6 +913,7 @@ instance Matchable Float where
   match (FloatFL x) y = P.guard (x P.== y)
 
 instance Unifiable Float where
+  unify = lazyUnify
   lazyUnify (FloatFL x) (FloatFL y) = P.guard (x P.== y)
 
 instance NormalForm Float where
@@ -922,6 +937,7 @@ instance Matchable Double where
   match (DoubleFL x) y = P.guard (x P.== y)
 
 instance Unifiable Double where
+  unify = lazyUnify
   lazyUnify (DoubleFL x) (DoubleFL y) = P.guard (x P.== y)
 
 instance NormalForm Double where
@@ -945,6 +961,7 @@ instance Matchable P.Char where
   match (CharFL x) y = P.guard (x P.== y)
 
 instance Unifiable P.Char where
+  unify = lazyUnify
   lazyUnify (CharFL x) (CharFL y) = P.guard (x P.== y)
 
 instance NormalForm P.Char where

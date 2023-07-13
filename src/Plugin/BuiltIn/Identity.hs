@@ -34,6 +34,7 @@ instance (To a, Matchable a) => Matchable (Identity a) where
   match (IdentityFL x) (Identity y) = matchFL x y
 
 instance Unifiable a => Unifiable (Identity a) where
+  unify (IdentityFL x) (IdentityFL y) = unifyFL x y
   lazyUnify (IdentityFL x) (IdentityFL y) = lazyUnifyFL x y
 
 instance NormalForm a => NormalForm (Identity a) where
