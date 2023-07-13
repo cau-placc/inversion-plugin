@@ -7,7 +7,7 @@ module Plugin.Effect.TH where
 import Control.Applicative
 import Control.Monad
 
-import Data.Tuple.Solo
+--import Data.Tuple.Solo
 
 import GHC.Data.FastString
 import GHC (mkModuleName)
@@ -88,12 +88,13 @@ thisPkgName = case 'toFL of
 
 --TODO: lift to q and throw error when length of list is > maxTupleArity
 mkLiftedTupleE :: [Exp] -> Exp
-mkLiftedTupleE xs  = AppE (VarE 'return) (applyExp liftedTupleConE xs)
+mkLiftedTupleE [x] = x
+mkLiftedTupleE xs = AppE (VarE 'return) (applyExp liftedTupleConE xs)
   where
     -- TODO does this really work?
     liftedTupleConE = ConE $ mkNameG_v thisPkgName builtInModule tupleConName
     tupleConName | null xs        = "UnitFL"
-                 | length xs == 1 = "SoloFL"
+                 | length xs == 1 = "SoloFL" --TODO: Remove? Flag?
                  | otherwise      = "Tuple" ++ show (length xs) ++ "FL"
 
 decomposeForallT :: Type -> ([TyVarBndr Specificity], [Type], Type)
@@ -126,15 +127,15 @@ genLiftedApply :: Exp -> [Exp] -> ExpQ
 genLiftedApply = foldM (\f arg -> newName "v" >>= \vName -> return $ applyExp (VarE '(>>=)) [f, LamE [ConP 'Func [] [VarP vName]] $ AppE (VarE vName) arg])
 
 mkTupleE :: [Exp] -> Exp
-mkTupleE [e] = AppE (ConE 'Solo) e
+mkTupleE [e] = e --AppE (ConE 'Solo) e
 mkTupleE es  = TupE $ map Just es
 
 mkTupleT :: [Type] -> Type
-mkTupleT [ty] = AppT (ConT ''Solo) ty
+mkTupleT [ty] = ty --AppT (ConT ''Solo) ty
 mkTupleT tys  = applyType (TupleT (length tys)) tys
 
 mkTupleP :: [Pat] -> Pat
-mkTupleP [p] = ConP 'Solo [] [p]
+mkTupleP [p] = p -- ConP 'Solo [] [p]
 mkTupleP ps' = TupP ps'
 
 mkArrowT :: Type -> Type -> Type
@@ -310,7 +311,7 @@ genInstances originalDataDec liftedDataDec = do
         return $ InstanceD Nothing ctxt (mkMatchableConstraint originalTy) [dec]
 
       genUnifiable = do
-        let genUnify = do
+        let genUnify lazy = do
               let genClause liftedConInfo = do
                     let liftedConArity = conArity liftedConInfo
                         liftedConName = conName liftedConInfo
@@ -318,14 +319,14 @@ genInstances originalDataDec liftedDataDec = do
                     liftedArgNames2 <- replicateM liftedConArity (newName "y")
                     let liftedPat1 = ConP liftedConName [] $ map VarP liftedArgNames1
                         liftedPat2 = ConP liftedConName [] $ map VarP liftedArgNames2
-                        body = NormalB $ foldr (\e1 e2 -> applyExp (VarE '(>>)) [e1, e2]) (AppE (VarE 'return) (ConE '())) $ zipWith (\liftedArgName1 liftedArgName2 -> applyExp (VarE 'lazyUnifyFL) [VarE liftedArgName1, VarE liftedArgName2]) liftedArgNames1 liftedArgNames2
+                        body = NormalB $ foldr (\e1 e2 -> applyExp (VarE '(>>)) [e1, e2]) (AppE (VarE 'return) (ConE '())) $ zipWith (\liftedArgName1 liftedArgName2 -> applyExp (VarE (if lazy then 'lazyUnifyFL else 'unifyFL)) [VarE liftedArgName1, VarE liftedArgName2]) liftedArgNames1 liftedArgNames2
                     return $ Clause [liftedPat1, liftedPat2] body []
               clauses <- mapM genClause liftedConInfos
               let failClause = Clause [WildP, WildP] (NormalB $ VarE 'Control.Applicative.empty) []
-              return $ FunD 'lazyUnify (clauses ++ [failClause])
-        dec <- genUnify
+              return $ FunD (if lazy then 'lazyUnify else 'unify) (clauses ++ [failClause])
+        decs <- mapM genUnify [False ..]
         let ctxt = map mkUnifiableConstraint originalConArgs
-        return $ InstanceD Nothing ctxt (mkUnifiableConstraint originalTy) [dec]
+        return $ InstanceD Nothing ctxt (mkUnifiableConstraint originalTy) decs
 
       genNormalForm = do
         nfName <- newName "nf"

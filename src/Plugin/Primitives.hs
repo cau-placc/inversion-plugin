@@ -57,10 +57,12 @@ genInv gnf = flip (genPartialInv gnf) []
 genPartialInv :: Bool -> Name -> [Int] -> ExpQ
 genPartialInv gnf name fixedArgIndices = do
   originalArity <- getFunArity name
+  when (originalArity == 0) $ fail "Cannot create inverse for a nullary function"
   let validFixedArgIndices = [0 .. originalArity - 1]
-      hint = "has to be a subsequence of " ++ show validFixedArgIndices
   when (any (`notElem` validFixedArgIndices) fixedArgIndices) $ fail $
-    "Invalid argument index sequence for partial inverse provided (" ++ hint ++ ")"
+    "Invalid argument index sequence for partial inverse provided (has to be a subsequence of " ++ show validFixedArgIndices ++ ")"
+  when (length (nub fixedArgIndices) == originalArity) $ fail $
+    "Invalid argument index sequence for partial inverse provided (must not contain all indices)"
   let nubbedFixedArgIndices = nub fixedArgIndices
       nonFixedArgIndices = filter (`notElem` fixedArgIndices) validFixedArgIndices
   fixedArgNames <- replicateM (length nubbedFixedArgIndices) (newName "fixedArg")
