@@ -28,6 +28,7 @@ library
     FunPat
     FunPatSrc
     Graph
+    Graph2
     Huffman
     Interpreter
     Match
@@ -35,6 +36,10 @@ library
     P
     RunLength
     TreeTraversal
+    Robert
+    Lambda
+    Quine
+    Lisp
     Z
 
 executable main

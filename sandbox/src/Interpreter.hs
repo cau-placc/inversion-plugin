@@ -75,11 +75,25 @@ run env (While e c)   | Just (Bool b) <- eval env e
                       = run env (if b then Seq c (While e c) else Skip)
 run _   _             = Nothing
 
-
 --
 
 -- Graph walk test program
+-- Taken from "Principles of Inverse Computation and the Universal Resolving Algorithm"
 -- Expects inputs in variables "graph" and "path", puts output in variable "result"
+-- Test with:
+-- $(partialInv 'isWalk(Ref) True [0]) graph True (should result in 17 cycle-free walks)
+-- $(partialInv 'isWalk(Ref) True [0]) graph False (should result in an infinite number of cyclic walks)
+-- $(partialInv 'isWalk(Ref) False [0]) graph False (should result in 52/54 representants of cyclic walks)
+-- Note: Graph.hs contains a non-primitive variant, which runs much faster than this one
+
+--TODO: Fix: error case if not part of the program.
+
+{-
+ghci> $(partialInv 'isWalkRef True [0]) graph2 True
+[Solo "",Solo "a",Solo "b",Solo "c",Solo "d",Solo "e",Solo "f",Solo "g",Solo "ab",Solo "ac",Solo "bd",Solo "ae",Solo "da",Solo "ag",Solo "bg",Solo "dc",Solo "ec",Solo "fb",Solo "ga",Solo "abd",Solo "fd",Solo "dab",Solo "gc",Solo "bda",Solo "abg",Solo "dac",Solo "bdc",Solo "aec",Solo "dae",Solo "gab",Solo "bga",Solo "dag",Solo "fbd",Solo "gac",Solo "fda",Solo "agc",Solo "bgc",Solo "gae",Solo "fbg",Solo "abdc",Solo "bdac",Solo "fdc",Solo "bdae",Solo "dabg",Solo "bdag",Solo "gabd",Solo "abgc",Solo "bgac",Solo "daec",Solo "fbda",Solo "fdab",Solo "fdac",Solo "bgae",Solo "fbdc",Solo "fdae",Solo "dagc",Solo "gaec",Solo "fbga",Solo "fdag",Solo "fbgc",Solo "bdaec",Solo "fbdac",Solo "gabdc",Solo "dabgc",Solo "fbdae",Solo "bdagc",Solo "fdabg",Solo "bgaec",Solo "fbdag",Solo "fbgac",Solo "fdaec",Solo "fbgae",Solo "fdagc",Solo "fbdaec",Solo "fdabgc",Solo "fbdagc",Solo "fbgaec"]
+(111.82 secs, 44,664,717,056 bytes)
+Non-ref (118.11 secs, 51,479,163,080 bytes)
+-}
 
 {-
 graph = ["abc", "bd", "c", "dac"]
@@ -142,7 +156,7 @@ while not(path == ""):
                     result = False
                     path = ""
     else:
-        error
+        error()
 -}
 
 isWalkProgram :: Cmd
@@ -228,34 +242,32 @@ graph = [ "abc"
         , "dac"
         ]
 
+graph2 :: Graph
+graph2 = [ "abceg"
+         , "bdg"
+         , "c"
+         , "dac"
+         , "ec"
+         , "fbd"
+         , "gac"
+         ]
+
 ---
 
 -- Factorial test program
 -- Expects input in variable "x", puts output in variable "y"
+-- Test with:
+-- head $ $(inv 'factorial(Ref) True) (Just 3628800)
 
--- IF x < 0 THEN
---   ERROR
--- ELSE
---   y = 1;
---   WHILE NOT(x == 0) DO
---     y = y * x;
---     x = x - 1
---   OD
--- FI
-
--- IF x < 0 THEN
---   ERROR
--- ELSE
---   IF x == 0 THEN
---     y = 1
---   ELSE
---     y = x
---     WHILE NOT(x == 1) DO
---       x = x - 1;
---       y = y * x
---     OD
---   FI
--- FI
+{-
+if x < 0:
+  error()
+else:
+  y = 1
+  while x != 0:
+    y = y * x
+    x = x - 1
+-}
 
 factorialProgram :: Cmd
 factorialProgram = Ite (Lt (Var "x") (Val (Int 0)))
@@ -271,38 +283,39 @@ factorial :: Integer -> Maybe Integer
 factorial x | Just (Int y) <- run [("x", Int x)] factorialProgram >>= lookup "y" = Just y
             | otherwise                                                          = Nothing
 
--- Test with: head $ $(inv 'factorial True) (Just 3628800)
-
 factorialRef :: Integer -> Maybe Integer
 factorialRef x = if x < 0 then Nothing else Just (factorial' x)
   where factorial' 0  = 1
         factorial' x' = x' * factorial' (x' - 1)
 
-
 --
 
 -- Matching test program
--- Expects inputs in variables Xs and Ys, output is Xs with Xs == [] if Xs was part of Ys
+-- TODO: Taken from URA paper
+-- Expects inputs in variables "substr" and "str", output is "matched" if "substr" was part of "str"
+-- Test with:
+-- $(partialInv 'match True [1]) "abc" True
+-- $(partialInv 'matchRef True [1]) "abc" True
 
 {-
-xs = "allo" # zu suchendes wort
-ys = "aloallo" # zu durchsuchendes wort
+substr = "allo" # string to match for
+str = "aloallo" # string to match in
 
-while len(ys) != 0:
-    as1 = xs[:]
-    bs = ys[:]
-    while len(as1) != 0 and len(bs) != 0:
-        if as1[:1] == bs[:1]:
-            as1 = as1[1:]
-            bs = bs[1:]
+while len(str) != 0:
+    substr_copy = substr[:]
+    str_copy = str[:]
+    while len(substr_copy) != 0 and len(str_copy) != 0:
+        if substr_copy[:1] == str_copy[:1]:
+            substr_copy = substr_copy[1:]
+            str_copy = str_copy[1:]
         else:
-            bs = []
-    if len(as1) == 0:
-        ys = []
-        xs = []
+            str_copy = []
+    if len(substr_copy) == 0:
+        substr = []
+        str = []
     else:
-        ys = ys[1:]
-print(len(xs) == 0)
+        str = str[1:]
+matched = len(substr) == 0
 -}
 
 matchProgram :: Cmd
@@ -317,8 +330,8 @@ matchProgram = foldl1 Seq
                         ])
             (Assign "str_copy" (Val (List []))))
       , Ite (Eq (Var "substr_copy") (Val (List [])))
-          (foldl1 Seq [ Assign "str" (Val (List []))
-                      , Assign "substr" (Val (List []))
+          (foldl1 Seq [ Assign "substr" (Val (List []))
+                      , Assign "str" (Val (List []))
                       ])
           (Assign "str" (Tail (Var "str")))
       ])
@@ -328,8 +341,6 @@ matchProgram = foldl1 Seq
 match :: String -> String -> Bool
 match xs ys | Just (Bool b) <- run [("substr", List (map Char xs)), ("str", List (map Char ys))] matchProgram >>= lookup "matched" = b
 
--- Equivalent test program in Haskell
-
 matchRef :: String -> String -> Bool
 matchRef [] _      = True
 matchRef _  []     = False
@@ -337,9 +348,3 @@ matchRef xs (y:ys) = match' xs (y:ys) || matchRef xs ys
   where match' []      _     = True
         match' (x:xs) (y:ys) = x == y && match' xs ys
         match' _      _      = False
-
--- Test with:
--- $(partialInv 'match True [1]) "abc" True
--- $(partialInv 'matchRef True [1]) "abc" True
-
---TODO: in den anhang

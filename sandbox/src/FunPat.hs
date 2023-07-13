@@ -10,6 +10,13 @@ import Plugin.InversionPlugin
 
 lastTH $(funPat '(++) [[p| _ |], [p| [x] |]]) = x
 
+lastTHLegacy $(funPatLegacy '(++) [[p| _ |], [p| [x] |]]) = x
+
+isEmpty :: [Bool] -> Bool
+isEmpty $(funPat '(++) [[p| [] |], [p| [] |]]) = True
+
+f $(funPat 'h [[p| x |]]) = True
+
 --lastTH2 $(funPatLegacy '(++) [[p| _ |], [p| [x] |]]) = x
 
 {-

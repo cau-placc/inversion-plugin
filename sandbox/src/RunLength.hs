@@ -2,6 +2,11 @@
 
 module RunLength where
 
+--TODO: Add paper
+--TODO num instanz
+
+-- [('h',S Z),('a',S Z),('l',S (S Z)),('o',S Z),('w',S Z),('e',S Z),('l',S Z),('t',S Z)]
+
 import P
 
 rle :: Eq a => [a] -> [(a, Int)]
@@ -27,6 +32,8 @@ rleP (c:cs) = let l = lengthP (takeWhile (== c) cs)
               in (c, S l) : rleP (dropP l cs)
 
 -- The inverses of `unrleNaive` and `unrleNaiveButBetter`are not the "right" ones as they computes run-length encodings that have too short sequences in it (or even sequences of length 0 in case of `unrleNaive`).
+
+-- man ist es nicht gewohnt zu invertieren, instruktiv (aber unabhöngig vom system)
 
 unrleNaive :: [(a, Int)] -> [a]
 unrleNaive = concatMap (uncurry (flip replicate))

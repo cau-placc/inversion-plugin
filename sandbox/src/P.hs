@@ -9,6 +9,9 @@ addP :: P -> P -> P
 addP Z     n = n
 addP (S m) n = S (addP m n)
 
+incP :: P -> P
+incP n = S n
+
 decP :: P -> P
 decP (S m) = m
 

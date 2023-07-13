@@ -25,3 +25,6 @@ $(inv 'id2 True)
 
 f2 :: (a -> b) -> c -> d
 f2 _ _ = error "bla"
+
+h :: Bool -> Bool
+h x = True

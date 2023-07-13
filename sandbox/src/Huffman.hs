@@ -48,15 +48,31 @@ encode input = (codemap, codeword)
         codeword = genCodeword codemap input
 
 data Alphabet = A | B | C | D | E | F | G
-  deriving (Show, Eq)
+  deriving (Show)
+--TODO: Huffman einalphabetisch
+
+--TODO: Remove quick fix
+instance Eq Alphabet where
+  A == A = True
+  B == B = True
+  C == C = True
+  D == D = True
+  E == E = True
+  F == F = True
+  G == G = True
+  _ == _ = False
 
 --codemap :: Codemap Alphabet
 --codemap = genCodemap [A,A,C,E,D,D,F,E,E,B,A,E,F,C,E,A,B,C,C,E]
 --word = "Hello World"
 word = [A, B, C, C, D, E, D, F, C, G]
+--word = [A]
 codemap = genCodemap word
 codeword = genCodeword codemap word
 
 -- Test with: let decode = $(partialInv 'genCodeword True [0]) in decode codemap codeword
 -- Interestingly enough, $(inv 'encode True) is not working very well
 -- Does also not work very well with primitive types
+
+
+-- TODO: Benchmark for dissertation

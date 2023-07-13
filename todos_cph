@@ -1,0 +1,34 @@
+import automatisch hinzufügen. :)
+
+
+
+abgrenzung von reversible programming wo es nur um deterministische dinge geht
+
+injektive funktionen eventuell zwischendrin
+
+LRInv klassen von programmen
+
+
+
+verkaufsargument erstes system, das praktisch einsetzbar ist
+experimentierplattform!!!
+klarer die idee machen, pl + tpl + mo + inv
+
+
+functional patterns + monade zur pl impl als applications
+evaluation -> case studies
+
+
+quine generierung ein inversionsproblem.
+
+
+lisp interpreter (nur listen) in haskell für quine testen
+TODO: Lambda calculus
+quine notorisch schwierig für inverse, da printing nicht invertierbar. die ausgabe kann man natürlich einfach als string auffassen, dann geht das. also definition leicht ändern.
+
+
+
+pretty printer/parser
+umwandlung von zalhnesystem oktal, binär, dezimal, hexadzimal
+
+kategorien für case studies:

@@ -1,0 +1,13 @@
+funktionale muster brauchen den non-strict unification operator. vorteil: last [error "", 2] geht trotzdem und liefert 2 zurück.
+
+ist das für inversion überhaupt notwendig? wozu nicht-striktheit bei inversion? wir berechnen ja eh immer werte, oder?
+
+begründung: nicht-striktheit erhalten. wir könnten das mit unifikation machen, dann würde aber appendInv [error "", blub] keine ergebnisse mehr liefern.
+
+nicht-striktheit als erweiterung? sinnvoll für funktionale muster und für non-free sachen.
+
+
+
+Eq Bool
+False == False = True
+True == True = True

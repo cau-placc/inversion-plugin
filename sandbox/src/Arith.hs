@@ -6,6 +6,8 @@ formel x y z = x && y || z
 --TODO: schaltkreis beispiel zur analyse
 -- TODO: fulladder
 
+frank x y = x * y
+
 someArith :: Num a => a -> a -> a
 someArith x y = x * 42 + y -- take 30 $ $(inv 'someArith) 42 -- 16s
 

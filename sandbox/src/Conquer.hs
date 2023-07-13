@@ -29,7 +29,7 @@ instance Trans Z
 -- Maximum prefix/segment sum problem
 
 mpsTupledWI :: _ => _
-mpsTupledWI = getSolo . $(weakInv 'mpsTupled True)
+mpsTupledWI = $(weakInv 'mpsTupled)
 
 mpsHom :: _ => _
 mpsHom = (f, c)
@@ -55,7 +55,7 @@ mpsHomRef = (f, c)
         c a b = h (hWI a ++ hWI b)
 
 mssTupledWI :: _ => _
-mssTupledWI = getSolo . $(weakInv 'mssTupled True)
+mssTupledWI = $(weakInv 'mssTupled)
 
 mssHom :: _ => _
 mssHom = (f, c)
@@ -84,7 +84,7 @@ mssHomRef = (f, c)
 -- Line-of-sight problem
 
 visibleTupledWI :: _ => _
-visibleTupledWI = getSolo . $(weakInv 'visibleTupled True)
+visibleTupledWI = $(weakInv 'visibleTupled)
 
 visibleHom :: _ => _
 visibleHom = (f, c)

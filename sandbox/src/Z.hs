@@ -3,10 +3,26 @@
 module Z where
 
 data N = I | S N
-  deriving (Eq, Ord, Show)
+  deriving (Show)
+
+instance Eq N where
+  I     == I     = True
+  (S m) == (S n) = m == n
+  _     == _     = False
+
+instance Ord N where
+  I     <= _     = True
+  (S _) <= I     = False
+  (S m) <= (S n) = m <= n
 
 data Z = Neg N | Zero | Pos N
-  deriving (Eq, Show)
+  deriving (Show)
+
+instance Eq Z where
+  Neg m == Neg n = m == n
+  Zero  == Zero  = True
+  Pos m == Pos n = m == n
+  _     == _     = False
 
 instance Ord Z where
   Zero  <= Pos _ = True
