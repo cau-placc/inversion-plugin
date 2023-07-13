@@ -8,7 +8,7 @@
 module Plugin.Primitives
   ( Input, Output, inv, To, partialInv, weakInv
   , Class, inOutClassInv, inClassInv, var
-  , showFree
+  , invFree, partialInvFree, weakInvFree, inClassInvFree, inOutClassInvFree, showFree
   , funPat, funPatLegacy
   ) where
 
@@ -28,13 +28,34 @@ import Plugin.Effect.TH
 
 {-# ANN module "HLint: ignore Redundant bracket" #-}
 
-inv :: Name -> Bool -> ExpQ
-inv f = flip (partialInv f) []
+inv, invFree :: Name -> ExpQ
+inv = genInv True
+invFree = genInv False
+
+partialInv, partialInvFree :: Name -> [Int] -> ExpQ
+partialInv = genPartialInv True
+partialInvFree = genPartialInv False
+
+weakInv, weakInvFree :: Name -> ExpQ
+weakInv = genWeakInv True
+weakInvFree = genWeakInv False
+
+inClassInv, inClassInvFree :: Name -> [ExpQ] -> ExpQ
+inClassInv = genInClassInv True
+inClassInvFree = genInClassInv False
+
+inOutClassInv, inOutClassInvFree :: Name -> [ExpQ] -> ExpQ -> ExpQ
+inOutClassInv = genInOutClassInv True
+inOutClassInvFree = genInOutClassInv False
+
+genInv :: Bool -> Name -> ExpQ
+genInv gnf = flip (genPartialInv gnf) []
 
 -- CAUTION! This primitive has to generate a let expression (instead of a lambda expression).
 -- See also remark at `inClassInv`.
-partialInv :: Name -> Bool -> [Int] -> ExpQ
-partialInv name gnf fixedArgIndices = do
+-- TODO: Check if indices beginning with 0 or 1 are better.
+genPartialInv :: Bool -> Name -> [Int] -> ExpQ
+genPartialInv gnf name fixedArgIndices = do
   originalArity <- getFunArity name
   let validFixedArgIndices = [0 .. originalArity - 1]
       hint = "has to be a subsequence of " ++ show validFixedArgIndices
@@ -47,16 +68,16 @@ partialInv name gnf fixedArgIndices = do
       nonFixedArgExps = zip nonFixedArgIndices $ map (AppE (VarE 'var) . mkIntExp) [0 ..]
       inClassExps = map snd $ sortOn fst $ fixedArgExps ++ nonFixedArgExps
   g <- newName "g"
-  invE <- inClassInv name gnf (map return inClassExps)
+  invE <- genInClassInv gnf name (map return inClassExps)
   return $ LetE [FunD g [Clause (map VarP fixedArgNames) (NormalB invE) []]] (VarE g)
 
-weakInv :: Name -> Bool -> ExpQ
-weakInv name gnf = [| foldr const (error "no weak inverse") . $(inv name gnf) |]
+genWeakInv :: Bool -> Name -> ExpQ
+genWeakInv gnf name = [| foldr const (error "no weak inverse") . $(genInv gnf name) |]
 
 type Class = ExpQ
 
-inOutClassInv :: Name -> Bool -> [Class] -> ExpQ -> ExpQ
-inOutClassInv name gnf inClassExpQs outClassExpQ = do
+genInOutClassInv :: Bool -> Name -> [Class] -> ExpQ -> ExpQ
+genInOutClassInv gnf name inClassExpQs outClassExpQ = do
   originalArity <- getFunArity name
   let numInClasses = length inClassExpQs
   when (originalArity /= numInClasses) $ fail $ "Wrong number of input classes provided (expected " ++ show originalArity ++ ", but got " ++ show numInClasses ++ ")"
@@ -125,15 +146,15 @@ createFreeMap = mapM (\case
 -- CAUTION! This primitive has to generate a let expression (instead of the following lambda expression `[| \x = $(inOutClassInv f gnf ins [| x |]) |]`), because otherwise examples like `$(inv 'id True) [True]` would fail to type.
 -- This is weird behavior by the GHC and probably a bug.
 -- Remark by Kai-Oliver Prott: Could be a confluence error.
-inClassInv :: Name -> Bool -> [Class] -> ExpQ
-inClassInv f gnf ins = [| let g x = $(inOutClassInv f gnf ins [| x |]) in g |]
+genInClassInv :: Bool -> Name -> [Class] -> ExpQ
+genInClassInv gnf f ins = [| let g x = $(genInOutClassInv gnf f ins [| x |]) in g |]
 
 funPat :: Name -> [PatQ] -> PatQ
 funPat name qps = do
   ps <- sequence qps
   vs <- getAllPatVars ps
   res <- evalStateT (mapM patToExp ps) 0
-  ViewP <$> inClassInv name False (map return res) <*> [p| $(return $ mkTupleP vs):_ |]
+  ViewP <$> inClassInvFree name (map return res) <*> [p| $(return $ mkTupleP vs):_ |]
 
 getAllPatVars :: [Pat] -> Q [Pat]
 getAllPatVars = flip evalStateT [] .
@@ -179,7 +200,7 @@ patToExp _ = fail "Unsupported syntax in functional pattern"
 funPatLegacy :: Name -> [PatQ] -> PatQ
 funPatLegacy name qps = do
   tP <- mkTupleP <$> sequence qps
-  vE <- [| (\a -> [b | b@($(return (anonymizePat tP))) <- $(inv name False) a]) |]
+  vE <- [| (\a -> [b | b@($(return (anonymizePat tP))) <- $(invFree name) a]) |]
   _ <- evalStateT (patToExp tP) 0 -- Check for unsupported syntax
   _ <- getAllPatVars [tP]         -- Check for conflicting variable definitions
   ViewP vE <$> [p| $(return tP):_ |]
