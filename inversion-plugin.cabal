@@ -94,21 +94,21 @@ common deps
     OneTuple            -any
   ghc-options: -Wall -Wincomplete-uni-patterns
   if flag(use-sbv)
-    cpp-options: -DUSE_SBV
+    cpp-options: -DUSE_SBV -UUSE_WHAT4
   if flag(use-what4)
-    cpp-options: -DUSE_WHAT4
+    cpp-options: -DUSE_WHAT4 -UUSE_SBV
   if flag(use-cvc)
-    cpp-options: -DUSE_CVC
+    cpp-options: -DUSE_CVC -UUSE_Z3
   if flag(use-z3)
-    cpp-options: -DUSE_Z3
+    cpp-options: -DUSE_Z3 -UUSE_CVC
   if flag(use-dfs)
-    cpp-options: -DUSE_DFS
+    cpp-options: -DUSE_DFS -UUSE_IDDFS -UUSE_BFS -UUSE_PS
   if flag(use-iddfs)
-    cpp-options: -DUSE_IDDFS
+    cpp-options: -DUSE_IDDFS -UUSE_DFS -UUSE_BFS -UUSE_PS
   if flag(use-bfs)
-    cpp-options: -DUSE_BFS
+    cpp-options: -DUSE_BFS -UUSE_DFS -UUSE_IDDFS -UUSE_PS
   if flag(use-ps)
-    cpp-options: -DUSE_PS
+    cpp-options: -DUSE_PS -UUSE_DFS -UUSE_IDDFS -UUSE_BFS
   default-language: Haskell2010
   other-extensions:
     DefaultSignatures,
