@@ -78,6 +78,34 @@ genWeakInv gnf name = [| foldr const (error "no weak inverse") . $(genInv gnf na
 
 type Class = ExpQ
 
+{-
+TODO: condense
+let
+      f
+        = let
+            g x
+              = let
+                  b free0 free1
+                    = (map fromFLVal)
+                        (evalFL
+                           (groundNormalFormFL
+                              (do (lazyUnifyFL
+                                     (((>>=)
+                                         (((>>=) appendFL)
+                                            (\ (Func v)
+                                               -> v free0)))
+                                        (\ (Func v)
+                                           -> v free1)))
+                                    (toFL x)
+                                  return ((Tuple2FL free0) free1))))
+                in
+                  (b
+                     (FL (return (Var 0))))
+                    (FL (return (Var 1)))
+          in g
+    in f
+
+-}
 genInOutClassInv :: Bool -> Name -> [Class] -> ExpQ -> ExpQ
 genInOutClassInv gnf name inClassExpQs outClassExpQ = do
   originalArity <- getFunArity name

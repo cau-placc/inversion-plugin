@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -fplugin Plugin.InversionPlugin #-}
+--{-# OPTIONS_GHC -fplugin-opt Plugin.InversionPlugin:dump-pattern-matched #-}
 
 module FunPatSrc where
 
@@ -28,3 +29,7 @@ f2 _ _ = error "bla"
 
 h :: Bool -> Bool
 h x = True
+
+append :: [a] -> [a] -> [a]
+append [] ys = ys
+append (x:xs) ys = x : append xs ys
