@@ -50,13 +50,13 @@ flag use-dfs {
 
 flag use-iddfs {
   Description: Perform iterative-deepening depth-first search
-  Default:     True
+  Default:     False
   Manual:      True
 }
 
 flag use-bfs {
   Description: Perform breadth-first search
-  Default:     False
+  Default:     True
   Manual:      True
 }
 
