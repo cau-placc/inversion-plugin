@@ -940,8 +940,11 @@ instance (From a, NormalForm a, To b) => To (a -> b) where
 --instance (From a, NormalForm (Lifted FL a), To b) => To (a -> b) where
   --toWith _ f = Func $ \x -> toFL' (f (fromFL (groundNormalFormFL x)))
 
-appFL :: MonadShare m => m ((-->) m a b) -> m a -> m b
-mf `appFL` mx = share mx >>= \x -> mf >>= \ (Func f) -> f x
+appFL :: Monad m => m ((-->) m a b) -> m a -> m b
+mf `appFL` mx = mf >>= \ (Func f) -> f mx
+
+appShareFL :: MonadShare m => m ((-->) m a b) -> m a -> m b
+appShareFL f a = share a >>= appFL f
 
 -- This function incorporates the improvement from the paper for
 -- partial values in the context of partial inversion with higher-order functions.

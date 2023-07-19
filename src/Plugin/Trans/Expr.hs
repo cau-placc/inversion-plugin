@@ -706,7 +706,7 @@ liftMonadicStmts ctxt ctxtSwitch ty given tcs (s : ss) = do
       mtc <- getMonadTycon
       ftc <- getFunTycon
       let (ty1, ty2) = splitMyFunTy ftc mtc (bindingType e1ty)
-      e2 <- mkApp (mkNewApply1 (bindingType ty1)) (bindingType ty2) [e1]
+      e2 <- mkApp (mkNewApp (bindingType ty1)) (bindingType ty2) [e1]
       ws' <- mapM (liftWrapperTcM True tcs) ws
       return (SyntaxExprTc (unLoc e2) ws' WpHole)
     trans1 NoSyntaxExprTc = return NoSyntaxExprTc

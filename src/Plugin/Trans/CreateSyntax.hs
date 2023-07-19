@@ -34,7 +34,7 @@ import GHC.Rename.Expr
 import GHC.Tc.Gen.App
 import GHC.Tc.Utils.TcType
 
-import Plugin.Effect.Monad ( type (-->)(..), appFL, toFL, share )
+import Plugin.Effect.Monad ( type (-->)(..), appFL, appShareFL, toFL, share )
 import Plugin.Lifted ()
 import Plugin.Trans.Constr
 import Plugin.Trans.Type
@@ -121,10 +121,22 @@ mkApp = flip mkAppWith []
 -- | Create a 'app' for the given arguments and apply them.
 mkFuncApp :: [Ct] -> LHsExpr GhcTc -> Type -> LHsExpr GhcTc -> Type
           -> TcM (LHsExpr GhcTc)
-mkFuncApp given op ty1 arg ty2 = do
+mkFuncApp given op ty1 arg ty2 | isSimple arg = do
   let ty1' = bindingType ty1
   let ty2' = bindingType ty2
   mkAppWith (mkNewAppTh ty1') given ty2' [op, arg]
+  where
+    isSimple :: LHsExpr GhcTc -> Bool
+    isSimple (L _ (HsVar _ _)) = True
+    isSimple (L _ (HsPar _ e)) = isSimple e
+    isSimple (L l (XExpr (WrapExpr (HsWrap _ e)))) = isSimple (L l e)
+    isSimple _                 = False
+mkFuncApp given op ty1 arg ty2 = do
+  printAny "mkFuncApp op" op
+  printAny "mkFuncApp arg" arg
+  let ty1' = bindingType ty1
+  let ty2' = bindingType ty2
+  mkAppWith (mkNewSharedAppTh ty1') given ty2' [op, arg]
 
 -- | Apply the given list of arguments to a term created by the first function.
 -- Use the given set of given constraints to solve any wanted constraints.
@@ -204,10 +216,23 @@ mkNewAppTh optype argtype = do
   let (_, restype) = splitMyFunTy ftycon mtycon optype
   th_expr <- liftQ [| appFL |]
   let mty = mkTyConTy mtycon
-  let expType = mkVisFunTyMany (mkAppTy mty optype) $ -- m optype ->
-                mkVisFunTyMany (mkAppTy mty argtype)  -- m argtype ->
-                restype                               -- restype
-  mkNewAny th_expr expType
+  let exp_type = mkVisFunTyMany (mkAppTy mty optype) $ -- m optype ->
+                 mkVisFunTyMany (mkAppTy mty argtype)  -- m argtype ->
+                 restype                               -- restype
+  mkNewAny th_expr exp_type
+
+-- | Create a 'share arg >>= appFL f' for the given argument types.
+mkNewSharedAppTh :: Type -> Type -> TcM (LHsExpr GhcTc)
+mkNewSharedAppTh optype argtype = do
+  ftycon <- getFunTycon
+  mtycon <- getMonadTycon
+  th_expr <- liftQ [| appShareFL |]
+  let (_, restype) = splitMyFunTy ftycon mtycon optype
+  let mty = mkTyConTy mtycon
+  let exp_type = mkVisFunTyMany (mkAppTy mty optype) $ -- m optype ->
+                 mkVisFunTyMany (mkAppTy mty argtype)  -- m argtype ->
+                 restype                               -- restype
+  mkNewAny th_expr exp_type
 
 -- | Create a 'fmap' for the given argument types.
 mkNewFmapTh :: Type -> Type -> TcM (LHsExpr GhcTc)
@@ -246,9 +271,9 @@ mkNewToFL ty1 ty2 = do
   let expType = mkVisFunTyMany ty1 (mkTyConApp mtycon [ty2])
   mkNewAny th_expr expType
 
--- | Create a 'apply1' for the given argument types.
-mkNewApply1 :: Type -> Type -> TcM (LHsExpr GhcTc)
-mkNewApply1 ty1 ty2 = do
+-- | Create a 'appFL' for the given argument types.
+mkNewApp :: Type -> Type -> TcM (LHsExpr GhcTc)
+mkNewApp ty1 ty2 = do
   ftycon <- getFunTycon
   mtycon <- getMonadTycon
   mkNewAppTh (mkTyConApp ftycon [mkTyConTy mtycon, ty1, ty2]) ty1
