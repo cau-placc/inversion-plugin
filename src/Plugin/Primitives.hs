@@ -104,7 +104,7 @@ let
                     (FL (return (Var 1)))
           in g
     in f
-
+--TODO: appFL verwenden
 -}
 genInOutClassInv :: Bool -> Name -> [Class] -> ExpQ -> ExpQ
 genInOutClassInv gnf name inClassExpQs outClassExpQ = do

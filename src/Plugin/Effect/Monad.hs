@@ -327,6 +327,7 @@ freshVarID :: ND FLState ID
 freshVarID = do
     i <- gets varID
     modify (\s -> s { varID = pred i })
+    --trace (show i) $ return i
     return i
 
 --------------------------------------------------------------------------------
@@ -484,12 +485,12 @@ groundNormalFormFL fl = FL $ resolveFL fl >>= \case
 
 normalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> FL (Lifted FL a)
 normalFormFL fl = FL $ resolveFL fl >>= \case
-  Var i -> get >>= \ FLState { .. } ->
-    case primitiveInfo @(Lifted FL a) of --TODO: eigentlich nicht notwendig, da nicht primitive typen immer unconstrained sind, aber so spart man sich ggf. das nachschlagen und die unterscheidung wird auch hier konsequent umgesetzt.
-      NoPrimitive -> return (Var i)
-      Primitive   -> if isUnconstrained i constraintStore
-                       then return (Var i)
-                       else instantiate i >>= unFL . normalFormWith normalFormFL
+  Var i -> case primitiveInfo @(Lifted FL a) of --TODO: eigentlich nicht notwendig, da nicht primitive typen immer unconstrained sind, aber so spart man sich ggf. das nachschlagen und die unterscheidung wird auch hier konsequent umgesetzt.
+    NoPrimitive -> return (Var i)
+    Primitive   -> get >>= \ FLState { .. } ->
+      if isUnconstrained i constraintStore
+        then return (Var i)
+        else instantiate i >>= unFL . normalFormWith normalFormFL
   Val x -> unFL $ normalFormWith normalFormFL x
   HaskellVal (x :: b) -> case decomposeInjectivity @FL @a @b of
     Refl -> return (HaskellVal x)
@@ -944,7 +945,7 @@ appFL :: Monad m => m ((-->) m a b) -> m a -> m b
 mf `appFL` mx = mf >>= \ (Func f) -> f mx
 
 appShareFL :: MonadShare m => m ((-->) m a b) -> m a -> m b
-appShareFL f a = share a >>= appFL f
+appShareFL mf mx = share mx >>= appFL mf
 
 -- This function incorporates the improvement from the paper for
 -- partial values in the context of partial inversion with higher-order functions.
