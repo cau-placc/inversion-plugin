@@ -13,6 +13,7 @@
 -- functions and expressions to integrate our effect.
 module Plugin.Trans.Expr (liftMonadicBinding, liftMonadicExpr) where
 
+import Control.Arrow (first)
 import Data.Char
 import Data.List
 import Data.Maybe
@@ -80,7 +81,7 @@ liftMonadicBinding ::
   TyConMap ->
   [(ClsInst, ClsInst)] ->
   HsBindLR GhcTc GhcTc ->
-  TcM ([HsBindLR GhcTc GhcTc])
+  TcM [HsBindLR GhcTc GhcTc]
 liftMonadicBinding _ _ given tcs _ (FunBind wrap (L b name) eqs ticks) =
   setSrcSpanA b $
     addLandmarkErrCtxt ("In the definition of" <+> ppr name) $ do
@@ -250,11 +251,11 @@ liftLocalBinds ::
   [Ct] ->
   TyConMap ->
   HsLocalBinds GhcTc ->
-  TcM (HsLocalBinds GhcTc)
-liftLocalBinds given tcs (HsValBinds x b) = do
-  b' <- liftValBinds given tcs b
-  return (HsValBinds x b')
-liftLocalBinds _ _ b@(HsIPBinds _ _) = do
+  LHsExpr GhcTc -> Type ->
+  TcM (LHsExpr GhcTc)
+liftLocalBinds given tcs (HsValBinds _ b) e ty =
+  liftValBinds given tcs b e ty
+liftLocalBinds _ _ b@(HsIPBinds _ _) e _ = do
   reportError
     ( mkMsgEnvelope
         noSrcSpan
@@ -262,29 +263,85 @@ liftLocalBinds _ _ b@(HsIPBinds _ _) = do
         "Implicit parameters are not supported by the plugin"
     )
   failIfErrsM
-  return b
-liftLocalBinds _ _ b = return b
+  return (noLocA (HsLet noExtField b e))
+liftLocalBinds _ _ b e _ = return (noLocA (HsLet noExtField b e))
 
 liftValBinds ::
   [Ct] ->
   TyConMap ->
   HsValBindsLR GhcTc GhcTc ->
-  TcM (HsValBindsLR GhcTc GhcTc)
-liftValBinds _ _ bs@ValBinds {} =
+  LHsExpr GhcTc -> Type ->
+  TcM (LHsExpr GhcTc)
+liftValBinds _ _ bs@ValBinds {} _ _ =
   panicAny "Untyped bindings are not expected after TC" bs
-liftValBinds given tcs (XValBindsLR (NValBinds bs _)) = do
-  bs' <- mapM liftNV bs
-  return (XValBindsLR (NValBinds bs' []))
+liftValBinds given tcs (XValBindsLR (NValBinds bs _)) e ety = do
+  foldlM liftNV e bs
   where
     liftNV ::
+      LHsExpr GhcTc ->
       (RecFlag, LHsBinds GhcTc) ->
-      TcM ((RecFlag, LHsBinds GhcTc))
-    liftNV (rf, b) = do
+      TcM (LHsExpr GhcTc)
+    liftNV e' (f, b) = do
+      mtycon <- getMonadTycon
       let bs1 = map unLoc (bagToList b)
-      bs2 <-
-        (map noLocA . concat)
-          <$> mapM (liftMonadicBinding True False given tcs []) bs1
-      return (rf, listToBag bs2)
+      bs2 <- concatMapM (liftMonadicBinding True False given tcs []) bs1
+      let vs = concatMap getVariables bs2
+      let varTypes = map varType vs
+      if any isForAllTy varTypes
+        then return (noLocA (HsLet noExtField (HsValBinds EpAnnNotUsed (XValBindsLR (NValBinds [(f, listToBag (map noLocA bs2))] []))) e'))
+        else do
+          vs' <- mapM (freshVar . Scaled Many) varTypes
+          let tupleTy = TyConApp (tupleTyCon Boxed (length vs)) varTypes
+          let bs3 = map (substituteAllInExps (zip vs vs')) bs2
+          let pat = noLocA (TuplePat varTypes (map (noLocA . VarPat noExtField . noLocA) vs) Boxed)
+          let pat' = noLocA (LazyPat noExtField (noLocA (TuplePat varTypes (map (noLocA . VarPat noExtField. noLocA) vs') Boxed)))
+          chain <- mkApplicativeChain vs
+          let rhs = noLocA (HsLet noExtField (HsValBinds EpAnnNotUsed (XValBindsLR (NValBinds [(NonRecursive, listToBag (map noLocA bs3))] []))) chain)
+          let shared = noLocA $ HsPar EpAnnNotUsed $ mkSimpleLam pat' (noLocA (HsPar EpAnnNotUsed rhs)) tupleTy (mkTyConApp mtycon [tupleTy])
+          mfixE <- mkAppWith mkMFix [] tupleTy [shared]
+          let bindLam = mkSimpleLam pat e' tupleTy ety
+          mkBind [] mfixE (mkTyConApp mtycon [tupleTy]) (noLocA (HsPar EpAnnNotUsed bindLam)) ety
+
+    mkApplicativeChain :: [Var] -> TcM (LHsExpr GhcTc)
+    mkApplicativeChain [] = panicAny "Empty list of variables" ()
+    mkApplicativeChain (v : vs) = do
+      let fullTy = mkFun vs (v:vs)
+      tuple <-  mkTupleCon (length vs + 1) (mkVisFunTyMany (varType v) fullTy)
+      let vE = noLocA (HsVar noExtField (noLocA v))
+      sharedV <- noLocA . HsPar EpAnnNotUsed <$> mkAppWith mkNewShareTh [] (varType v) [vE]
+      sharedVs <- mapM (\v' -> mkAppWith mkNewShareTh [] (varType v') [noLocA (HsVar noExtField (noLocA v'))]) vs
+      baseCase <- mkAppWith (mkNewFmapTh (varType v)) [] fullTy [tuple, sharedV]
+      fst <$> foldlM go (baseCase, fullTy) sharedVs
+
+    go (e', ty) s =
+      let (_, arg, res) = splitFunTy ty
+      in (, res) <$> mkAppWith (mkNewApplicative arg) [] res [e', s]
+
+    mkFun :: [Var] -> [Var] -> Type
+    mkFun [] vs' = mkTyConApp (tupleTyCon Boxed (length vs')) (map varType vs')
+    mkFun (v : vs) vs' = mkVisFunTyMany (varType v) (mkFun vs vs')
+
+
+    mkSimpleLam :: LPat GhcTc -> LHsExpr GhcTc -> Type -> Type -> LHsExpr GhcTc
+    mkSimpleLam pat rhs argty resty = noLocA (HsLam noExtField (MG (MatchGroupTc [Scaled Many argty] resty) (noLocA
+      [noLocA (Match EpAnnNotUsed LambdaExpr [pat] (GRHSs (EpaComments []) [noLoc (GRHS EpAnnNotUsed [] rhs)]
+      (EmptyLocalBinds noExtField)))]) Generated))
+
+    substituteAllInExps :: [(Var, Var)] -> HsBindLR GhcTc GhcTc -> HsBindLR GhcTc GhcTc
+    substituteAllInExps vs = everywhere (mkT sub)
+      where
+        sub :: LHsExpr GhcTc -> LHsExpr GhcTc
+        sub = substituteAll vs
+
+    getVariables :: HsBindLR GhcTc GhcTc -> [Var]
+    getVariables (FunBind _ (L _ v) _ _) = [v]
+    getVariables (AbsBinds _ _ _ ex _ _ _) = map getExported ex
+      where
+        getExported :: ABExport GhcTc -> Var
+        getExported (ABE _ v _ _ _) = v
+    getVariables (PatBind _ (L _ p) _ _) = panicAnyUnsafe "Unexpected pattern binding" p
+    getVariables (VarBind _ v _) = [v]
+    getVariables (PatSynBind _ _) = panicAnyUnsafe "Unexpected pattern synonym binding" ()
 
 liftMonadicEquation ::
   [Ct] ->
@@ -482,11 +539,10 @@ liftMonadicExpr given tcs (L l (HsIf _ e1 e2 e3)) = do
   mkBind given e1' ty1' (noLocA $ HsPar EpAnnNotUsed $ L l $ HsLam noExtField mg) ty2'
 liftMonadicExpr _ _ e@(L _ (HsMultiIf _ _)) =
   panicAny "Multi-way if should have been desugared before lifting" e
-liftMonadicExpr given tcs (L l (HsLet x bs e)) = do
-  -- Lift local binds first, so that they end up in the type environment.
-  bs' <- liftLocalBinds given tcs bs
+liftMonadicExpr given tcs (L _ (HsLet _ bs e)) = do
+  ety <- getTypeOrPanic e >>= liftTypeTcM tcs
   e' <- liftMonadicExpr given tcs e
-  return (L l (HsLet x bs' e'))
+  liftLocalBinds given tcs bs e' ety
 liftMonadicExpr given tcs (L l1 (HsDo x ctxt (L l2 stmts))) = do
   x' <- liftTypeTcM tcs x
   -- Because ListComp are not overloadable,
@@ -667,7 +723,7 @@ liftMonadicStmts ctxt ctxtSwitch ty given tcs (s : ss) = do
           else return g
       return (L l (BodyStmt x' e' se' g'))
     liftMonadicStmt (L l (LetStmt x bs)) = do
-      bs' <- liftLocalBinds given tcs bs
+      bs' <- error "" -- TODO: liftLocalBinds given tcs bs
       return (L l (LetStmt x bs'))
     liftMonadicStmt (L _ ParStmt {}) = do
       reportError
@@ -1097,5 +1153,11 @@ substitute new old = everywhere (mkT substVar)
   where
     u = varName old
     substVar v = if varName v == u then new else v
+
+substituteAll :: Data a => [(Var, Var)] -> a -> a
+substituteAll vs = everywhere (mkT substAllVars)
+  where
+    vs' = map (first varName) vs
+    substAllVars v = fromMaybe v (lookup (varName v) vs')
 
 {- HLINT ignore "Reduce duplication" -}

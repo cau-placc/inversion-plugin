@@ -13,6 +13,8 @@ syntactic constructs for GHC's abstract syntax tree.
 module Plugin.Trans.CreateSyntax where
 
 import Control.Monad
+import Control.Monad.Fix
+import Language.Haskell.TH (Exp(ConE), tupleDataName)
 
 import GHC.Core.ConLike
 import GHC.Core.TyCo.Rep
@@ -132,8 +134,6 @@ mkFuncApp given op ty1 arg ty2 | isSimple arg = do
     isSimple (L l (XExpr (WrapExpr (HsWrap _ e)))) = isSimple (L l e)
     isSimple _                 = False
 mkFuncApp given op ty1 arg ty2 = do
-  printAny "mkFuncApp op" op
-  printAny "mkFuncApp arg" arg
   let ty1' = bindingType ty1
   let ty2' = bindingType ty2
   mkAppWith (mkNewSharedAppTh ty1') given ty2' [op, arg]
@@ -147,8 +147,24 @@ mkAppWith con _ typ args = do
   e' <- con typ
   return $ foldl mkHsApp e' args
 
+mkMFix :: Type -> TcM (LHsExpr GhcTc)
+mkMFix tupleTy = do
+  mtycon <- getMonadTycon
+  th_expr <- liftQ [| mfix |]
+  let mty = mkTyConTy mtycon
+  let expType = mkVisFunTyMany tupleTy -- (a ->
+                (mkAppTy mty tupleTy)  -- m a)
+                `mkVisFunTyMany`       -- ->
+                mkAppTy mty tupleTy    -- m a
+  mkNewAny th_expr expType
+
 mkLHsWrap :: HsWrapper -> LHsExpr GhcTc -> LHsExpr GhcTc
 mkLHsWrap w = mapLoc (XExpr . WrapExpr . HsWrap w)
+
+mkTupleCon :: Int -> Type -> TcM (LHsExpr GhcTc)
+mkTupleCon arity ty =
+  let th_exp = ConE (tupleDataName arity)
+  in mkNewAny th_exp ty
 
 mkNewBoolConversion :: TcM (LHsExpr GhcTc)
 mkNewBoolConversion = do
@@ -244,6 +260,16 @@ mkNewFmapTh etype btype = do
                 mkVisFunTyMany (appMty etype) (appMty btype)  -- m 'e -> m 'b
   mkNewAny th_expr expType
 
+-- | Create a '<*>' for the given argument types.
+mkNewApplicative :: Type -> Type -> TcM (LHsExpr GhcTc)
+mkNewApplicative etype btype = do
+  mtycon <- getMonadTycon
+  th_expr <- liftQ [| (<*>) |]
+  let appMty = mkTyConApp mtycon . (:[])
+  let expType = mkVisFunTyMany (appMty (mkVisFunTyMany etype btype)) $ -- m ('e -> 'b) ->
+                mkVisFunTyMany (appMty etype) (appMty btype)           -- m 'e -> m 'b
+  mkNewAny th_expr expType
+
 -- | Create a 'share' for the given argument types.
 mkNewShareTh :: Type -> TcM (LHsExpr GhcTc)
 mkNewShareTh ty
@@ -253,7 +279,7 @@ mkNewShareTh ty
   mtycon <- getMonadTycon
   th_expr <- liftQ [| share |]
   let expType = mkVisFunTyMany ty $    -- a ->
-                mkTyConApp mtycon [ty] -- m a
+                mkTyConApp mtycon [ty] -- m a with a has to be m b
   mkNewAny th_expr expType
 
 -- | Create a 'toFL' for the given argument types.
