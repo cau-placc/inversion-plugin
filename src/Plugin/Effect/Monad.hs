@@ -5,6 +5,7 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts          #-}
 {-# LANGUAGE FlexibleInstances         #-}
+{-# LANGUAGE FunctionalDependencies    #-}
 {-# LANGUAGE GADTs                     #-}
 {-# LANGUAGE LambdaCase                #-}
 {-# LANGUAGE MultiParamTypeClasses     #-}
@@ -29,9 +30,9 @@ import Control.Monad.State
 
 import           Data.Kind                 (Type)
 import qualified Data.Kind
-import           Data.Map                  (Map)
-import qualified Data.Map           as Map
 import           Data.Set                  (Set)
+import           Data.IntMap                  (IntMap)
+import qualified Data.IntMap        as IntMap
 import qualified Data.Set           as Set
 import           Data.Typeable             (type (:~:)(..))
 
@@ -58,48 +59,42 @@ class Monad m => MonadShare m where
 
 --------------------------------------------------------------------------------
 
-type ID = Int --TODO: Enum voraussetzen, damit man mit pred den vrogänger berechnen kann. Id muss als schlüssel für den Heap verwendet werden können (d.h. im normalfall mindestens eq), integer ist ein guter wert, in der praxis
-
---TODO: Rename heap to Dict, store, map
-type Heap a = Map ID a --TODO: intmap oder gar intmap von maja r.
--- [(ID, a)]
-
-
-{-class
-  type ID
-  type
-  emptyMap -}
-
--- type Heap a
-
-emptyHeap :: Heap a
-emptyHeap = Map.empty
-
-insertHeap :: ID -> a -> Heap a -> Heap a
-insertHeap = Map.insert
-
-lookupHeap :: ID -> Heap a -> Maybe a
-lookupHeap = Map.lookup
+type ID = Int
 
 --------------------------------------------------------------------------------
 
 data Untyped = forall a. Untyped a
 
-typed :: Untyped -> a
-typed (Untyped x) = unsafeCoerce x
+insertBinding :: Functor m => ID -> m a -> IntMap (m Untyped) -> IntMap (m Untyped)
+insertBinding i = IntMap.insert i . fmap Untyped
 
-insertBinding :: ID -> a -> Heap Untyped -> Heap Untyped
-insertBinding i = insertHeap i . Untyped
+findBinding :: Functor m => ID -> IntMap (m Untyped) -> Maybe (m a)
+findBinding i = fmap (fmap (\ (Untyped x) -> unsafeCoerce x)) . IntMap.lookup i
 
-findBinding :: ID -> Heap Untyped -> Maybe a
-findBinding i = fmap typed . lookupHeap i
+class ShareState m s | s -> m where
+  shareID     :: s -> ID
+  shareMap    :: s -> IntMap (m Untyped)
+  setShareID  :: ID -> s -> s
+  setShareMap :: IntMap (m Untyped) -> s -> s
+
+instance (Monad m, ShareState m s, MonadState s m) => MonadShare m where
+  share mx = do
+    i <- gets shareID
+    modify (setShareID (succ i))
+    return $ do
+      m <- gets shareMap
+      case findBinding i m of
+        Nothing  -> mx >>= \x -> do
+          modify (\s -> setShareMap (insertBinding i (return x) (shareMap s)) s)
+          return x
+        Just mx' -> mx'
 
 --------------------------------------------------------------------------------
 
 type ND s = StateT s Search
 
-evalND :: NDState s => ND s a -> [a]
-evalND nd = search (searchTree (evalStateT nd initNDState))
+evalND :: ND s a -> s -> [a]
+evalND nd s = search (searchTree (evalStateT nd s))
   where
 #ifdef USE_DFS
     search = dfs
@@ -113,44 +108,11 @@ evalND nd = search (searchTree (evalStateT nd initNDState))
 #error No search strategy specified
 #endif
 
-class NDState s where
-  initNDState :: s
-  memoID      :: s -> ID
-  setMemoID   :: ID -> s -> s
-  memoMap     :: s -> Map ID Untyped
-  setMemoMap  :: Map ID Untyped -> s -> s
-
-freshMemoID :: NDState s => ND s ID
-freshMemoID = do
-  i <- gets memoID
-  modify (setMemoID (succ i))
+freshShareID :: (MonadState s m, ShareState m s, MonadShare m) => m ID
+freshShareID = do
+  i <- gets shareID
+  modify (setShareID (succ i))
   return i
-
--- Note: This requires the TypeSynonymInstances language extension.
-instance NDState s => MonadShare (ND s) where
-  share mx = do
-    i <- freshMemoID
-    return $ do
-      m <- gets memoMap
-      case findBinding i m of
-        Nothing -> mx >>= \x -> do
-          modify (\s -> setMemoMap (insertBinding i x (memoMap s)) s)
-          return x
-        Just x  -> return x
-
---TODO: memo auslagern
-
-{-
-type ND1 s = StateT s SearchTree
-
-evalND1 :: NDState s => ND1 s a -> s -> Tree a
-evalND1 = evalStateT
-
-type ND2 s = StateT s (Codensity SearchTree)
-
-evalND2 :: NDState s => ND3 s a -> s -> SearchTree a
-evalND2 nd s = runCodensity (evalStateT nd s) return
--}
 
 --------------------------------------------------------------------------------
 
@@ -225,8 +187,8 @@ data ConstraintStore = ConstraintStore {
 
 -- TODO: type miniterium hacken, weltherrschft an mich reissen
 
-initConstraintStore :: ConstraintStore
-initConstraintStore = ConstraintStore {
+initialConstraintStore :: ConstraintStore
+initialConstraintStore = ConstraintStore {
     constraints     = [],
     constrainedVars = Set.empty
   }
@@ -270,7 +232,6 @@ data FLVal (a :: Type) where
 
 --------------------------------------------------------------------------------
 
--- data FLState2 = FLState2 {
 --     nextID2          :: ID,
 --     heap2            :: Heap Untyped,
 --     nextVarID        :: ID,
@@ -299,43 +260,34 @@ insertHeap :: ID -> FLVal a -> Heap -> Heap
 --nextID = pred
 
 data FLState = FLState {
-    {-memoID          :: ID,
-    memoMap         :: Heap Untyped
-    varID           :: ID
-    varMap          :: Heap Untyped,-}
-    _memoID :: ID,
-    _memoMap :: Heap Untyped,
-    varID :: ID,
-    varHeap :: Heap Untyped,
+    _shareID        :: ID,
+    _shareMap       :: IntMap (FL Untyped),
+    varID           :: ID,
+    varMap          :: IntMap (FL Untyped),
     constraintStore :: ConstraintStore
   }
 
-instance NDState FLState where
-  memoID = _memoID
-  memoMap = _memoMap
-  setMemoID i s = s { _memoID = i }
-  setMemoMap m s = s { _memoMap = m }
-  initNDState = FLState {
-      _memoID = 0,
-      _memoMap = emptyHeap,
-      varID = -1,
-      varHeap = emptyHeap,
-      constraintStore = initConstraintStore
-    }
+instance ShareState FL FLState where
+  shareID         = _shareID
+  shareMap        = _shareMap
+  setShareID i s  = s { _shareID = i }
+  setShareMap m s = s { _shareMap = m }
 
-freshVarID :: ND FLState ID
-freshVarID = do
-    i <- gets varID
-    modify (\s -> s { varID = pred i })
-    --trace (show i) $ return i
-    return i
+initialFLState :: FLState
+initialFLState = FLState {
+    _shareID        = 0,
+    _shareMap       = IntMap.empty,
+    varID           = -1,
+    varMap          = IntMap.empty,
+    constraintStore = initialConstraintStore
+  }
 
 --------------------------------------------------------------------------------
 
 newtype FL a = FL { unFL :: ND FLState (FLVal a) }
 
 evalFL :: FL a -> [FLVal a]
-evalFL fl = evalND (unFL fl)
+evalFL fl = evalND (unFL fl) initialFLState
 
 instance Functor FL where
   fmap = liftM
@@ -358,7 +310,7 @@ resolveFL = resolveFL' []
   where resolveFL' is fl = unFL fl >>= \case
           Val x -> return (Val x)
           Var i | i `elem` is -> return (Var i)
-                | otherwise   -> get >>= \ FLState { .. } -> case findBinding i varHeap of
+                | otherwise   -> get >>= \ FLState { .. } -> case findBinding i varMap of
                                                                Nothing -> return (Var i)
                                                                Just x  -> resolveFL' (i : is) x
           HaskellVal y -> return (HaskellVal y)
@@ -368,12 +320,12 @@ instantiate i = case primitiveInfo @a of
   NoPrimitive -> msum (map update narrow)
     where update (FL ndx) = do
             Val x <- ndx
-            modify $ \ FLState { .. } -> FLState { varHeap = insertBinding i (return @FL x) varHeap, .. } --TODO: in der ersten version sind auf dem heap noch keine fl a berechnungen, sondern nur lifted as
+            modify $ \ FLState { .. } -> FLState { varMap = insertBinding i (return x) varMap, .. }
             return x
   Primitive   -> get >>= \ FLState { .. } -> msum (map update (generate i constraintStore))
     where update x = do
             let c = eqConstraint (Var i) (Val x)
-            modify $ \ FLState { .. } -> FLState { varHeap = insertBinding i (return @FL x) varHeap
+            modify $ \ FLState { .. } -> FLState { varMap = insertBinding i (return x) varMap
                                                  , constraintStore = insertConstraint c [i] constraintStore
                                                  , .. }
             return x
@@ -455,8 +407,15 @@ instance MonadFix FL where
       unVal (Val x) = x
       unVal _ = error "Not a Val in mfix"
 
-instance MonadShare FL where
-  share fl = FL (fmap (Val . FL) (share (unFL fl)))
+instance MonadState FLState FL where
+  get = FL (Val <$> get)
+  put s = FL (Val <$> put s)
+
+freshVarID :: ND FLState ID
+freshVarID = do
+  i <- gets varID
+  modify (\s -> s { varID = pred i })
+  return i
 
 free :: HasPrimitiveInfo a => FL a
 free = FL (Var <$> freshVarID)
@@ -737,14 +696,14 @@ unifyFL fl1 fl2 = FL $ do
       | i == j -> return (Val ())
       | otherwise -> case primitiveInfo @(Lifted FL a) of
         NoPrimitive -> do
-          put (FLState { varHeap = insertBinding i (FL (return nd2)) varHeap
+          put (FLState { varMap = insertBinding i (FL (return nd2)) varMap
                        , .. })
           return (Val ())
         Primitive -> let c = eqConstraint @(Lifted FL a) (Var i) (Var j)
                          constraintStore' = insertConstraint c [i, j] constraintStore
                      in if isUnconstrained i constraintStore || isUnconstrained j constraintStore || isConsistent constraintStore'
                           then do
-                            put (FLState { varHeap = insertBinding i (FL (return nd2)) varHeap
+                            put (FLState { varMap = insertBinding i (FL (return nd2)) varMap
                                          , constraintStore = constraintStore'
                                          , .. })
                             return (Val ())
@@ -767,7 +726,7 @@ unifyVar x i = FL $ get >>= \ FLState { .. } ->
                      constraintStore' = insertConstraint c [i] constraintStore
                  in if isUnconstrained i constraintStore || isConsistent constraintStore'
                       then do
-                        put (FLState { varHeap = insertBinding i (return @FL x) varHeap
+                        put (FLState { varMap = insertBinding i (return x) varMap
                                      , constraintStore = constraintStore'
                                      , .. })
                         return (Val ())
@@ -794,13 +753,13 @@ lazyUnifyFL fl1 fl2 = FL $ resolveFL fl1 >>= \case
   Var i -> get >>= \ FLState { .. } ->
     case primitiveInfo @(Lifted FL a) of
       NoPrimitive -> do
-        put (FLState { varHeap = insertBinding i fl2 varHeap
+        put (FLState { varMap = insertBinding i fl2 varMap
                      , .. })
         return (Val ())
       Primitive   ->
         if isUnconstrained i constraintStore
           then do
-            put (FLState { varHeap = insertBinding i fl2 varHeap
+            put (FLState { varMap = insertBinding i fl2 varMap
                          , .. })
             return (Val ())
           else --i ist constrained, also müssen wir uns den anderen wert anschauen, um zu checken, ob er einem bereits bestehenden constraint widerspricht
@@ -810,7 +769,7 @@ lazyUnifyFL fl1 fl2 = FL $ resolveFL fl1 >>= \case
                     constraintStore' = insertConstraint c [i, j] constraintStore
                 in if isUnconstrained j constraintStore || isConsistent constraintStore'
                      then do
-                       put (FLState { varHeap = insertBinding i (FL (return (Var @(Lifted FL a) j))) varHeap
+                       put (FLState { varMap = insertBinding i (FL (return (Var @(Lifted FL a) j))) varMap
                                     , constraintStore = constraintStore'
                                     , .. })
                        return (Val ())
@@ -820,7 +779,7 @@ lazyUnifyFL fl1 fl2 = FL $ resolveFL fl1 >>= \case
                     constraintStore' = insertConstraint c [i] constraintStore
                 in if isConsistent constraintStore'
                      then do
-                       put (FLState { varHeap = insertBinding i (return @FL x) varHeap
+                       put (FLState { varMap = insertBinding i (return y) varMap
                                     , constraintStore = constraintStore'
                                     , .. })
                        return (Val ())
@@ -831,7 +790,7 @@ lazyUnifyFL fl1 fl2 = FL $ resolveFL fl1 >>= \case
                     constraintStore' = insertConstraint c [i] constraintStore
                 in if isConsistent constraintStore'
                      then do
-                       put (FLState { varHeap = insertBinding i (return @FL x) varHeap
+                       put (FLState { varMap = insertBinding i (return y') varMap
                                     , constraintStore = constraintStore'
                                     , .. })
                        return (Val ())
@@ -854,7 +813,7 @@ lazyUnifyVar x i = FL $ get >>= \ FLState { .. } ->
                      constraintStore' = insertConstraint c [i] constraintStore
                  in if isUnconstrained i constraintStore || isConsistent constraintStore'
                       then do
-                        put (FLState { varHeap = insertBinding i (return @FL x) varHeap
+                        put (FLState { varMap = insertBinding i (return x) varMap
                                      , constraintStore = constraintStore'
                                       , .. })
                         return (Val ())

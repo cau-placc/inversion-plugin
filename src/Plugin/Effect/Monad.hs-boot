@@ -6,7 +6,7 @@
 module Plugin.Effect.Monad where
 
 import qualified Data.Kind
-import           Data.Map  (Map)
+import           Data.IntMap (IntMap)
 
 import Plugin.Lifted
 
@@ -16,17 +16,11 @@ type ID = Int
 
 --------------------------------------------------------------------------------
 
-type Heap a = Map ID a
-
-emptyHeap :: Heap a
-
---------------------------------------------------------------------------------
-
 data Untyped
 
-insertBinding :: ID -> a -> Heap Untyped -> Heap Untyped
+insertBinding :: Functor m => ID -> m a -> IntMap (m Untyped) -> IntMap (m Untyped)
 
-findBinding :: ID -> Heap Untyped -> Maybe a
+findBinding :: Functor m => ID -> IntMap (m Untyped) -> Maybe (m a)
 
 --------------------------------------------------------------------------------
 
