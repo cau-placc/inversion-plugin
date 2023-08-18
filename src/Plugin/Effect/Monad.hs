@@ -304,15 +304,14 @@ resolve fl = unFL fl >>= \case
     Nothing -> return (Var i)
     Just x  -> resolve x-}
 
---TODO: name dereferenceFL
-resolveFL :: FL a -> ND FLState (FLVal a)
-resolveFL = resolveFL' []
-  where resolveFL' is fl = unFL fl >>= \case
+dereference :: ND FLState (FLVal a) -> ND FLState (FLVal a)
+dereference = go []
+  where go is nd = nd >>= \case
           Val x -> return (Val x)
           Var i | i `elem` is -> return (Var i)
                 | otherwise   -> get >>= \ FLState { .. } -> case findBinding i varMap of
                                                                Nothing -> return (Var i)
-                                                               Just x  -> resolveFL' (i : is) x
+                                                               Just fl -> go (i : is) (unFL fl)
           HaskellVal y -> return (HaskellVal y)
 
 instantiate :: forall a. HasPrimitiveInfo a => ID -> ND FLState a
@@ -387,8 +386,8 @@ instantiate i = get >>= \ FLState { .. } ->
 -}
 
 instance Monad FL where
-  fl >>= f = FL $ resolveFL fl >>= \case
     Var i        -> instantiate i >>= unFL . f
+  fl >>= f = FL $ dereference (unFL fl) >>= \case
     Val x        -> unFL (f x)
     HaskellVal y -> unFL (f (to y))
 
@@ -434,8 +433,8 @@ class NormalForm a where
 
 --TODO: rename haskellval y to haskellval x overall
 groundNormalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> FL (Lifted FL a)
-groundNormalFormFL fl = FL $ resolveFL fl >>= \case
   Var i -> instantiate i >>= unFL . normalFormWith groundNormalFormFL
+groundNormalFormFL fl = FL $ dereference (unFL fl) >>= \case
   Val x -> unFL $ normalFormWith groundNormalFormFL x
   HaskellVal (x :: b) -> case decomposeInjectivity @FL @a @b of
     Refl -> return (HaskellVal x)
@@ -443,7 +442,7 @@ groundNormalFormFL fl = FL $ resolveFL fl >>= \case
 --groundNormalFormFL fl = fl >>= normalFormWith groundNormalFormFL
 
 normalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> FL (Lifted FL a)
-normalFormFL fl = FL $ resolveFL fl >>= \case
+normalFormFL fl = FL $ dereference (unFL fl) >>= \case
   Var i -> case primitiveInfo @(Lifted FL a) of --TODO: eigentlich nicht notwendig, da nicht primitive typen immer unconstrained sind, aber so spart man sich ggf. das nachschlagen und die unterscheidung wird auch hier konsequent umgesetzt.
     NoPrimitive -> return (Var i)
     Primitive   -> get >>= \ FLState { .. } ->
@@ -688,9 +687,10 @@ narrowSame (ConsFL _ _) = ConsFL free free
 
 unifyFL :: forall a. Unifiable a => FL (Lifted FL a) -> FL (Lifted FL a) -> FL ()
 unifyFL fl1 fl2 = FL $ do
-  nd1 <- resolveFL fl1
-  nd2 <- resolveFL fl2
-  FLState { .. } <- get
+f
+    (Var i, Var j)
+      | i == j -> return (Val ())
+      | o  FLState { .. } <- get
   case (nd1, nd2) of
     (Var i, Var j)
       | i == j -> return (Val ())
@@ -749,8 +749,9 @@ unifyVar x i = FL $ get >>= \ FLState { .. } ->
 --TODO: flip, rename fl1 to flx etc.
 --TODO: check lazyUnifyFL (x, failed) (y,y)
 lazyUnifyFL :: forall a. Unifiable a => FL (Lifted FL a) -> FL (Lifted FL a) -> FL ()
-lazyUnifyFL fl1 fl2 = FL $ resolveFL fl1 >>= \case
-  Var i -> get >>= \ FLState { .. } ->
+ primitiveInfo @(Lifted FL a) of
+      NoPrimitive -> do
+     Var i -> get >>= \ FLState { .. } ->
     case primitiveInfo @(Lifted FL a) of
       NoPrimitive -> do
         put (FLState { varMap = insertBinding i fl2 varMap
@@ -763,8 +764,7 @@ lazyUnifyFL fl1 fl2 = FL $ resolveFL fl1 >>= \case
                          , .. })
             return (Val ())
           else --i ist constrained, also müssen wir uns den anderen wert anschauen, um zu checken, ob er einem bereits bestehenden constraint widerspricht
-            resolveFL fl2 >>= \case
-              Var j -> --TODO: kai: add check if i == j. und außerdem kann es sein, dass j unconstrained ist. dann kann j nichts ändern
+ußerdem kann es sein, dass j unconstrained i              Var j -> --TODO: kai: add check if i == j. und außerdem kann es sein, dass j unconstrained ist. dann kann j nichts ändern
                 let c = eqConstraint @(Lifted FL a) (Var i) (Var j)
                     constraintStore' = insertConstraint c [i, j] constraintStore
                 in if isUnconstrained j constraintStore || isConsistent constraintStore'
@@ -795,13 +795,13 @@ lazyUnifyFL fl1 fl2 = FL $ resolveFL fl1 >>= \case
                                     , .. })
                        return (Val ())
                      else empty
-  Val x  -> resolveFL fl2 >>= \case
     Var j        -> unFL $ lazyUnifyVar x j
-    Val y        -> unFL $ lazyUnify x y
+nFL $ lazyUnify x y
+    HaskellVal y -> unFL     Val y        -> unFL $ lazyUnify x y
     HaskellVal y -> unFL $ lazyUnify x (to y)
-  HaskellVal x -> resolveFL fl2 >>= \case
     Var j        -> unFL $ lazyUnifyVar (to x) j
-    Val y        -> unFL $ lazyUnify (to x) y
+       -> unFL $ lazyUnify (to x) y
+    HaskellVal     Val y        -> unFL $ lazyUnify (to x) y
     HaskellVal y -> unFL $ lazyUnify @a (to x) (to y)
 
 --TODO: unifyVarWith?

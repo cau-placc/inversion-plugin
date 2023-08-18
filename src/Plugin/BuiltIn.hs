@@ -1541,7 +1541,7 @@ primitive1 :: HasPrimitiveInfo (Lifted FL b) => (a -> b) -> P.Maybe (FLVal (Lift
 primitive1 f mConstraint = returnFLF $ \x ->
   case mConstraint of
     P.Just constraint -> FL $
-      resolveFL x P.>>= \case
+      dereference (unFL x) P.>>= \case
         Val a -> unFL $ P.return (coerce (f (coerce a)))
         HaskellVal a -> unFL $ P.return (coerce (f (unsafeCoerce a)))
         x'    -> do
@@ -1559,7 +1559,7 @@ primitive2 :: HasPrimitiveInfo (Lifted FL c) => (a -> b -> c) -> P.Maybe (FLVal 
 primitive2 op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
   case mConstraint of
     P.Just constraint -> FL $
-      resolveFL x P.>>= \x' -> resolveFL y P.>>= \y' ->
+      dereference (unFL x) P.>>= \x' -> dereference (unFL y) P.>>= \y' ->
         case (# x', y' #) of
           (# Val a, Val b #) -> unFL $ P.return $ coerce (coerce a `op` coerce b)
           (# Val a, HaskellVal b #) -> unFL $ P.return $ coerce (coerce a `op` unsafeCoerce b)
@@ -1590,7 +1590,7 @@ primitiveOrd2 :: (a -> a -> Bool) -> P.Maybe (FLVal (Lifted FL a) -> FLVal (Lift
 primitiveOrd2 op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
   case mConstraint of
     P.Just constraint -> FL $
-      resolveFL x P.>>= \x' -> resolveFL y P.>>= \y' ->
+      dereference (unFL x) P.>>= \x' -> dereference (unFL y) P.>>= \y' ->
         case (# x', y' #) of
           (# Val a, Val b #) -> unFL $ toFL $ coerce a `op` coerce b
           (# Val a, HaskellVal b #) -> unFL $ toFL $ coerce a `op` unsafeCoerce b
@@ -1616,7 +1616,7 @@ primitive2Pair :: (From a, From b, To c, To d, HasPrimitiveInfo (Lifted FL c), H
 primitive2Pair op mConstraint = returnFLF $ \x -> returnFLF $ \y ->
   case mConstraint of
     P.Just constraint -> FL $
-      resolveFL x P.>>= \x' -> resolveFL y P.>>= \y' ->
+      dereference (unFL x) P.>>= \x' -> dereference (unFL y) P.>>= \y' ->
         case (# x', y' #) of
           (# Val a, Val b #) -> unFL $ toFL $ coerce a `op` coerce b
           (# Val a, HaskellVal b #) -> unFL $ toFL $ coerce a `op` unsafeCoerce b
