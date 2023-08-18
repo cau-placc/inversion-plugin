@@ -293,23 +293,6 @@ genInstances originalDataDec liftedDataDec = do
         InstanceD Nothing ctxt (mkFromConstraint originalTy) <$>
           sequence [genFrom']
 
-      genMatchable = do
-        let genMatch = do
-              let genClause liftedConInfo originalConInfo = do
-                    liftedArgNames <- replicateM (conArity liftedConInfo) (newName "x")
-                    originalArgNames <- replicateM (conArity originalConInfo) (newName "y")
-                    let liftedPat = ConP (conName liftedConInfo) [] $ map VarP liftedArgNames
-                        originalPat = ConP (conName originalConInfo) [] $ map VarP originalArgNames
-                        body = NormalB $ foldr (\e1 e2 -> applyExp (VarE '(>>)) [e1, e2]) (AppE (VarE 'return) (ConE '())) $ zipWith (\liftedArgName originalArgName -> applyExp (VarE 'matchFL) [VarE liftedArgName, VarE originalArgName]) liftedArgNames originalArgNames
-                    return $ Clause [liftedPat, originalPat] body []
-              clauses <- zipWithM genClause liftedConInfos originalConInfos
-              let failClause = Clause [WildP, WildP] (NormalB $ VarE 'Control.Applicative.empty) []
-              return $ FunD 'match (clauses ++ [failClause])
-        dec <- genMatch
-        let ctxt = map mkToConstraint originalConArgs ++
-                     map mkMatchableConstraint originalConArgs
-        return $ InstanceD Nothing ctxt (mkMatchableConstraint originalTy) [dec]
-
       genUnifiable = do
         let genUnify lazy = do
               let genClause liftedConInfo = do
@@ -383,7 +366,6 @@ genInstances originalDataDec liftedDataDec = do
       genInvertible = do
         let ctxt = [ mkToConstraint originalTy
                    , mkFromConstraint originalTy
-                   , mkMatchableConstraint originalTy
                    , mkUnifiableConstraint originalTy
                    , mkNormalFormConstraint originalTy
                    , mkHasPrimitiveInfoConstraint (mkLifted (ConT ''FL) originalTy)
@@ -392,7 +374,7 @@ genInstances originalDataDec liftedDataDec = do
         return $ InstanceD Nothing ctxt (mkInvertibleConstraint originalTy) [] :: Q Dec
 
   (++) <$> genLifted originalTc liftedTc liftedTyVars mTy
-       <*> sequence [genHasPrimitiveInfo, genNarrowable, genTo, genFrom, genMatchable, genUnifiable, genNormalForm, genShowFree, genInvertible]
+       <*> sequence [genHasPrimitiveInfo, genNarrowable, genTo, genFrom, genUnifiable, genNormalForm, genShowFree, genInvertible]
 
 replaceMTyVar :: Name -> Type -> Type -> Type
 replaceMTyVar tvar replacement = go
@@ -422,9 +404,6 @@ mkToConstraint ty = applyType (ConT ''To) [ty]
 
 mkFromConstraint :: Type -> Type
 mkFromConstraint ty = applyType (ConT ''From) [ty]
-
-mkMatchableConstraint :: Type -> Type
-mkMatchableConstraint ty = applyType (ConT ''Matchable) [ty]
 
 mkUnifiableConstraint :: Type -> Type
 mkUnifiableConstraint ty = applyType (ConT ''Unifiable) [ty]

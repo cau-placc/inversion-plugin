@@ -706,43 +706,6 @@ fromFLVal2 = \case
   x            -> from (unVal2 x)
 -}
 
-class Matchable a where
-  match :: Lifted FL a -> a -> FL ()
-
-matchFL :: forall a. (To a, Matchable a) => FL (Lifted FL a) -> a -> FL ()
-matchFL fl y = FL $ resolveFL fl >>= \case
-  Var i -> get >>= \ FLState { .. } ->
-    case primitiveInfo @(Lifted FL a) of
-      NoPrimitive -> do
-        put (FLState { varHeap = insertBinding i (toFL y) varHeap
-                     , .. })
-        return (Val ())
-      Primitive   ->
-        if isUnconstrained i constraintStore
-          then do --TODO: fallunterscheidung tauschen. da nur variablen primitiven typs constrained sein können, kann man die unterscheidung von primitive und noprimitive eigentlich weglassen. @Kai: wie siehst du das? andererseits braucht man die primitiveinfo um den kontext zur verfügung zu haben....
-            put (FLState { varHeap = insertBinding i (toFL y) varHeap
-                         , .. })
-            return (Val ())
-          else
-            let c = eqConstraint (Var i) (Val (to y))
-                constraintStore' = insertConstraint c [i] constraintStore
-            in if isConsistent constraintStore'
-                 then do
-                   put (FLState { varHeap = insertBinding i (toFL y) varHeap
-                                , constraintStore = constraintStore'
-                                , .. })
-                   return (Val ())
-                 else empty
-  Val x  -> unFL $ match x y
-  HaskellVal x -> unFL $ match (to x) y
-
--- linMatchFL :: forall a. (Convertible a, Matchable a) => a -> FL (Lifted a) -> FL ()
--- linMatchFL x (FL nd) = FL $ nd >>= \case
---   Var i -> lift get >>= \ (j, h, cst) -> do -- just do "update cst"
---     lift (put (j, insertBinding i (to x) h, cst))
---     return (Val ())
---   Val y -> unFL $ match x y
-
 --------------------------------------------------------------------------------
 
 class Unifiable a where
@@ -917,7 +880,7 @@ lazyUnifyVar x i = FL $ get >>= \ FLState { .. } ->
 --------------------------------------------------------------------------------
 
 --TODO: no longer needed, just for sanity checking if all necessary instances are defined for built-in types
-class (From a, To a, Matchable a, Unifiable a, NormalForm a, HasPrimitiveInfo (Lifted FL a), ShowFree a) => Invertible a
+class (From a, To a, Unifiable a, NormalForm a, HasPrimitiveInfo (Lifted FL a), ShowFree a) => Invertible a
 
 --------------------------------------------------------------------------------
 

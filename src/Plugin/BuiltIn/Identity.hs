@@ -30,9 +30,6 @@ instance To a => To (Identity a) where
 instance From a => From (Identity a) where
   from (IdentityFL x) = Identity (fromFL x)
 
-instance (To a, Matchable a) => Matchable (Identity a) where
-  match (IdentityFL x) (Identity y) = matchFL x y
-
 instance Unifiable a => Unifiable (Identity a) where
   unify (IdentityFL x) (IdentityFL y) = unifyFL x y
   lazyUnify (IdentityFL x) (IdentityFL y) = lazyUnifyFL x y
