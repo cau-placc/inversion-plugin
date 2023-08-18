@@ -308,8 +308,8 @@ genInstances originalDataDec liftedDataDec = do
               let failClause = Clause [WildP, WildP] (NormalB $ VarE 'Control.Applicative.empty) []
               return $ FunD (if lazy then 'lazyUnify else 'unify) (clauses ++ [failClause])
         decs <- mapM genUnify [False ..]
-        let ctxt = map mkUnifiableConstraint originalConArgs
-        return $ InstanceD Nothing ctxt (mkUnifiableConstraint originalTy) decs
+        let ctxt = map mkUnifiableConstraint liftedConArgs
+        return $ InstanceD Nothing ctxt (mkUnifiableConstraint liftedTy) decs
 
       genNormalForm = do
         nfName <- newName "nf"

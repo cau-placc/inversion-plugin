@@ -83,7 +83,7 @@ instance To a => To (Solo a) where
 instance From a => From (Solo a) where
   from (SoloFL x) = Solo (fromFL x)
 
-instance Unifiable a => Unifiable (Solo a) where
+instance Unifiable a => Unifiable (SoloFL FL a) where
   unify (SoloFL x) (SoloFL y) = unifyFL x y
   lazyUnify (SoloFL x) (SoloFL y) = lazyUnifyFL x y
 
@@ -117,7 +117,7 @@ instance (To a, To b) => To (a, b) where
 instance (From a, From b) => From (a, b) where
   from (Tuple2FL x1 x2) = (fromFL x1, fromFL x2)
 
-instance (Unifiable a, Unifiable b) => Unifiable (a, b) where
+instance (Unifiable a, Unifiable b) => Unifiable (Tuple2FL FL a b) where
   unify (Tuple2FL x1 x2) (Tuple2FL y1 y2) = unifyFL x1 y1 P.>> unifyFL x2 y2
   lazyUnify (Tuple2FL x1 x2) (Tuple2FL y1 y2) = lazyUnifyFL x1 y1 P.>> lazyUnifyFL x2 y2
 
@@ -158,7 +158,7 @@ instance (From a, From [a]) => From [a] where
   from NilFL = []
   from (ConsFL x xs) = fromFL x : fromFL xs
 
-instance (Unifiable a, Unifiable [a]) => Unifiable [a] where
+instance (Unifiable a, Unifiable (ListFL FL a)) => Unifiable (ListFL FL a) where
   unify NilFL NilFL = P.return ()
   unify (ConsFL x xs) (ConsFL y ys) = unifyFL x y P.>> unifyFL xs ys
   unify _ _ = P.empty
@@ -222,7 +222,7 @@ instance From a => From (P.Maybe a) where
   from NothingFL = P.Nothing
   from (JustFL x) = P.Just (fromFL x)
 
-instance Unifiable a => Unifiable (P.Maybe a) where
+instance Unifiable a => Unifiable (MaybeFL FL a) where
   unify NothingFL NothingFL = P.return ()
   unify (JustFL x) (JustFL y) = unifyFL x y
   unify _ _ = P.empty
@@ -261,7 +261,7 @@ instance To a => To (P.Ratio a) where
 instance From a => From (P.Ratio a) where
   from (a :%# b) = fromFL a P.:% fromFL b
 
-instance Unifiable a => Unifiable (P.Ratio a) where
+instance Unifiable a => Unifiable (RatioFL FL a) where
   unify (a :%# b) (x :%# y) = unifyFL a x P.>> unifyFL b y
   lazyUnify (a :%# b) (x :%# y) = lazyUnifyFL a x P.>> lazyUnifyFL b y
 
@@ -718,7 +718,7 @@ instance From Bool where
   from FalseFL = False
   from TrueFL  = True
 
-instance Unifiable Bool where
+instance Unifiable (BoolFL FL) where
   unify = lazyUnify
   lazyUnify FalseFL FalseFL = P.return ()
   lazyUnify TrueFL  TrueFL  = P.return ()
@@ -750,7 +750,7 @@ instance To () where
 instance From () where
   from UnitFL = ()
 
-instance Unifiable () where
+instance Unifiable (UnitFL FL) where
   unify = lazyUnify
   lazyUnify UnitFL UnitFL = P.return ()
 
@@ -783,7 +783,7 @@ instance From Ordering where
     EQFL -> EQ
     GTFL -> GT
 
-instance Unifiable Ordering where
+instance Unifiable (OrderingFL FL) where
   unify = lazyUnify
   lazyUnify LTFL LTFL = P.return ()
   lazyUnify EQFL EQFL = P.return ()
@@ -811,7 +811,7 @@ instance To Integer where
 instance From Integer where
   from (IntegerFL x) = x
 
-instance Unifiable Integer where
+instance Unifiable (IntegerFL FL) where
   unify = lazyUnify
   lazyUnify (IntegerFL x) (IntegerFL y) = P.guard (x P.== y)
 
@@ -832,7 +832,7 @@ instance To Int where
 instance From Int where
   from = P.coerce
 
-instance Unifiable Int where
+instance Unifiable (IntFL FL) where
   unify = lazyUnify
   lazyUnify (IntFL x) (IntFL y) = P.guard (x P.== y)
 
@@ -853,7 +853,7 @@ instance To Float where
 instance From Float where
   from = P.coerce
 
-instance Unifiable Float where
+instance Unifiable (FloatFL FL) where
   unify = lazyUnify
   lazyUnify (FloatFL x) (FloatFL y) = P.guard (x P.== y)
 
@@ -874,7 +874,7 @@ instance To Double where
 instance From Double where
   from = P.coerce
 
-instance Unifiable Double where
+instance Unifiable (DoubleFL FL) where
   unify = lazyUnify
   lazyUnify (DoubleFL x) (DoubleFL y) = P.guard (x P.== y)
 
@@ -895,7 +895,7 @@ instance To P.Char where
 instance From P.Char where
   from = P.coerce
 
-instance Unifiable P.Char where
+instance Unifiable (CharFL FL) where
   unify = lazyUnify
   lazyUnify (CharFL x) (CharFL y) = P.guard (x P.== y)
 

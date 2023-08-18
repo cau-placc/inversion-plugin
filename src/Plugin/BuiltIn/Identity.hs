@@ -30,7 +30,7 @@ instance To a => To (Identity a) where
 instance From a => From (Identity a) where
   from (IdentityFL x) = Identity (fromFL x)
 
-instance Unifiable a => Unifiable (Identity a) where
+instance Unifiable a => Unifiable (IdentityFL FL a) where
   unify (IdentityFL x) (IdentityFL y) = unifyFL x y
   lazyUnify (IdentityFL x) (IdentityFL y) = lazyUnifyFL x y
 

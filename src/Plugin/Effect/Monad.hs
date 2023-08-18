@@ -418,10 +418,10 @@ fromFL fl = fromFLVal (head (evalFL fl))
 --------------------------------------------------------------------------------
 
 class Unifiable a where
-  unify :: Lifted FL a -> Lifted FL a -> FL ()
-  lazyUnify :: Lifted FL a -> Lifted FL a -> FL ()
+  unify :: a -> a -> FL ()
+  lazyUnify :: a -> a -> FL ()
 
-unifyFL :: forall a. Unifiable a => FL (Lifted FL a) -> FL (Lifted FL a) -> FL ()
+unifyFL :: forall a. Unifiable a => FL a -> FL a -> FL ()
 unifyFL fl1 fl2 = FL $ do
   nd1 <- dereference (unFL fl1)
   nd2 <- dereference (unFL fl2)
@@ -429,12 +429,12 @@ unifyFL fl1 fl2 = FL $ do
   case (nd1, nd2) of
     (Var i, Var j)
       | i == j -> return (Val ())
-      | otherwise -> case primitiveInfo @(Lifted FL a) of
+      | otherwise -> case primitiveInfo @a of
         NoPrimitive -> do
           put (FLState { varMap = insertBinding i (FL (return nd2)) varMap
                        , .. })
           return (Val ())
-        Primitive -> let c = eqConstraint @(Lifted FL a) (Var i) (Var j)
+        Primitive -> let c = eqConstraint @a (Var i) (Var j)
                          constraintStore' = insertConstraint c [i, j] constraintStore
                      in if isUnconstrained i constraintStore || isUnconstrained j constraintStore || isConsistent constraintStore'
                           then do
@@ -452,9 +452,9 @@ unifyFL fl1 fl2 = FL $ do
     (HaskellVal x, Val y) -> unFL $ unify (to x) y
     (HaskellVal x, HaskellVal y) -> unFL $ unify (to x) (to y)
 
-unifyWithVar :: forall a. (Unifiable a, HasPrimitiveInfo (Lifted FL a)) => Lifted FL a -> ID -> ND FLState (FLVal ())
+unifyWithVar :: forall a. (Unifiable a, HasPrimitiveInfo a) => a -> ID -> ND FLState (FLVal ())
 unifyWithVar x i = get >>= \ FLState { .. } ->
-  case primitiveInfo @(Lifted FL a) of
+  case primitiveInfo @a of
     NoPrimitive -> instantiateVar i >>= unFL . unify x --TODO: instantiateVarWithSameConstructor i x anstelle von instantiateVar i
     Primitive -> let c = eqConstraint (Var i) (Val x)
                      constraintStore' = insertConstraint c [i] constraintStore
@@ -474,10 +474,10 @@ unifyWithVar x i = get >>= \ FLState { .. } ->
 -- f Nothing = False
 
 --TODO: check lazyUnifyFL (x, failed) (y,y)
-lazyUnifyFL :: forall a. Unifiable a => FL (Lifted FL a) -> FL (Lifted FL a) -> FL ()
+lazyUnifyFL :: forall a. Unifiable a => FL a -> FL a -> FL ()
 lazyUnifyFL fl1 fl2 = FL $ dereference (unFL fl1) >>= \case
   Var i -> get >>= \ FLState { .. } ->
-    case primitiveInfo @(Lifted FL a) of
+    case primitiveInfo @a of
       NoPrimitive -> do
         put (FLState { varMap = insertBinding i fl2 varMap
                      , .. })
@@ -491,11 +491,11 @@ lazyUnifyFL fl1 fl2 = FL $ dereference (unFL fl1) >>= \case
           else --i ist constrained, also müssen wir uns den anderen wert anschauen, um zu checken, ob er einem bereits bestehenden constraint widerspricht
             dereference (unFL fl2) >>= \case
               Var j -> --TODO: kai: add check if i == j. und außerdem kann es sein, dass j unconstrained ist. dann kann j nichts ändern
-                let c = eqConstraint @(Lifted FL a) (Var i) (Var j)
+                let c = eqConstraint @a (Var i) (Var j)
                     constraintStore' = insertConstraint c [i, j] constraintStore
                 in if isUnconstrained j constraintStore || isConsistent constraintStore'
                      then do
-                       put (FLState { varMap = insertBinding i (FL (return (Var @(Lifted FL a) j))) varMap
+                       put (FLState { varMap = insertBinding i (FL (return (Var @a j))) varMap
                                     , constraintStore = constraintStore'
                                     , .. })
                        return (Val ())
@@ -530,9 +530,9 @@ lazyUnifyFL fl1 fl2 = FL $ dereference (unFL fl1) >>= \case
     Val y        -> unFL $ lazyUnify (to x) y
     HaskellVal y -> unFL $ lazyUnify @a (to x) (to y)
 
-lazyUnifyWithVar :: forall a. (Unifiable a, HasPrimitiveInfo (Lifted FL a)) => Lifted FL a -> ID -> ND FLState (FLVal ())
+lazyUnifyWithVar :: forall a. (Unifiable a, HasPrimitiveInfo a) => a -> ID -> ND FLState (FLVal ())
 lazyUnifyWithVar x i = get >>= \ FLState { .. } ->
-  case primitiveInfo @(Lifted FL a) of
+  case primitiveInfo @a of
     NoPrimitive -> instantiateVar i >>= unFL . lazyUnify x --TODO: instantiateVarWithSameConstructor i x anstelle von instantiateVar i
     Primitive -> let c = eqConstraint (Var i) (Val x)
                      constraintStore' = insertConstraint c [i] constraintStore
@@ -564,7 +564,7 @@ lazyUnifyWithVar x i = get >>= \ FLState { .. } ->
 --------------------------------------------------------------------------------
 
 --TODO: no longer needed, just for sanity checking if all necessary instances are defined for built-in types
-class (From a, To a, Unifiable a, NormalForm (Lifted FL a), HasPrimitiveInfo (Lifted FL a), ShowFree a) => Invertible a
+class (From a, To a, Unifiable (Lifted FL a), NormalForm (Lifted FL a), HasPrimitiveInfo (Lifted FL a), ShowFree a) => Invertible a
 
 --------------------------------------------------------------------------------
 
@@ -600,6 +600,6 @@ toFL' :: To a => a -> FL (Lifted FL a)
 toFL' x | isBottom x = empty
         | otherwise  = return (toWith toFL' x)
 
-type Input a = (To a, Unifiable a)
+type Input a = (To a, Unifiable (Lifted FL a))
 type Output a = (From a, HasPrimitiveInfo (Lifted FL a), NormalForm (Lifted FL a)) --TODO: Get rid of the tpye family maybe?
 --TODO: welche typklassen sind wichtig?
