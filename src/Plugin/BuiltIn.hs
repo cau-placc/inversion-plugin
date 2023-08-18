@@ -121,24 +121,12 @@ instance (Unifiable a, Unifiable b) => Unifiable (a, b) where
   unify (Tuple2FL x1 x2) (Tuple2FL y1 y2) = unifyFL x1 y1 P.>> unifyFL x2 y2
   lazyUnify (Tuple2FL x1 x2) (Tuple2FL y1 y2) = lazyUnifyFL x1 y1 P.>> lazyUnifyFL x2 y2
 
-{-instance (NormalForm a, NormalForm b) => NormalForm (a, b) where
-  normalFormWith nf = \case
-    Tuple2FL x1 x2 ->
-      nf x1 P.>>= \y1 ->
-        nf x2 P.>>= \y2 ->
-        P.return (Result (P.pure (Tuple2FL y1 y2)))-}
 instance (NormalForm a, NormalForm b) => NormalForm (a, b) where
   normalFormWith nf = \case
     Tuple2FL x1 x2 -> FL $
       unFL (nf x1) P.>>= \y1 ->
         unFL(nf x2) P.>>= \y2 ->
           unFL (P.return (Tuple2FL (FL (P.return y1)) (FL (P.return y2))))
--- instance (NormalForm a, NormalForm b) => NormalForm (Tuple2FL FL a b) where
---   normalFormWith nf = \case
---     Tuple2FL x1 x2 ->
---       nf x1 P.>>= \y1 ->
---         nf x2 P.>>= \y2 ->
---           P.return (Tuple2FL (P.return y1) (P.return y2))
 
 instance (ShowFree a, ShowFree b) => ShowFree (a, b) where
   showsFreePrec' _ (x1, x2) = P.showString "(" P.. showsFree x1 P.. P.showString "," P.. showsFree x2 P.. P.showString ")"
