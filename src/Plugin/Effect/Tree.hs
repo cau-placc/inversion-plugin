@@ -16,17 +16,20 @@ import System.IO.Unsafe
 import System.Mem.Weak
 
 dfs :: SearchTree a -> [a]
-dfs None = []
-dfs (One x) = [x]
-dfs (Choice l r) = dfs l ++ dfs r
-
-{-dfs :: SearchTree a -> [a]
 dfs = dfs' . (: [])
   where dfs' [] = []
         dfs' (t:ts) = case t of
           None -> dfs' ts
           One x -> x : dfs' ts
-          Choice l r -> dfs' ([l, r] ++ ts)-}
+          Choice l r -> dfs' ([l, r] ++ ts)
+
+{-
+-- Implementation of depth-first search without accumulator.
+dfs :: SearchTree a -> [a]
+dfs None = []
+dfs (One x) = [x]
+dfs (Choice l r) = dfs l ++ dfs r
+-}
 
 iddfs :: SearchTree a -> [a]
 iddfs t = foldr (\maxDepth ys -> let (xs, All exhausted) = iddfs' t 0 maxDepth
@@ -41,13 +44,16 @@ iddfs t = foldr (\maxDepth ys -> let (xs, All exhausted) = iddfs' t 0 maxDepth
           in (xs ++ ys, all1 <> all2)
         iddfs' _ _ _ = ([], All False)
 
-{-iddfs :: SearchTree a -> [a]
+{-
+-- Implementation of iterative deepening depth-first search without knowing when the search tree is exhausted.
+iddfs :: SearchTree a -> [a]
 iddfs t = concatMap (iddfs' t 0) [0 ..]
   where iddfs' :: SearchTree a -> Int -> Int -> [a]
         iddfs' None _ _ = []
         iddfs' (One x) d maxD | d == maxD = [x]
         iddfs' (Choice l r) d maxD | d < maxD = iddfs' l (d + 1) maxD ++ iddfs' r (d + 1) maxD
-        iddfs' _ _ _ = []-}
+        iddfs' _ _ _ = []
+-}
 
 bfs :: SearchTree a -> [a]
 bfs = bfs' . Seq.singleton
@@ -76,6 +82,21 @@ ps t = unsafePerformIO $ do
   return res
 
 {-
+-- Implementation of parallel search without knowing when the search tree is exhausted and without finalizer.
+ps :: Search a -> [a]
+ps t' = unsafePerformIO $ do
+  ch <- newChan
+  let psIO t = case t of
+        None -> return ()
+        One x -> writeChan ch x
+        Choice l r -> do
+          _ <- forkIO $ psIO l
+          _ <- forkIO $ psIO r
+          return ()
+  psIO (searchTree t')
+  getChanContents ch
+
+-- Implementation of parallel search without finalizer.
 psWithoutFinalizer :: Search a -> [a]
 psWithoutFinalizer t' = unsafePerformIO $ do
   ch <- newChan
@@ -91,19 +112,4 @@ psWithoutFinalizer t' = unsafePerformIO $ do
           takeMVar mvarr
   _ <- forkFinally (psIO $ searchTree t') $ \_ -> writeChan ch Nothing
   catMaybes . takeWhile isJust <$> getChanContents ch
--}
-
-{-
-psNaive :: Search a -> [a]
-psNaive t' = unsafePerformIO $ do
-  ch <- newChan
-  let psIO t = case t of
-        None -> return ()
-        One x -> writeChan ch x
-        Choice l r -> do
-          _ <- forkIO $ psIO l
-          _ <- forkIO $ psIO r
-          return ()
-  psIO (searchTree t')
-  getChanContents ch
 -}
