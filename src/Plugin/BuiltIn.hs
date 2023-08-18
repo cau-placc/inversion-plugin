@@ -30,10 +30,10 @@
 
 -- |
 -- Module      : Plugin.InversionPlugin.BuiltIn
--- Description : Built-In functions, types and type classes
--- Copyright   : (c) Kai-Oliver Prott (2020)
+-- Description : Built-in functions, types and type classes
+-- Copyright   : (c) 2020-2023 Finn Teegen, Kai-Oliver Prott
 -- License     : BSD-3 Clause
--- Maintainer  : kai.prott@hotmail.de
+-- Maintainer  : fte@informatik.uni-kiel.de
 --
 -- This module contains lifted replacements for data types, functions
 -- and type classes for Haskell's default Prelude.
