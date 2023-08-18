@@ -74,8 +74,8 @@ type instance Lifted m (Solo a) = SoloFL m (Lifted m a)
 instance HasPrimitiveInfo a => HasPrimitiveInfo (SoloFL FL a) where
   primitiveInfo = NoPrimitive
 
-instance HasPrimitiveInfo a => Narrowable (SoloFL FL a) where
-  narrow = [SoloFL P.<$> share free]
+instance HasPrimitiveInfo a => Instantiatable (SoloFL FL a) where
+  instantiate = [SoloFL P.<$> share free]
 
 instance To a => To (Solo a) where
   toWith tf (Solo x) = SoloFL (tf x)
@@ -113,8 +113,8 @@ type instance Lifted m (a, b) = Tuple2FL m (Lifted m a) (Lifted m b)
 instance (HasPrimitiveInfo a, HasPrimitiveInfo b) => HasPrimitiveInfo (Tuple2FL FL a b) where
   primitiveInfo = NoPrimitive
 
-instance (HasPrimitiveInfo a, HasPrimitiveInfo b) => Narrowable (Tuple2FL FL a b) where
-  narrow = [Tuple2FL P.<$> share free P.<*> share free]
+instance (HasPrimitiveInfo a, HasPrimitiveInfo b) => Instantiatable (Tuple2FL FL a b) where
+  instantiate = [Tuple2FL P.<$> share free P.<*> share free]
 
 instance (To a, To b) => To (a, b) where
   toWith tf (x1, x2) = Tuple2FL (tf x1) (tf x2)
@@ -164,8 +164,8 @@ type instance Lifted m [a] = ListFL m (Lifted m a)
 instance HasPrimitiveInfo a => HasPrimitiveInfo (ListFL FL a) where
   primitiveInfo = NoPrimitive
 
-instance (HasPrimitiveInfo a, HasPrimitiveInfo (ListFL FL a)) => Narrowable (ListFL FL a) where
-  narrow = [P.return NilFL, ConsFL P.<$> share free P.<*> share free]
+instance (HasPrimitiveInfo a, HasPrimitiveInfo (ListFL FL a)) => Instantiatable (ListFL FL a) where
+  instantiate = [P.return NilFL, ConsFL P.<$> share free P.<*> share free]
 
 instance (To a, To [a]) => To [a] where
   toWith _  [] = NilFL
@@ -228,8 +228,8 @@ type instance Lifted m (P.Maybe a) = MaybeFL m (Lifted m a)
 instance HasPrimitiveInfo a => HasPrimitiveInfo (MaybeFL FL a) where
   primitiveInfo = NoPrimitive
 
-instance HasPrimitiveInfo a => Narrowable (MaybeFL FL a) where
-  narrow = [P.return NothingFL, JustFL P.<$> share free]
+instance HasPrimitiveInfo a => Instantiatable (MaybeFL FL a) where
+  instantiate = [P.return NothingFL, JustFL P.<$> share free]
 
 instance To a => To (P.Maybe a) where
   toWith _  P.Nothing = NothingFL
@@ -269,8 +269,8 @@ type instance Lifted m (P.Ratio a) = RatioFL m (Lifted m a)
 instance HasPrimitiveInfo a => HasPrimitiveInfo (RatioFL FL a) where
   primitiveInfo = NoPrimitive
 
-instance HasPrimitiveInfo a => Narrowable (RatioFL FL a) where
-  narrow = [(:%#) P.<$> share free P.<*> share free]
+instance HasPrimitiveInfo a => Instantiatable (RatioFL FL a) where
+  instantiate = [(:%#) P.<$> share free P.<*> share free]
 
 instance To a => To (P.Ratio a) where
   toWith tf (a P.:% b) = tf a :%# tf b
@@ -724,8 +724,8 @@ type instance Lifted m Bool = BoolFL m
 instance HasPrimitiveInfo (BoolFL FL) where
   primitiveInfo = NoPrimitive
 
-instance Narrowable (BoolFL FL) where
-  narrow = [P.return FalseFL, P.return TrueFL]
+instance Instantiatable (BoolFL FL) where
+  instantiate = [P.return FalseFL, P.return TrueFL]
 
 instance To Bool where
   toWith _ False = FalseFL
@@ -758,8 +758,8 @@ type instance Lifted m () = UnitFL m
 instance HasPrimitiveInfo (UnitFL FL) where
   primitiveInfo = NoPrimitive
 
-instance Narrowable (UnitFL FL) where
-  narrow = [P.return UnitFL]
+instance Instantiatable (UnitFL FL) where
+  instantiate = [P.return UnitFL]
 
 instance To () where
   toWith _ () = UnitFL
@@ -786,8 +786,8 @@ type instance Lifted m Ordering = OrderingFL m
 instance HasPrimitiveInfo (OrderingFL FL) where
   primitiveInfo = NoPrimitive
 
-instance Narrowable (OrderingFL FL) where
-  narrow = [P.return LTFL, P.return EQFL, P.return GTFL]
+instance Instantiatable (OrderingFL FL) where
+  instantiate = [P.return LTFL, P.return EQFL, P.return GTFL]
 
 instance To Ordering where
   toWith _ LT = LTFL

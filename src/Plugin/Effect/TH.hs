@@ -253,16 +253,16 @@ genInstances originalDataDec liftedDataDec = do
             ctxt = map mkHasPrimitiveInfoConstraint liftedConArgs
         return $ InstanceD Nothing ctxt (mkHasPrimitiveInfoConstraint liftedTy) [dec]
 
-      genNarrowable = do
+      genInstantiatable = do
         let genEntry liftedConInfo = do
               let numArgs = conArity liftedConInfo
               args <- replicateM numArgs (newName "x")
               let returnE = applyExp (VarE 'return) [applyExp (ConE $ conName liftedConInfo) $ map VarE args]
               return $ DoE Nothing $ map (\arg -> BindS (VarP arg) (applyExp (VarE 'share) [VarE 'free])) args ++ [NoBindS returnE]
         body <- NormalB . ListE <$> mapM genEntry liftedConInfos
-        let dec = FunD 'narrow [Clause [] body []]
+        let dec = FunD 'instantiate [Clause [] body []]
             ctxt = map mkHasPrimitiveInfoConstraint liftedConArgs
-        return $ InstanceD Nothing ctxt (mkNarrowableConstraint liftedTy) [dec]
+        return $ InstanceD Nothing ctxt (mkInstantiatableConstraint liftedTy) [dec]
 
       genTo = do
         let genTo' = do
@@ -374,7 +374,7 @@ genInstances originalDataDec liftedDataDec = do
         return $ InstanceD Nothing ctxt (mkInvertibleConstraint originalTy) [] :: Q Dec
 
   (++) <$> genLifted originalTc liftedTc liftedTyVars mTy
-       <*> sequence [genHasPrimitiveInfo, genNarrowable, genTo, genFrom, genUnifiable, genNormalForm, genShowFree, genInvertible]
+       <*> sequence [genHasPrimitiveInfo, genInstantiatable, genTo, genFrom, genUnifiable, genNormalForm, genShowFree, genInvertible]
 
 replaceMTyVar :: Name -> Type -> Type -> Type
 replaceMTyVar tvar replacement = go
@@ -396,8 +396,8 @@ mkLifted mty ty = applyType (ConT ''Lifted) [mty, ty]
 mkHasPrimitiveInfoConstraint :: Type -> Type
 mkHasPrimitiveInfoConstraint ty = applyType (ConT ''HasPrimitiveInfo) [ty]
 
-mkNarrowableConstraint :: Type -> Type
-mkNarrowableConstraint ty = applyType (ConT ''Narrowable) [ty]
+mkInstantiatableConstraint :: Type -> Type
+mkInstantiatableConstraint ty = applyType (ConT ''Instantiatable) [ty]
 
 mkToConstraint :: Type -> Type
 mkToConstraint ty = applyType (ConT ''To) [ty]

@@ -116,11 +116,9 @@ freshShareID = do
 
 --------------------------------------------------------------------------------
 
-class Narrowable a where
-  narrow :: [FL a]
-  --TODO: narrowSameConstr :: a -> a
-
---TODO: narrow same constructor als remark?
+class Instantiatable a where
+  instantiate :: [FL a]
+  -- TODO: narrowSameConstr :: a -> a
 
 --------------------------------------------------------------------------------
 
@@ -210,7 +208,7 @@ generate i = getModels i . constraints
 
 --------------------------------------------------------------------------------
 
-data PrimitiveInfo a = Narrowable a => NoPrimitive
+data PrimitiveInfo a = Instantiatable a => NoPrimitive
                      | Constrainable a => Primitive
 
 class HasPrimitiveInfo a where
@@ -314,9 +312,9 @@ dereference = go []
                                                                Just fl -> go (i : is) (unFL fl)
           HaskellVal y -> return (HaskellVal y)
 
-instantiate :: forall a. HasPrimitiveInfo a => ID -> ND FLState a
-instantiate i = case primitiveInfo @a of
-  NoPrimitive -> msum (map update narrow)
+instantiateVar :: forall a. HasPrimitiveInfo a => ID -> ND FLState a
+instantiateVar i = case primitiveInfo @a of
+  NoPrimitive -> msum (map update instantiate)
     where update (FL ndx) = do
             Val x <- ndx
             modify $ \ FLState { .. } -> FLState { varMap = insertBinding i (return x) varMap, .. }
@@ -386,8 +384,8 @@ instantiate i = get >>= \ FLState { .. } ->
 -}
 
 instance Monad FL where
-    Var i        -> instantiate i >>= unFL . f
   fl >>= f = FL $ dereference (unFL fl) >>= \case
+    Var i        -> instantiateVar i >>= unFL . f
     Val x        -> unFL (f x)
     HaskellVal y -> unFL (f (to y))
 
@@ -433,8 +431,8 @@ class NormalForm a where
 
 --TODO: rename haskellval y to haskellval x overall
 groundNormalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> FL (Lifted FL a)
-  Var i -> instantiate i >>= unFL . normalFormWith groundNormalFormFL
 groundNormalFormFL fl = FL $ dereference (unFL fl) >>= \case
+  Var i -> instantiateVar i >>= unFL . normalFormWith groundNormalFormFL
   Val x -> unFL $ normalFormWith groundNormalFormFL x
   HaskellVal (x :: b) -> case decomposeInjectivity @FL @a @b of
     Refl -> return (HaskellVal x)
@@ -448,7 +446,7 @@ normalFormFL fl = FL $ dereference (unFL fl) >>= \case
     Primitive   -> get >>= \ FLState { .. } ->
       if isUnconstrained i constraintStore
         then return (Var i)
-        else instantiate i >>= unFL . normalFormWith normalFormFL
+        else instantiateVar i >>= unFL . normalFormWith normalFormFL
   Val x -> unFL $ normalFormWith normalFormFL x
   HaskellVal (x :: b) -> case decomposeInjectivity @FL @a @b of
     Refl -> return (HaskellVal x)
@@ -721,7 +719,7 @@ f
 unifyVar :: forall a. (Unifiable a, HasPrimitiveInfo (Lifted FL a)) => Lifted FL a -> ID -> FL ()
 unifyVar x i = FL $ get >>= \ FLState { .. } ->
   case primitiveInfo @(Lifted FL a) of
-    NoPrimitive -> instantiate i >>= unFL . unify x --TODO: instantiateSameConstructor i x anstelle von instantiate i
+    NoPrimitive -> instantiateVar i >>= unFL . unify x --TODO: instantiateVarWithSameConstructor i x anstelle von instantiateVar i
     Primitive -> let c = eqConstraint (Var i) (Val x)
                      constraintStore' = insertConstraint c [i] constraintStore
                  in if isUnconstrained i constraintStore || isConsistent constraintStore'
@@ -808,7 +806,7 @@ nFL $ lazyUnify x y
 lazyUnifyVar :: forall a. (Unifiable a, HasPrimitiveInfo (Lifted FL a)) => Lifted FL a -> ID -> FL ()
 lazyUnifyVar x i = FL $ get >>= \ FLState { .. } ->
   case primitiveInfo @(Lifted FL a) of
-    NoPrimitive -> instantiate i >>= unFL . lazyUnify x --TODO: instantiateSameConstructor i x anstelle von instantiate i
+    NoPrimitive -> instantiateVar i >>= unFL . lazyUnify x --TODO: instantiateVarWithSameConstructor i x anstelle von instantiateVar i
     Primitive -> let c = eqConstraint (Var i) (Val x)
                      constraintStore' = insertConstraint c [i] constraintStore
                  in if isUnconstrained i constraintStore || isConsistent constraintStore'

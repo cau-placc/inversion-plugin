@@ -21,8 +21,8 @@ type instance Lifted m (Identity a) = IdentityFL m (Lifted m a)
 instance HasPrimitiveInfo a => HasPrimitiveInfo (IdentityFL FL a) where
   primitiveInfo = NoPrimitive
 
-instance HasPrimitiveInfo a => Narrowable (IdentityFL FL a) where
-  narrow = [IdentityFL <$> share free]
+instance HasPrimitiveInfo a => Instantiatable (IdentityFL FL a) where
+  instantiate = [IdentityFL <$> share free]
 
 instance To a => To (Identity a) where
   toWith tf (Identity x) = IdentityFL (tf x)
