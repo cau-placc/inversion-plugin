@@ -268,7 +268,7 @@ dereference = go []
                 | otherwise   -> get >>= \ FLState { .. } -> case findBinding i varMap of
                                                                Nothing -> return (Var i)
                                                                Just fl -> go (i : is) (unFL fl)
-          HaskellVal y -> return (HaskellVal y)
+          HaskellVal x -> return (HaskellVal x)
 
 instantiateVar :: forall a. HasPrimitiveInfo a => ID -> ND FLState a
 instantiateVar i = case primitiveInfo @a of
@@ -289,7 +289,7 @@ instance Monad FL where
   fl >>= f = FL $ dereference (unFL fl) >>= \case
     Var i        -> instantiateVar i >>= unFL . f
     Val x        -> unFL (f x)
-    HaskellVal y -> unFL (f (to y))
+    HaskellVal x -> unFL (f (to x))
 
 instance Alternative FL where
   empty = FL empty
@@ -331,10 +331,12 @@ decomposeInjectivity = unsafeCoerce Refl
 
 class NormalForm a where
   normalFormWith :: (forall b. NormalForm b => FL (Lifted FL b) -> FL (Lifted FL b)) -> Lifted FL a -> FL (Lifted FL a)
-  --TODO: normalForm and groundNormalForm...
 
---TODO: rename haskellval y to haskellval x overall
 groundNormalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> FL (Lifted FL a)
+{-
+Without HaskellVals, we could simply write the following.
+groundNormalFormFL fl = fl >>= normalFormWith groundNormalFormFL
+-}
 groundNormalFormFL fl = FL $ dereference (unFL fl) >>= \case
   Var i -> instantiateVar i >>= unFL . normalFormWith groundNormalFormFL
   Val x -> unFL $ normalFormWith groundNormalFormFL x
@@ -409,8 +411,8 @@ fromFLVal :: forall a. From a => FLVal (Lifted FL a) -> a
 fromFLVal = \case
    Val x -> from x
    Var i -> throw (FreeVariableException i)
-   HaskellVal (y :: b) -> case decomposeInjectivity @FL @a @b of
-     Refl -> y
+   HaskellVal (x :: b) -> case decomposeInjectivity @FL @a @b of
+     Refl -> x
 
 fromFL :: From a => FL (Lifted FL a) -> a
 fromFL fl = fromFLVal (head (evalFL fl))
