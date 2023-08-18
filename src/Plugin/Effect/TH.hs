@@ -324,8 +324,8 @@ genInstances originalDataDec liftedDataDec = do
         matches <- mapM genMatch liftedConInfos
         let body = NormalB (LamCaseE matches)
             dec = FunD 'normalFormWith [Clause [VarP nfName] body []]
-            ctxt = map mkNormalFormConstraint originalConArgs
-        return $ InstanceD Nothing ctxt (mkNormalFormConstraint originalTy) [dec]
+            ctxt = map mkNormalFormConstraint liftedConArgs
+        return $ InstanceD Nothing ctxt (mkNormalFormConstraint liftedTy) [dec]
 
       genShowFree = do
         --TODO: improve for infix declarations

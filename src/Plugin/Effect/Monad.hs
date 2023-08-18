@@ -330,31 +330,29 @@ decomposeInjectivity :: Lifted m a ~ Lifted m b => a :~: b
 decomposeInjectivity = unsafeCoerce Refl
 
 class NormalForm a where
-  normalFormWith :: (forall b. NormalForm b => FL (Lifted FL b) -> FL (Lifted FL b)) -> Lifted FL a -> FL (Lifted FL a)
+  normalFormWith :: (forall b. NormalForm b => FL b -> FL b) -> a -> FL a
 
-groundNormalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> FL (Lifted FL a)
 {-
 Without HaskellVals, we could simply write the following.
 groundNormalFormFL fl = fl >>= normalFormWith groundNormalFormFL
 -}
+groundNormalFormFL :: forall a. NormalForm a => FL a -> FL a
 groundNormalFormFL fl = FL $ dereference (unFL fl) >>= \case
   Var i -> instantiateVar i >>= unFL . normalFormWith groundNormalFormFL
   Val x -> unFL $ normalFormWith groundNormalFormFL x
-  HaskellVal (x :: b) -> case decomposeInjectivity @FL @a @b of
+  HaskellVal (x :: b) -> case decomposeInjectivity @FL @a @(Lifted FL b) of
     Refl -> return (HaskellVal x)
---TODO: Alternatively:
---groundNormalFormFL fl = fl >>= normalFormWith groundNormalFormFL
 
-normalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> FL (Lifted FL a)
+normalFormFL :: forall a. NormalForm a => FL a -> FL a
 normalFormFL fl = FL $ dereference (unFL fl) >>= \case
-  Var i -> case primitiveInfo @(Lifted FL a) of --TODO: eigentlich nicht notwendig, da nicht primitive typen immer unconstrained sind, aber so spart man sich ggf. das nachschlagen und die unterscheidung wird auch hier konsequent umgesetzt.
+  Var i -> case primitiveInfo @a of --TODO: eigentlich nicht notwendig, da nicht primitive typen immer unconstrained sind, aber so spart man sich ggf. das nachschlagen und die unterscheidung wird auch hier konsequent umgesetzt.
     NoPrimitive -> return (Var i)
     Primitive   -> get >>= \ FLState { .. } ->
       if isUnconstrained i constraintStore
         then return (Var i)
         else instantiateVar i >>= unFL . normalFormWith normalFormFL
   Val x -> unFL $ normalFormWith normalFormFL x
-  HaskellVal (x :: b) -> case decomposeInjectivity @FL @a @b of
+  HaskellVal (x :: b) -> case decomposeInjectivity @FL @a @(Lifted FL b) of
     Refl -> return (HaskellVal x)
 
 --------------------------------------------------------------------------------
@@ -566,7 +564,7 @@ lazyUnifyWithVar x i = get >>= \ FLState { .. } ->
 --------------------------------------------------------------------------------
 
 --TODO: no longer needed, just for sanity checking if all necessary instances are defined for built-in types
-class (From a, To a, Unifiable a, NormalForm a, HasPrimitiveInfo (Lifted FL a), ShowFree a) => Invertible a
+class (From a, To a, Unifiable a, NormalForm (Lifted FL a), HasPrimitiveInfo (Lifted FL a), ShowFree a) => Invertible a
 
 --------------------------------------------------------------------------------
 
@@ -584,7 +582,7 @@ type instance Lifted m (->) = (-->) m
 type instance Lifted m ((->) a) = (-->) m (Lifted m a)
 type instance Lifted m ((->) a b) = (-->) m (Lifted m a) (Lifted m b)
 
-instance (From a, NormalForm a, To b) => To (a -> b) where
+instance (From a, NormalForm (Lifted FL a), To b) => To (a -> b) where
   toWith _ f = Func $ \x -> toFL' (f (fromFL (groundNormalFormFL x)))
   --toWith _ f = Func $ \x -> FL $ groundNormalFormFL x >>= (unFL . toFL' . f . fromIdentity)
 --instance (From a, NormalForm (Lifted FL a), To b) => To (a -> b) where
@@ -603,5 +601,5 @@ toFL' x | isBottom x = empty
         | otherwise  = return (toWith toFL' x)
 
 type Input a = (To a, Unifiable a)
-type Output a = (From a, HasPrimitiveInfo (Lifted FL a), NormalForm a) --TODO: Get rid of the tpye family maybe?
+type Output a = (From a, HasPrimitiveInfo (Lifted FL a), NormalForm (Lifted FL a)) --TODO: Get rid of the tpye family maybe?
 --TODO: welche typklassen sind wichtig?
