@@ -1,5 +1,6 @@
 {-# LANGUAGE PolyKinds              #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
+
 module Plugin.Lifted where
 
 import Data.Kind

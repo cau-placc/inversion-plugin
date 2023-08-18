@@ -23,18 +23,18 @@
 
 module Plugin.Effect.Monad where
 
-import Control.Applicative             (Alternative(..))
-import Control.Exception
+import Control.Applicative    (Alternative(..))
+import Control.Exception      (Exception, throw, catch)
 import Control.Monad.Identity
 import Control.Monad.State
 
-import           Data.Kind                 (Type)
+import           Data.Kind                    (Type)
 import qualified Data.Kind
-import           Data.Set                  (Set)
 import           Data.IntMap                  (IntMap)
 import qualified Data.IntMap        as IntMap
+import           Data.Set                     (Set)
 import qualified Data.Set           as Set
-import           Data.Typeable             (type (:~:)(..))
+import           Data.Typeable                (type (:~:)(..))
 
 #ifdef USE_WHAT4
 import Plugin.Effect.SolverLibrary.What4 ()
@@ -216,46 +216,12 @@ class HasPrimitiveInfo a where
 
 --------------------------------------------------------------------------------
 
-{-
-data FLVal a = HasPrimitiveInfo a => Var ID | Val a
--}
-
 data FLVal (a :: Type) where
   Var        :: HasPrimitiveInfo a => ID -> FLVal a
   Val        :: a -> FLVal a
   HaskellVal :: To b => b -> FLVal (Lifted FL b)
-  --TODO: reihenfolge der konstruktoren umändern...
-
-  --TODO: stark ähnlich zu uneval von den set functions. nur war da die idee, dass der wert nicht umgewandelt werden muss, sondern der effekt da einfach unausgewertet drin stecken kann. bei der normalform berechnung müsste man einen weg haben, diesen wert nicht weiter anzuschauen
 
 --------------------------------------------------------------------------------
-
---     nextID2          :: ID,
---     heap2            :: Heap Untyped,
---     nextVarID        :: ID,
---     varHeap          :: Heap Untyped,
---     constraintStore2 :: ConstraintStore
---   }
-
---TODO: Rename heap to store
-
-{-
-varHeap:
-match-Setting:
-ID -> a (mit a FL-gelifted HNF)
-unify-Setting:
-ID -> FL a (also ganze monadische berechnungen, die lazy gebindet werden können)
-
-memoHeap:
-ID -> FLVal a
-
-lookupHeap :: ID -> Heap -> a
-lookupHeap :: ID -> Heap -> Maybe (FLVal a)
-insertHeap :: ID -> FLVal a -> Heap -> Heap
--}
-
---nextID :: ID -> ID
---nextID = pred
 
 data FLState = FLState {
     _shareID        :: ID,
@@ -294,14 +260,6 @@ instance Applicative FL where
   pure x = FL (pure (Val x))
   (<*>) = ap
 
---TODO: ketten durchbrechen und variable zurückliefern (instanziierung hängt von groundNF oder NF ab)
-{-resolve :: FL a -> ND FLState (FLVal a)
-resolve fl = unFL fl >>= \case
-  Val x -> return (Val x)
-  Var i -> get >>= \ FLState { .. } -> case findBinding i heap of
-    Nothing -> return (Var i)
-    Just x  -> resolve x-}
-
 dereference :: ND FLState (FLVal a) -> ND FLState (FLVal a)
 dereference = go []
   where go is nd = nd >>= \case
@@ -326,62 +284,6 @@ instantiateVar i = case primitiveInfo @a of
                                                  , constraintStore = insertConstraint c [i] constraintStore
                                                  , .. }
             return x
-
--- instantiate :: forall a. HasPrimitiveInfo a => ID -> FL a
--- instantiate i = case primitiveInfo @a of
---   NoPrimitive -> msum (map update narrow)
---     where update x = do
---             x' <- share (return x) --TODO: share necessary because argument might be free calls that need to be shared
---             FL $ do
---               modify $ \ FLState { .. } -> FLState { varHeap = insertBinding i x' varHeap, .. } --TODO: in der ersten version sind auf dem heap noch keine fl a berechnungen, sondern nur lifted as
---               unFL x' --TODO remove
---   Primitive   -> FL $ get >>= \ FLState { .. } -> unFL $ msum (map update (generate i constraintStore))
---     where update x = do
---             let c = eqConstraint (Var i) (Val x)
---             let x' = return x --TODO: no share necessary because primitive types do not have arguments (that would be free otherwise)
---             FL $ do
---               modify $ \ FLState { .. } -> FLState { varHeap = insertBinding i x' varHeap
---                                                    , constraintStore = insertConstraint c [i] constraintStore
---                                                    , .. }
---               unFL x'
-
--- instantiate :: forall a. HasPrimitiveInfo a => ID -> ND FLState (FLVal a)
--- instantiate i = case primitiveInfo @a of
---   NoPrimitive -> msum (map update narrow)
---     where update x = do
---             x' <- share (return (Val x)) --TODO: share necessary because argument might be free calls that need to be shared
---             modify $ \ FLState { .. } -> FLState { varHeap = insertBinding i x' varHeap, .. }
---             x'
---   Primitive   -> get >>= \ FLState { .. } -> msum (map update (generate i constraintStore))
---     where update x = do
---             let c = eqConstraint (Var i) (Val x)
---             let x' = return x --TODO: no share necessary because primitive types do not have arguments (that would be free otherwise)
---             modify $ \ FLState { .. } -> FLState { varHeap = insertBinding i x' varHeap
---                                                    , constraintStore = insertConstraint c [i] constraintStore
---                                                    , .. }
---             x'
-
-{-
-resolveFL :: FL a -> ND FLState (FLVal a)
-resolveFL fl = unFL fl >>= \case
-  Val x -> return (Val x)
-  Var i -> get >>= \ FLState { .. } -> case findBinding i heap of
-    Nothing -> return (Var i)
-    Just x  -> return (Val x)
-
-instantiate :: forall a. HasPrimitiveInfo a => ID -> ND FLState a
-instantiate i = get >>= \ FLState { .. } ->
-  case primitiveInfo @a of
-    NoPrimitive -> msum (map update (narrow nextID))
-      where update (x, o) = do
-              put (FLState { nextID = nextID - o, heap = insertBinding i x heap, .. })
-              return x
-    Primitive   -> msum (map update (generate i constraintStore))
-      where update x = do
-              let c = eqConstraint (Var i) (Val x)
-              put (FLState { heap =  insertBinding i x heap, constraintStore = insertConstraint c [i] constraintStore, .. })
-              return x
--}
 
 instance Monad FL where
   fl >>= f = FL $ dereference (unFL fl) >>= \case
@@ -417,6 +319,8 @@ freshVarID = do
 free :: HasPrimitiveInfo a => FL a
 free = FL (Var <$> freshVarID)
 
+-- TODO: Curry module erstellen
+
 --------------------------------------------------------------------------------
 
 
@@ -450,101 +354,6 @@ normalFormFL fl = FL $ dereference (unFL fl) >>= \case
   Val x -> unFL $ normalFormWith normalFormFL x
   HaskellVal (x :: b) -> case decomposeInjectivity @FL @a @b of
     Refl -> return (HaskellVal x)
-
-{-groundNormalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> ND FLState (Result Identity (Lifted (Result Identity) a))
-groundNormalFormFL fl = resolveFL fl >>= \case
-  Val x -> normalFormWith groundNormalFormFL x
-  Var i -> groundNormalFormFL (instantiate i)
-  HaskellVal (y :: b) -> case decomposeInjectivity @FL @a @b of
-    Refl -> return (HaskellResult y)-}
-
-{-normalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> ND FLState (Result (Either ID) (Lifted (Result (Either ID)) a))
-normalFormFL fl = resolveFL fl >>= \case
-  Val x -> normalFormWith normalFormFL x
-  Var i -> get >>= \ FLState { .. } ->
-    case primitiveInfo @(Lifted FL a) of --TODO: eigentlich nicht notwendig, da nicht primitive typen immer unconstrained sind, aber so spart man sich ggf. das nachschlagen und die unterscheidung wird auch hier konsequent umgesetzt.
-      NoPrimitive -> return (Result (Left i))
-      Primitive   -> if isUnconstrained i constraintStore
-                       then return (Result (Left i))
-                       else normalFormFL (instantiate i)
-  HaskellVal (y :: b) -> case decomposeInjectivity @FL @a @b of
-    Refl -> return (HaskellResult y)-}
-{-
-FL $ nd >>= \case
-  Val x -> unFL $ nf normalFormFL x
-  Var i -> get >>= \FLState { .. } -> case findBinding i heap of
-    Nothing -> return (Var i)
-    Just x  -> unFL $ nf normalFormFL x
-    -}
-
--- TODO: we could just use >>= here, but this would be more strict on haskellvals than needed.
--- groundNormalFormFL :: NormalForm a => FL a -> FL a
--- groundNormalFormFL fl = FL $ resolveFL fl >>= \case
---   Val x        -> unFL $ normalFormWith groundNormalFormFL x
---   Var i        -> unFL $ groundNormalFormFL (instantiate i)
---   HaskellVal y -> return (HaskellVal y)
-
--- normalFormFL :: forall a. NormalForm a => FL a -> FL a
--- normalFormFL fl = FL $ resolveFL fl >>= \case
---   Val x -> unFL $ normalFormWith normalFormFL x
---   Var i -> get >>= \ FLState { .. } ->
---     case primitiveInfo @a of --TODO: eigentlich nicht notwendig, da nicht primitive typen immer unconstrained sind, aber so spart man sich ggf. das nachschlagen und die unterscheidung wird auch hier konsequent umgesetzt.
---       NoPrimitive -> return (Var i)
---       Primitive   -> if isUnconstrained i constraintStore
---                        then return (Var i)
---                        else unFL $ normalFormFL (instantiate i)
---   HaskellVal y -> return (HaskellVal y)
-
-{-groundNormalFormFL :: NormalForm a => FL (Lifted FL a) -> ND FLState (Identity (Lifted Identity a))
-groundNormalFormFL fl = resolveFL fl >>= \case
-  Val x -> normalFormWith groundNormalFormFL x
-  Var i -> instantiate i >>= normalFormWith groundNormalFormFL
-  HaskellVal y ->
-
-normalFormFL :: forall a. NormalForm a => FL (Lifted FL a) -> ND FLState (Either ID (Lifted (Either ID) a))
-normalFormFL fl = resolveFL fl >>= \case
-  Val x -> normalFormWith normalFormFL x
-  {-
-  x = JustFL (toFL (error "bla"))   ---> JustFL (Right (error "bla"))
-  x = JustFL ()   ---> JustFL (error "bla"))
-  Just
-  -}
-  Var i -> get >>= \ FLState { .. } ->
-    case primitiveInfo @(Lifted FL a) of --TODO: eigentlich nicht notwendig, da nicht primitive typen immer unconstrained sind, aber so spart man sich ggf. das nachschlagen und die unterscheidung wird auch hier konsequent umgesetzt.
-      NoPrimitive -> return (Left i)
-      Primitive   -> if isUnconstrained i constraintStore
-                       then return (Left i)
-                       else instantiate i >>= normalFormWith normalFormFL-}
-
---evalFLWith :: NormalForm a => (forall b. NormalForm b => FL (Lifted FL b) -> ND FLState (m (Lifted m b))) -> FL (Lifted FL a) -> [m (Lifted m a)]
---evalFLWith nf fl = evalND (nf fl) initFLState
---map fromFLVal $ evalFL (groundNormalFormFL ...)
-
-{-
-groundNormalFormFL :: FL (a :--> a)
-groundNormalFormFL = return $ Func $ gnfFL :: FL a -> FL a
-
-($###) :: FL ((a :--> b) :--> a :--> b)
-($###) = return $ Func $ \f -> return $ Func $ \x -> groundNormalForm x >>= \x' -> f `appFL` return x'
-
-(=:<=#) :: FL (a :--> a :--> BoolFL FL)
-(=:<=#) = return $ Func $ \x -> return $ Func $ \y -> flip unifyFL x y >> return TrueFL
-
-gnf :: Lifted FL a -> FL a
-
-gnf :: FL (Lifted FL a) -> ND _ a
-
-
-gnf :: Lifted FL a -> FL (Lifted (Either ID) a)
-gnf NilFL = return NilFL
-gnf (ConsFL x xs) = unFL (gnfFL x) ...
-
-gnfFL :: FL (Lifted FL a) -> FL (Lifted (Result (Either ID)) a)
-gnfFL fl = unFL fl >>= \case
-  HaskellVal y -> --TODO: geht nicht ohne result
--}
-
---TODO: mit dre run equality stimmt nicht ganz, da das nur für die grundnormalform gilt. für die normalform ist trotzdem noch evalFL x /= evalFL (x >>= return)
 
 --------------------------------------------------------------------------------
 
@@ -606,89 +415,17 @@ fromFLVal = \case
 fromFL :: From a => FL (Lifted FL a) -> a
 fromFL fl = fromFLVal (head (evalFL fl))
 
-{-class From a where
-  fromWith :: (forall b. From b => m (Lifted m b) -> b) -> Lifted m a -> a
-
-fromM :: forall m a. From a => (forall b. m b -> b) -> Result m (Lifted (Result m) a) -> a
-fromM unM = \case
-  HaskellResult (y :: b) -> case decomposeInjectivity @(Result m) @a @b of
-    Refl -> y -- unsafeCoerce y
-  Result x -> (fromWith (fromM unM) . unM) x
-
-fromIdentity :: From a => Result Identity (Lifted (Result Identity) a) -> a
-fromIdentity = fromM runIdentity
-
-fromEither :: From a => Result (Either ID) (Lifted (Result (Either ID)) a) -> a
-fromEither = fromM (either (throw . FreeVariableException) id)-}
-
-
--- class From a where
---   fromWith :: (forall b. From b => FL (Lifted FL b) -> b) -> Lifted FL a -> a
--- --fromFL2 :: FL (Lifted FL a) -> FL a
--- --from2 :: Lifted FL a -> FL a
-
--- fromFLVal :: forall a. From a => FLVal (Lifted FL a) -> a
--- fromFLVal = \case
---   Val x -> fromWith fromFL x
---   Var i -> throw (FreeVariableException i)
---   HaskellVal (y :: b) -> case decomposeInjectivity @FL @a @b of
---     Refl -> y
-{-
-narrowSameConstr NilFL = NilFL
-narrowSameConstr (ConsFL _ _) = ConsFL free free
--}
-
---------------------------------------------------------------------------------
-
-{-data FLVal1 a = Val1 { unVal1 :: a } | Var1 ID
-
-data FLVal2 a where
-  Val2 :: a -> FLVal2 a
-  Var2 :: ID -> FLVal2 a
-  HaskellVal2 :: To a => a -> FLVal2 (Lifted FL a)
-
-unVal2 :: FLVal2 a -> a
-unVal2 (Val2 x) = x
-unVal2 (HaskellVal2 x) = to x
-
-fromFLVal1 :: From a => FLVal1 (Lifted FL a) -> a
-fromFLVal1 = \case
-  Var1 i        -> throw (FreeVariableException i)
-  x            -> from (unVal1 x)
-
-fromFLVal2 :: From a => FLVal2 (Lifted FL a) -> a
-fromFLVal2 = \case
-  Var2 i        -> throw (FreeVariableException i)
-  x            -> from (unVal2 x)
--}
-
 --------------------------------------------------------------------------------
 
 class Unifiable a where
   unify :: Lifted FL a -> Lifted FL a -> FL ()
   lazyUnify :: Lifted FL a -> Lifted FL a -> FL ()
 
-{-TODO:
-
-type Output a = (Unifiable a, From a, NormalForm a)
-
-type Input a = (To a, HasPrimitiveInfo (Lifted FL a))-}
-
---TODO: eigentlich nur narrowable notwendig --TODO: instantiateSameConstructor
-instantiateSameConstructor :: (HasPrimitiveInfo (Lifted FL a), Unifiable a) => Lifted FL a -> ID -> FL ()
-instantiateSameConstructor x i = FL $ instantiate i >>= unFL . lazyUnify x --TODO: discuss why this is inefficient
-
-{-
-narrowSame NilFL = NilFL
-narrowSame (ConsFL _ _) = ConsFL free free
--}
-
 unifyFL :: forall a. Unifiable a => FL (Lifted FL a) -> FL (Lifted FL a) -> FL ()
 unifyFL fl1 fl2 = FL $ do
-f
-    (Var i, Var j)
-      | i == j -> return (Val ())
-      | o  FLState { .. } <- get
+  nd1 <- dereference (unFL fl1)
+  nd2 <- dereference (unFL fl2)
+  FLState { .. } <- get
   case (nd1, nd2) of
     (Var i, Var j)
       | i == j -> return (Val ())
@@ -706,18 +443,17 @@ f
                                          , .. })
                             return (Val ())
                           else empty
-    (Var i, Val y) -> unFL $ unifyVar y i
-    (Val x, Var j) -> unFL $ unifyVar x j
+    (Var i, Val y) -> unifyWithVar y i
+    (Val x, Var j) -> unifyWithVar x j
     (Val x, Val y) -> unFL $ unify x y
-    (Var i, HaskellVal y) -> unFL $ unifyVar (to y) i
+    (Var i, HaskellVal y) -> unifyWithVar (to y) i
     (Val x, HaskellVal y) -> unFL $ unify x (to y)
-    (HaskellVal x, Var j) -> unFL $ unifyVar (to x) j
+    (HaskellVal x, Var j) -> unifyWithVar (to x) j
     (HaskellVal x, Val y) -> unFL $ unify (to x) y
     (HaskellVal x, HaskellVal y) -> unFL $ unify (to x) (to y)
 
---TODO: unifyVar und lazyUnifyVar funktionieren quasi gleich. da eines immer eine variable ist und das andere immer ein konstruktor (oder eine variable), passiert da eigentlich nichts unterscheidliches, oder?
-unifyVar :: forall a. (Unifiable a, HasPrimitiveInfo (Lifted FL a)) => Lifted FL a -> ID -> FL ()
-unifyVar x i = FL $ get >>= \ FLState { .. } ->
+unifyWithVar :: forall a. (Unifiable a, HasPrimitiveInfo (Lifted FL a)) => Lifted FL a -> ID -> ND FLState (FLVal ())
+unifyWithVar x i = get >>= \ FLState { .. } ->
   case primitiveInfo @(Lifted FL a) of
     NoPrimitive -> instantiateVar i >>= unFL . unify x --TODO: instantiateVarWithSameConstructor i x anstelle von instantiateVar i
     Primitive -> let c = eqConstraint (Var i) (Val x)
@@ -730,13 +466,6 @@ unifyVar x i = FL $ get >>= \ FLState { .. } ->
                         return (Val ())
                       else empty --TODO: auslagern
 
-{-instance Unifiable a => Unifiable [a] where
-  lazyUnifyVar j NilFL = FL $ get >>= \ FLState { .. } ->
-    put (FLState { heap = insertBinding i fl1 heap
-                , .. })
-    return (Val ())
-  lazyUnifyVar j (ConsFL x xs) = binde j an ConsFL (free h) (free i), 2 und mach lazyUnifyFL (free h) x und ....-}
-
 -- output class lohnt sich für: $(inOutClassInv 'sort (Out [| [LT, var 1, GT] |] [| var 1 : var 2 |]))
 -- $(inOutClassInv 'sort (Out [| [LT, var 1, GT] |] [| var 2 | ]))
 
@@ -744,12 +473,10 @@ unifyVar x i = FL $ get >>= \ FLState { .. } ->
 -- f (Just x) = not x
 -- f Nothing = False
 
---TODO: flip, rename fl1 to flx etc.
 --TODO: check lazyUnifyFL (x, failed) (y,y)
 lazyUnifyFL :: forall a. Unifiable a => FL (Lifted FL a) -> FL (Lifted FL a) -> FL ()
- primitiveInfo @(Lifted FL a) of
-      NoPrimitive -> do
-     Var i -> get >>= \ FLState { .. } ->
+lazyUnifyFL fl1 fl2 = FL $ dereference (unFL fl1) >>= \case
+  Var i -> get >>= \ FLState { .. } ->
     case primitiveInfo @(Lifted FL a) of
       NoPrimitive -> do
         put (FLState { varMap = insertBinding i fl2 varMap
@@ -762,7 +489,8 @@ lazyUnifyFL :: forall a. Unifiable a => FL (Lifted FL a) -> FL (Lifted FL a) -> 
                          , .. })
             return (Val ())
           else --i ist constrained, also müssen wir uns den anderen wert anschauen, um zu checken, ob er einem bereits bestehenden constraint widerspricht
-ußerdem kann es sein, dass j unconstrained i              Var j -> --TODO: kai: add check if i == j. und außerdem kann es sein, dass j unconstrained ist. dann kann j nichts ändern
+            dereference (unFL fl2) >>= \case
+              Var j -> --TODO: kai: add check if i == j. und außerdem kann es sein, dass j unconstrained ist. dann kann j nichts ändern
                 let c = eqConstraint @(Lifted FL a) (Var i) (Var j)
                     constraintStore' = insertConstraint c [i, j] constraintStore
                 in if isUnconstrained j constraintStore || isConsistent constraintStore'
@@ -772,8 +500,8 @@ ußerdem kann es sein, dass j unconstrained i              Var j -> --TODO: kai:
                                     , .. })
                        return (Val ())
                      else empty
-              Val x ->
-                let c = eqConstraint (Var i) (Val x)
+              Val y ->
+                let c = eqConstraint (Var i) (Val y)
                     constraintStore' = insertConstraint c [i] constraintStore
                 in if isConsistent constraintStore'
                      then do
@@ -783,8 +511,8 @@ ußerdem kann es sein, dass j unconstrained i              Var j -> --TODO: kai:
                        return (Val ())
                      else empty
               HaskellVal y ->
-                let x = to y in
-                let c = eqConstraint (Var i) (Val x)
+                let y' = to y in
+                let c = eqConstraint (Var i) (Val y')
                     constraintStore' = insertConstraint c [i] constraintStore
                 in if isConsistent constraintStore'
                      then do
@@ -793,18 +521,17 @@ ußerdem kann es sein, dass j unconstrained i              Var j -> --TODO: kai:
                                     , .. })
                        return (Val ())
                      else empty
-    Var j        -> unFL $ lazyUnifyVar x j
-nFL $ lazyUnify x y
-    HaskellVal y -> unFL     Val y        -> unFL $ lazyUnify x y
+  Val x  -> dereference (unFL fl2) >>= \case
+    Var j        -> lazyUnifyWithVar x j
+    Val y        -> unFL $ lazyUnify x y
     HaskellVal y -> unFL $ lazyUnify x (to y)
-    Var j        -> unFL $ lazyUnifyVar (to x) j
-       -> unFL $ lazyUnify (to x) y
-    HaskellVal     Val y        -> unFL $ lazyUnify (to x) y
+  HaskellVal x -> dereference (unFL fl2) >>= \case
+    Var j        -> lazyUnifyWithVar (to x) j
+    Val y        -> unFL $ lazyUnify (to x) y
     HaskellVal y -> unFL $ lazyUnify @a (to x) (to y)
 
---TODO: unifyVarWith?
-lazyUnifyVar :: forall a. (Unifiable a, HasPrimitiveInfo (Lifted FL a)) => Lifted FL a -> ID -> FL ()
-lazyUnifyVar x i = FL $ get >>= \ FLState { .. } ->
+lazyUnifyWithVar :: forall a. (Unifiable a, HasPrimitiveInfo (Lifted FL a)) => Lifted FL a -> ID -> ND FLState (FLVal ())
+lazyUnifyWithVar x i = get >>= \ FLState { .. } ->
   case primitiveInfo @(Lifted FL a) of
     NoPrimitive -> instantiateVar i >>= unFL . lazyUnify x --TODO: instantiateVarWithSameConstructor i x anstelle von instantiateVar i
     Primitive -> let c = eqConstraint (Var i) (Val x)
@@ -875,3 +602,4 @@ toFL' x | isBottom x = empty
 
 type Input a = (To a, Unifiable a)
 type Output a = (From a, HasPrimitiveInfo (Lifted FL a), NormalForm a) --TODO: Get rid of the tpye family maybe?
+--TODO: welche typklassen sind wichtig?

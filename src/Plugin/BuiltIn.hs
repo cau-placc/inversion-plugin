@@ -92,11 +92,6 @@ instance NormalForm a => NormalForm (Solo a) where
     SoloFL x -> FL $
       unFL (nf x) P.>>= \y ->
         unFL (P.return (SoloFL (FL (P.return y))))
--- instance NormalForm a => NormalForm (SoloFL FL a) where
---   normalFormWith nf = \case
---     SoloFL x ->
---       nf x P.>>= \y ->
---         P.return (SoloFL (P.return y))
 
 instance ShowFree a => ShowFree (Solo a) where
   showsFreePrec' d (Solo x) = P.showParen (d P.> 10) $
