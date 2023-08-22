@@ -302,11 +302,11 @@ genInstances originalDataDec liftedDataDec = do
                     liftedArgNames2 <- replicateM liftedConArity (newName "y")
                     let liftedPat1 = ConP liftedConName [] $ map VarP liftedArgNames1
                         liftedPat2 = ConP liftedConName [] $ map VarP liftedArgNames2
-                        body = NormalB $ foldr (\e1 e2 -> applyExp (VarE '(>>)) [e1, e2]) (AppE (VarE 'return) (ConE '())) $ zipWith (\liftedArgName1 liftedArgName2 -> applyExp (VarE (if lazy then 'lazyUnifyFL else 'unifyFL)) [VarE liftedArgName1, VarE liftedArgName2]) liftedArgNames1 liftedArgNames2
+                        body = NormalB $ foldr (\e1 e2 -> applyExp (VarE '(>>)) [e1, e2]) (AppE (VarE 'return) (ConE '())) $ zipWith (\liftedArgName1 liftedArgName2 -> applyExp (VarE (if lazy then 'nonStrictUnifyFL else 'unifyFL)) [VarE liftedArgName1, VarE liftedArgName2]) liftedArgNames1 liftedArgNames2
                     return $ Clause [liftedPat1, liftedPat2] body []
               clauses <- mapM genClause liftedConInfos
               let failClause = Clause [WildP, WildP] (NormalB $ VarE 'Control.Applicative.empty) []
-              return $ FunD (if lazy then 'lazyUnify else 'unify) (clauses ++ [failClause])
+              return $ FunD (if lazy then 'nonStrictUnify else 'unify) (clauses ++ [failClause])
         decs <- mapM genUnify [False ..]
         let ctxt = map mkUnifiableConstraint liftedConArgs
         return $ InstanceD Nothing ctxt (mkUnifiableConstraint liftedTy) decs

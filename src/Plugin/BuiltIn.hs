@@ -85,7 +85,7 @@ instance From a => From (Solo a) where
 
 instance Unifiable a => Unifiable (SoloFL FL a) where
   unify (SoloFL x) (SoloFL y) = unifyFL x y
-  lazyUnify (SoloFL x) (SoloFL y) = lazyUnifyFL x y
+  nonStrictUnify (SoloFL x) (SoloFL y) = nonStrictUnifyFL x y
 
 instance NormalForm a => NormalForm (SoloFL FL a) where
   normalFormWith nf = \case
@@ -119,7 +119,7 @@ instance (From a, From b) => From (a, b) where
 
 instance (Unifiable a, Unifiable b) => Unifiable (Tuple2FL FL a b) where
   unify (Tuple2FL x1 x2) (Tuple2FL y1 y2) = unifyFL x1 y1 P.>> unifyFL x2 y2
-  lazyUnify (Tuple2FL x1 x2) (Tuple2FL y1 y2) = lazyUnifyFL x1 y1 P.>> lazyUnifyFL x2 y2
+  nonStrictUnify (Tuple2FL x1 x2) (Tuple2FL y1 y2) = nonStrictUnifyFL x1 y1 P.>> nonStrictUnifyFL x2 y2
 
 instance (NormalForm a, NormalForm b) => NormalForm (Tuple2FL FL a b) where
   normalFormWith nf = \case
@@ -162,9 +162,9 @@ instance (Unifiable a, Unifiable (ListFL FL a)) => Unifiable (ListFL FL a) where
   unify NilFL NilFL = P.return ()
   unify (ConsFL x xs) (ConsFL y ys) = unifyFL x y P.>> unifyFL xs ys
   unify _ _ = P.empty
-  lazyUnify NilFL NilFL = P.return ()
-  lazyUnify (ConsFL x xs) (ConsFL y ys) = lazyUnifyFL x y P.>> lazyUnifyFL xs ys
-  lazyUnify _ _ = P.empty
+  nonStrictUnify NilFL NilFL = P.return ()
+  nonStrictUnify (ConsFL x xs) (ConsFL y ys) = nonStrictUnifyFL x y P.>> nonStrictUnifyFL xs ys
+  nonStrictUnify _ _ = P.empty
 
 instance (NormalForm a, NormalForm (ListFL FL a)) => NormalForm (ListFL FL a) where
   normalFormWith nf = \case
@@ -226,9 +226,9 @@ instance Unifiable a => Unifiable (MaybeFL FL a) where
   unify NothingFL NothingFL = P.return ()
   unify (JustFL x) (JustFL y) = unifyFL x y
   unify _ _ = P.empty
-  lazyUnify NothingFL NothingFL = P.return ()
-  lazyUnify (JustFL x) (JustFL y) = lazyUnifyFL x y
-  lazyUnify _ _ = P.empty
+  nonStrictUnify NothingFL NothingFL = P.return ()
+  nonStrictUnify (JustFL x) (JustFL y) = nonStrictUnifyFL x y
+  nonStrictUnify _ _ = P.empty
 
 instance NormalForm a => NormalForm (MaybeFL FL a) where
   normalFormWith nf = \case
@@ -263,7 +263,7 @@ instance From a => From (P.Ratio a) where
 
 instance Unifiable a => Unifiable (RatioFL FL a) where
   unify (a :%# b) (x :%# y) = unifyFL a x P.>> unifyFL b y
-  lazyUnify (a :%# b) (x :%# y) = lazyUnifyFL a x P.>> lazyUnifyFL b y
+  nonStrictUnify (a :%# b) (x :%# y) = nonStrictUnifyFL a x P.>> nonStrictUnifyFL b y
 
 instance NormalForm a => NormalForm (RatioFL FL a) where
   normalFormWith nf = \case
@@ -722,10 +722,10 @@ instance From Bool where
   from TrueFL  = True
 
 instance Unifiable (BoolFL FL) where
-  unify = lazyUnify
-  lazyUnify FalseFL FalseFL = P.return ()
-  lazyUnify TrueFL  TrueFL  = P.return ()
-  lazyUnify _       _       = P.empty
+  unify = nonStrictUnify
+  nonStrictUnify FalseFL FalseFL = P.return ()
+  nonStrictUnify TrueFL  TrueFL  = P.return ()
+  nonStrictUnify _       _       = P.empty
 
 instance NormalForm (BoolFL FL) where
   normalFormWith _ FalseFL = P.return FalseFL
@@ -754,8 +754,8 @@ instance From () where
   from UnitFL = ()
 
 instance Unifiable (UnitFL FL) where
-  unify = lazyUnify
-  lazyUnify UnitFL UnitFL = P.return ()
+  unify = nonStrictUnify
+  nonStrictUnify UnitFL UnitFL = P.return ()
 
 instance NormalForm (UnitFL FL) where
   normalFormWith _ UnitFL = P.return UnitFL
@@ -787,11 +787,11 @@ instance From Ordering where
     GTFL -> GT
 
 instance Unifiable (OrderingFL FL) where
-  unify = lazyUnify
-  lazyUnify LTFL LTFL = P.return ()
-  lazyUnify EQFL EQFL = P.return ()
-  lazyUnify GTFL GTFL = P.return ()
-  lazyUnify _    _    = P.empty
+  unify = nonStrictUnify
+  nonStrictUnify LTFL LTFL = P.return ()
+  nonStrictUnify EQFL EQFL = P.return ()
+  nonStrictUnify GTFL GTFL = P.return ()
+  nonStrictUnify _    _    = P.empty
 
 instance NormalForm (OrderingFL FL) where
   normalFormWith _ LTFL = P.return LTFL
@@ -815,8 +815,8 @@ instance From Integer where
   from (IntegerFL x) = x
 
 instance Unifiable (IntegerFL FL) where
-  unify = lazyUnify
-  lazyUnify (IntegerFL x) (IntegerFL y) = P.guard (x P.== y)
+  unify = nonStrictUnify
+  nonStrictUnify (IntegerFL x) (IntegerFL y) = P.guard (x P.== y)
 
 instance NormalForm (IntegerFL FL) where
   normalFormWith _ (IntegerFL x) = P.return (IntegerFL x)
@@ -836,8 +836,8 @@ instance From Int where
   from = P.coerce
 
 instance Unifiable (IntFL FL) where
-  unify = lazyUnify
-  lazyUnify (IntFL x) (IntFL y) = P.guard (x P.== y)
+  unify = nonStrictUnify
+  nonStrictUnify (IntFL x) (IntFL y) = P.guard (x P.== y)
 
 instance NormalForm (IntFL FL) where
   normalFormWith _ (IntFL x) = P.return (IntFL x)
@@ -857,8 +857,8 @@ instance From Float where
   from = P.coerce
 
 instance Unifiable (FloatFL FL) where
-  unify = lazyUnify
-  lazyUnify (FloatFL x) (FloatFL y) = P.guard (x P.== y)
+  unify = nonStrictUnify
+  nonStrictUnify (FloatFL x) (FloatFL y) = P.guard (x P.== y)
 
 instance NormalForm (FloatFL FL) where
   normalFormWith _ (FloatFL x) = P.return (FloatFL x)
@@ -878,8 +878,8 @@ instance From Double where
   from = P.coerce
 
 instance Unifiable (DoubleFL FL) where
-  unify = lazyUnify
-  lazyUnify (DoubleFL x) (DoubleFL y) = P.guard (x P.== y)
+  unify = nonStrictUnify
+  nonStrictUnify (DoubleFL x) (DoubleFL y) = P.guard (x P.== y)
 
 instance NormalForm (DoubleFL FL) where
   normalFormWith _ (DoubleFL x) = P.return (DoubleFL x)
@@ -899,8 +899,8 @@ instance From P.Char where
   from = P.coerce
 
 instance Unifiable (CharFL FL) where
-  unify = lazyUnify
-  lazyUnify (CharFL x) (CharFL y) = P.guard (x P.== y)
+  unify = nonStrictUnify
+  nonStrictUnify (CharFL x) (CharFL y) = P.guard (x P.== y)
 
 instance NormalForm (CharFL FL) where
   normalFormWith _ (CharFL x) = P.return (CharFL x)

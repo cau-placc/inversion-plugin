@@ -419,7 +419,12 @@ fromFL fl = fromFLVal (head (evalFL fl))
 
 class Unifiable a where
   unify :: a -> a -> FL ()
-  lazyUnify :: a -> a -> FL ()
+  nonStrictUnify :: a -> a -> FL ()
+
+{-
+unifyFL :: Unifiable a => FL a -> FL a -> FL ()
+unifyFL fl1 fl2 = fl1 >>= \x -> fl2 >>= \y -> unify x y
+-}
 
 unifyFL :: forall a. Unifiable a => FL a -> FL a -> FL ()
 unifyFL fl1 fl2 = FL $ do
@@ -443,28 +448,29 @@ unifyFL fl1 fl2 = FL $ do
                                          , .. })
                             return (Val ())
                           else empty
-    (Var i, Val y) -> unifyWithVar y i
-    (Val x, Var j) -> unifyWithVar x j
+    (Var i, Val y) -> unFL $ unifyWithVar y i
+    (Val x, Var j) -> unFL $ unifyWithVar x j
     (Val x, Val y) -> unFL $ unify x y
-    (Var i, HaskellVal y) -> unifyWithVar (to y) i
+    (Var i, HaskellVal y) -> unFL $ unifyWithVar (to y) i
     (Val x, HaskellVal y) -> unFL $ unify x (to y)
-    (HaskellVal x, Var j) -> unifyWithVar (to x) j
+    (HaskellVal x, Var j) -> unFL $ unifyWithVar (to x) j
     (HaskellVal x, Val y) -> unFL $ unify (to x) y
     (HaskellVal x, HaskellVal y) -> unFL $ unify (to x) (to y)
 
-unifyWithVar :: forall a. (Unifiable a, HasPrimitiveInfo a) => a -> ID -> ND FLState (FLVal ())
-unifyWithVar x i = get >>= \ FLState { .. } ->
-  case primitiveInfo @a of
-    NoPrimitive -> instantiateVar i >>= unFL . unify x --TODO: instantiateVarWithSameConstructor i x anstelle von instantiateVar i
-    Primitive -> let c = eqConstraint (Var i) (Val x)
-                     constraintStore' = insertConstraint c [i] constraintStore
-                 in if isUnconstrained i constraintStore || isConsistent constraintStore'
-                      then do
-                        put (FLState { varMap = insertBinding i (return x) varMap
-                                     , constraintStore = constraintStore'
-                                     , .. })
-                        return (Val ())
-                      else empty --TODO: auslagern
+unifyWithVar :: forall a. (Unifiable a, HasPrimitiveInfo a) => a -> ID -> FL ()
+unifyWithVar x i = case primitiveInfo @a of
+  NoPrimitive -> instantiateVarSame i x >>= unify x --TODO: instantiateVarWithSameConstructor i x anstelle von instantiateVar i
+  Primitive -> do
+    FLState { .. } <- get
+    let c = eqConstraint (Var i) (Val x)
+        constraintStore' = insertConstraint c [i] constraintStore
+    if isUnconstrained i constraintStore || isConsistent constraintStore'
+      then do
+        put (FLState { varMap = insertBinding i (return x) varMap
+                     , constraintStore = constraintStore'
+                     , .. })
+        return ()
+      else empty --TODO: auslagern
 
 -- output class lohnt sich für: $(inOutClassInv 'sort (Out [| [LT, var 1, GT] |] [| var 1 : var 2 |]))
 -- $(inOutClassInv 'sort (Out [| [LT, var 1, GT] |] [| var 2 | ]))
@@ -473,9 +479,9 @@ unifyWithVar x i = get >>= \ FLState { .. } ->
 -- f (Just x) = not x
 -- f Nothing = False
 
---TODO: check lazyUnifyFL (x, failed) (y,y)
-lazyUnifyFL :: forall a. Unifiable a => FL a -> FL a -> FL ()
-lazyUnifyFL fl1 fl2 = FL $ dereference (unFL fl1) >>= \case
+--TODO: check nonStrictUnifyFL (x, failed) (y,y)
+nonStrictUnifyFL :: forall a. Unifiable a => FL a -> FL a -> FL ()
+nonStrictUnifyFL fl1 fl2 = FL $ dereference (unFL fl1) >>= \case
   Var i -> get >>= \ FLState { .. } ->
     case primitiveInfo @a of
       NoPrimitive -> do
@@ -522,27 +528,28 @@ lazyUnifyFL fl1 fl2 = FL $ dereference (unFL fl1) >>= \case
                        return (Val ())
                      else empty
   Val x  -> dereference (unFL fl2) >>= \case
-    Var j        -> lazyUnifyWithVar x j
-    Val y        -> unFL $ lazyUnify x y
-    HaskellVal y -> unFL $ lazyUnify x (to y)
+    Var j        -> unFL $ nonStrictUnifyWithVar x j
+    Val y        -> unFL $ nonStrictUnify x y
+    HaskellVal y -> unFL $ nonStrictUnify x (to y)
   HaskellVal x -> dereference (unFL fl2) >>= \case
-    Var j        -> lazyUnifyWithVar (to x) j
-    Val y        -> unFL $ lazyUnify (to x) y
-    HaskellVal y -> unFL $ lazyUnify @a (to x) (to y)
+    Var j        -> unFL $ nonStrictUnifyWithVar (to x) j
+    Val y        -> unFL $ nonStrictUnify (to x) y
+    HaskellVal y -> unFL $ nonStrictUnify @a (to x) (to y)
 
-lazyUnifyWithVar :: forall a. (Unifiable a, HasPrimitiveInfo a) => a -> ID -> ND FLState (FLVal ())
-lazyUnifyWithVar x i = get >>= \ FLState { .. } ->
-  case primitiveInfo @a of
-    NoPrimitive -> instantiateVar i >>= unFL . lazyUnify x --TODO: instantiateVarWithSameConstructor i x anstelle von instantiateVar i
-    Primitive -> let c = eqConstraint (Var i) (Val x)
-                     constraintStore' = insertConstraint c [i] constraintStore
-                 in if isUnconstrained i constraintStore || isConsistent constraintStore'
-                      then do
-                        put (FLState { varMap = insertBinding i (return x) varMap
-                                     , constraintStore = constraintStore'
-                                      , .. })
-                        return (Val ())
-                      else empty --TODO: auslagern
+nonStrictUnifyWithVar :: forall a. (Unifiable a, HasPrimitiveInfo a) => a -> ID -> FL ()
+nonStrictUnifyWithVar x i = case primitiveInfo @a of
+  NoPrimitive -> instantiateVarSame i x >>= nonStrictUnify x --TODO: instantiateVarWithSameConstructor i x anstelle von instantiateVar i
+  Primitive -> do
+    FLState { .. } <- get
+    let c = eqConstraint (Var i) (Val x)
+        constraintStore' = insertConstraint c [i] constraintStore
+    if isUnconstrained i constraintStore || isConsistent constraintStore'
+      then do
+        put (FLState { varMap = insertBinding i (return x) varMap
+                     , constraintStore = constraintStore'
+                     , .. })
+        return ()
+      else empty --TODO: auslagern
 
 -- "unify (error "bla") (var 1)" zeigt, dass es notwendig ist, dass man wissen muss ob 1 unconstrained ist.
 -- var 1 == var 2

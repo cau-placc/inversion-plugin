@@ -92,7 +92,7 @@ genInOutClassInv gnf name inClassExpQs outClassExpQ = do
   liftedName <- liftTHNameQ name
   resExp : argExps <- mapM (convertExp (map (second fst) mapping)) (outClassExp:inClassExps)
   funPatExp <- genLiftedApply (VarE liftedName) argExps
-  let lazyUnifyExp = applyExp (VarE 'lazyUnifyFL) [funPatExp, resExp]
+  let nonStrictUnifyExp = applyExp (VarE 'nonStrictUnifyFL) [funPatExp, resExp]
       freeNames = map (fst . snd) mapping
       letExp = DoE Nothing [NoBindS lazyUnifyExp, NoBindS returnExp]
       returnExp = mkLiftedTupleE (map VarE freeNames)

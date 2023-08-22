@@ -32,7 +32,7 @@ instance From a => From (Identity a) where
 
 instance Unifiable a => Unifiable (IdentityFL FL a) where
   unify (IdentityFL x) (IdentityFL y) = unifyFL x y
-  lazyUnify (IdentityFL x) (IdentityFL y) = lazyUnifyFL x y
+  nonStrictUnify (IdentityFL x) (IdentityFL y) = nonStrictUnifyFL x y
 
 instance NormalForm a => NormalForm (IdentityFL FL a) where
   normalFormWith nf = \case
