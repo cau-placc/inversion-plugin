@@ -351,8 +351,8 @@ genInstances originalDataDec liftedDataDec = do
       genInvertible = do
         let ctxt = [ mkToConstraint originalTy
                    , mkFromConstraint originalTy
-                   , mkUnifiableConstraint originalTy
-                   , mkNormalFormConstraint originalTy
+                   , mkUnifiableConstraint (mkLifted (ConT ''FL) originalTy)
+                   , mkNormalFormConstraint (mkLifted (ConT ''FL) originalTy)
                    , mkHasPrimitiveInfoConstraint (mkLifted (ConT ''FL) originalTy)
                    , mkShowFreeConstraint originalTy
                    ] ++ map mkInvertibleConstraint originalConArgs
