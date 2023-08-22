@@ -94,9 +94,9 @@ genInOutClassInv gnf name inClassExpQs outClassExpQ = do
   funPatExp <- genLiftedApply (VarE liftedName) argExps
   let nonStrictUnifyExp = applyExp (VarE 'nonStrictUnifyFL) [funPatExp, resExp]
       freeNames = map (fst . snd) mapping
-      letExp = DoE Nothing [NoBindS lazyUnifyExp, NoBindS returnExp]
+      doExp = DoE Nothing [NoBindS nonStrictUnifyExp, NoBindS (AppE (VarE (if gnf then 'groundNormalFormFL else 'normalFormFL)) returnExp)]
       returnExp = mkLiftedTupleE (map VarE freeNames)
-      bodyExp = applyExp (VarE 'map) [VarE 'fromFLVal, AppE (VarE 'evalFL) (AppE (VarE (if gnf then 'groundNormalFormFL else 'normalFormFL)) letExp)]
+      bodyExp = applyExp (VarE 'map) [VarE 'fromFLVal, AppE (VarE 'evalFL) doExp]
   bNm <- newName "b"
   let letDecs = [FunD bNm [Clause (map VarP freeNames) (NormalB bodyExp) []]]
   return $ LetE letDecs (applyExp (VarE bNm) (map (snd . snd) mapping))
