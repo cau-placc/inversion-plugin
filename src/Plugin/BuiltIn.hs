@@ -545,6 +545,8 @@ class SemigroupFL a where
 
 instance SemigroupFL (ListFL FL a) where
   (<>#) = appendListNoShare
+  sconcat = P.error "TODO" --TODO
+  stimes = P.error "TODO" --TODO
   --stimesFL = stimesListFL
 
 --TODO: Move
@@ -665,6 +667,7 @@ instance FoldableFL (ListFL FL) where
   -- TODO: originally strict
   productFL = foldlFL `appFL` (*#) `appFL` (fromIntegerFL `appFL` P.return (IntegerFL 1))
   toListFL = idFL
+  foldr'FL = P.error "TODO" --TODO
   --TODO: add missing implementations
   {-elem    = List.elem
   foldl   = List.foldl

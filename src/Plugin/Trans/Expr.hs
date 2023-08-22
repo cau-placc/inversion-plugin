@@ -722,8 +722,8 @@ liftMonadicStmts ctxt ctxtSwitch ty given tcs (s : ss) = do
           then trans1 g
           else return g
       return (L l (BodyStmt x' e' se' g'))
-    liftMonadicStmt (L l (LetStmt x bs)) = do
-      bs' <- error "" -- TODO: liftLocalBinds given tcs bs
+    liftMonadicStmt (L l (LetStmt x _bs)) = do
+      bs' <- error "" -- TODO: liftLocalBinds given tcs _bs
       return (L l (LetStmt x bs'))
     liftMonadicStmt (L _ ParStmt {}) = do
       reportError
