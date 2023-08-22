@@ -76,6 +76,7 @@ instance HasPrimitiveInfo a => HasPrimitiveInfo (SoloFL FL a) where
 
 instance HasPrimitiveInfo a => Instantiatable (SoloFL FL a) where
   instantiate = [SoloFL P.<$> share free]
+  instantiateSame (SoloFL _) = P.head instantiate
 
 instance To a => To (Solo a) where
   toWith tf (Solo x) = SoloFL (tf x)
@@ -110,6 +111,7 @@ instance (HasPrimitiveInfo a, HasPrimitiveInfo b) => HasPrimitiveInfo (Tuple2FL 
 
 instance (HasPrimitiveInfo a, HasPrimitiveInfo b) => Instantiatable (Tuple2FL FL a b) where
   instantiate = [Tuple2FL P.<$> share free P.<*> share free]
+  instantiateSame (Tuple2FL _ _) = P.head instantiate
 
 instance (To a, To b) => To (a, b) where
   toWith tf (x1, x2) = Tuple2FL (tf x1) (tf x2)
@@ -149,6 +151,8 @@ instance HasPrimitiveInfo a => HasPrimitiveInfo (ListFL FL a) where
 
 instance (HasPrimitiveInfo a, HasPrimitiveInfo (ListFL FL a)) => Instantiatable (ListFL FL a) where
   instantiate = [P.return NilFL, ConsFL P.<$> share free P.<*> share free]
+  instantiateSame NilFL        = P.head instantiate
+  instantiateSame (ConsFL _ _) = instantiate P.!! 1
 
 instance (To a, To [a]) => To [a] where
   toWith _  [] = NilFL
@@ -213,6 +217,8 @@ instance HasPrimitiveInfo a => HasPrimitiveInfo (MaybeFL FL a) where
 
 instance HasPrimitiveInfo a => Instantiatable (MaybeFL FL a) where
   instantiate = [P.return NothingFL, JustFL P.<$> share free]
+  instantiateSame NothingFL  = P.head instantiate
+  instantiateSame (JustFL _) = instantiate P.!! 1
 
 instance To a => To (P.Maybe a) where
   toWith _  P.Nothing = NothingFL
@@ -254,6 +260,7 @@ instance HasPrimitiveInfo a => HasPrimitiveInfo (RatioFL FL a) where
 
 instance HasPrimitiveInfo a => Instantiatable (RatioFL FL a) where
   instantiate = [(:%#) P.<$> share free P.<*> share free]
+  instantiateSame (_ :%# _)  = P.head instantiate
 
 instance To a => To (P.Ratio a) where
   toWith tf (a P.:% b) = tf a :%# tf b
@@ -712,6 +719,8 @@ instance HasPrimitiveInfo (BoolFL FL) where
 
 instance Instantiatable (BoolFL FL) where
   instantiate = [P.return FalseFL, P.return TrueFL]
+  instantiateSame FalseFL = P.head instantiate
+  instantiateSame TrueFL  = instantiate P.!! 1
 
 instance To Bool where
   toWith _ False = FalseFL
@@ -746,6 +755,7 @@ instance HasPrimitiveInfo (UnitFL FL) where
 
 instance Instantiatable (UnitFL FL) where
   instantiate = [P.return UnitFL]
+  instantiateSame UnitFL  = P.head instantiate
 
 instance To () where
   toWith _ () = UnitFL
@@ -774,6 +784,9 @@ instance HasPrimitiveInfo (OrderingFL FL) where
 
 instance Instantiatable (OrderingFL FL) where
   instantiate = [P.return LTFL, P.return EQFL, P.return GTFL]
+  instantiateSame LTFL = P.head instantiate
+  instantiateSame EQFL = instantiate P.!! 1
+  instantiateSame GTFL = instantiate P.!! 2
 
 instance To Ordering where
   toWith _ LT = LTFL

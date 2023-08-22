@@ -260,9 +260,13 @@ genInstances originalDataDec liftedDataDec = do
               let returnE = applyExp (VarE 'return) [applyExp (ConE $ conName liftedConInfo) $ map VarE args]
               return $ DoE Nothing $ map (\arg -> BindS (VarP arg) (applyExp (VarE 'share) [VarE 'free])) args ++ [NoBindS returnE]
         body <- NormalB . ListE <$> mapM genEntry liftedConInfos
-        let dec = FunD 'instantiate [Clause [] body []]
+        let instantiateDec = FunD 'instantiate [Clause [] body []]
             ctxt = map mkHasPrimitiveInfoConstraint liftedConArgs
-        return $ InstanceD Nothing ctxt (mkInstantiatableConstraint liftedTy) [dec]
+            genClause liftedConInfo = do
+              entry <- genEntry liftedConInfo
+              return $ Clause [ConP (conName liftedConInfo) [] $ replicate (conArity liftedConInfo) WildP] (NormalB entry) []
+        instantiateSameDec <- FunD 'instantiateSame <$> mapM genClause liftedConInfos
+        return $ InstanceD Nothing ctxt (mkInstantiatableConstraint liftedTy) [instantiateDec, instantiateSameDec]
 
       genTo = do
         let genTo' = do

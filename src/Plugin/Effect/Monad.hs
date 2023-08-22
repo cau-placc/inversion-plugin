@@ -118,7 +118,7 @@ freshShareID = do
 
 class Instantiatable a where
   instantiate :: [FL a]
-  -- TODO: narrowSameConstr :: a -> a
+  instantiateSame :: a -> FL a
 
 --------------------------------------------------------------------------------
 
@@ -270,13 +270,9 @@ dereference = go []
                                                                Just fl -> go (i : is) (unFL fl)
           HaskellVal x -> return (HaskellVal x)
 
-instantiateVar :: forall a. HasPrimitiveInfo a => ID -> ND FLState a
+instantiateVar :: forall a. HasPrimitiveInfo a => ID -> FL a
 instantiateVar i = case primitiveInfo @a of
-  NoPrimitive -> msum (map update instantiate)
-    where update (FL ndx) = do
-            Val x <- ndx
-            modify $ \ FLState { .. } -> FLState { varMap = insertBinding i (return x) varMap, .. }
-            return x
+  NoPrimitive -> msum (map (addBinding i) instantiate)
   Primitive   -> get >>= \ FLState { .. } -> msum (map update (generate i constraintStore))
     where update x = do
             let c = eqConstraint (Var i) (Val x)
@@ -285,9 +281,26 @@ instantiateVar i = case primitiveInfo @a of
                                                  , .. }
             return x
 
+instantiateVarSame :: forall a. HasPrimitiveInfo a => ID -> a -> FL a
+instantiateVarSame i x =  case primitiveInfo @a of
+  NoPrimitive -> addBinding i (instantiateSame x)
+  Primitive   -> do
+    let c = eqConstraint (Var i) (Val x)
+    modify $ \ FLState { .. } -> FLState { varMap = insertBinding i (return x) varMap
+                                          , constraintStore = insertConstraint c [i] constraintStore
+                                          , .. }
+    return x
+
+--TODO: check add binding auslagern (wird hier und oft woanders gebraucht)
+--TODO: check if also usable for primitives.
+addBinding :: ID -> FL a -> FL a
+addBinding i fl = do
+  x <- fl
+  modify $ \ FLState { .. } -> FLState { varMap = insertBinding i (return x) varMap, .. }
+  return x
 instance Monad FL where
   fl >>= f = FL $ dereference (unFL fl) >>= \case
-    Var i        -> instantiateVar i >>= unFL . f
+    Var i        -> unFL (instantiateVar i >>= f)
     Val x        -> unFL (f x)
     HaskellVal x -> unFL (f (to x))
 
@@ -338,7 +351,7 @@ groundNormalFormFL fl = fl >>= normalFormWith groundNormalFormFL
 -}
 groundNormalFormFL :: forall a. NormalForm a => FL a -> FL a
 groundNormalFormFL fl = FL $ dereference (unFL fl) >>= \case
-  Var i -> instantiateVar i >>= unFL . normalFormWith groundNormalFormFL
+  Var i -> unFL $ instantiateVar i >>= normalFormWith groundNormalFormFL
   Val x -> unFL $ normalFormWith groundNormalFormFL x
   HaskellVal (x :: b) -> case decomposeInjectivity @FL @a @(Lifted FL b) of
     Refl -> return (HaskellVal x)
@@ -350,7 +363,7 @@ normalFormFL fl = FL $ dereference (unFL fl) >>= \case
     Primitive   -> get >>= \ FLState { .. } ->
       if isUnconstrained i constraintStore
         then return (Var i)
-        else instantiateVar i >>= unFL . normalFormWith normalFormFL
+        else unFL $ instantiateVar i >>= normalFormWith normalFormFL
   Val x -> unFL $ normalFormWith normalFormFL x
   HaskellVal (x :: b) -> case decomposeInjectivity @FL @a @(Lifted FL b) of
     Refl -> return (HaskellVal x)
