@@ -472,7 +472,7 @@ unifyFL fl1 fl2 = FL $ do
 
 unifyWithVar :: forall a. (Unifiable a, HasPrimitiveInfo a) => a -> ID -> FL ()
 unifyWithVar x i = case primitiveInfo @a of
-  NoPrimitive -> instantiateVarSame i x >>= unify x --TODO: instantiateVarWithSameConstructor i x anstelle von instantiateVar i
+  NoPrimitive -> instantiateVarSame i x >>= unify x
   Primitive -> do
     FLState { .. } <- get
     let c = eqConstraint (Var i) (Val x)
