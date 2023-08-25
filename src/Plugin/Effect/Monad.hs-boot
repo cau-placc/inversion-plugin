@@ -20,7 +20,7 @@ data Untyped
 
 insertBinding :: Functor m => ID -> m a -> IntMap (m Untyped) -> IntMap (m Untyped)
 
-findBinding :: Functor m => ID -> IntMap (m Untyped) -> Maybe (m a)
+lookupBinding :: Functor m => ID -> IntMap (m Untyped) -> Maybe (m a)
 
 --------------------------------------------------------------------------------
 

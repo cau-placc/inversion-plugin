@@ -59,38 +59,6 @@ class Monad m => MonadShare m where
 
 --------------------------------------------------------------------------------
 
-type ID = Int
-
---------------------------------------------------------------------------------
-
-data Untyped = forall a. Untyped a
-
-insertBinding :: Functor m => ID -> m a -> IntMap (m Untyped) -> IntMap (m Untyped)
-insertBinding i = IntMap.insert i . fmap Untyped
-
-findBinding :: Functor m => ID -> IntMap (m Untyped) -> Maybe (m a)
-findBinding i = fmap (fmap (\ (Untyped x) -> unsafeCoerce x)) . IntMap.lookup i
-
-class ShareState m s | s -> m where
-  shareID     :: s -> ID
-  shareMap    :: s -> IntMap (m Untyped)
-  setShareID  :: ID -> s -> s
-  setShareMap :: IntMap (m Untyped) -> s -> s
-
-instance (Monad m, ShareState m s, MonadState s m) => MonadShare m where
-  share mx = do
-    i <- gets shareID
-    modify (setShareID (succ i))
-    return $ do
-      m <- gets shareMap
-      case findBinding i m of
-        Nothing  -> mx >>= \x -> do
-          modify (\s -> setShareMap (insertBinding i (return x) (shareMap s)) s)
-          return x
-        Just mx' -> mx'
-
---------------------------------------------------------------------------------
-
 type ND s = StateT s Search
 
 evalND :: ND s a -> s -> [a]
@@ -107,12 +75,6 @@ evalND nd s = search (searchTree (evalStateT nd s))
 #else
 #error No search strategy specified
 #endif
-
-freshShareID :: (MonadState s m, ShareState m s, MonadShare m) => m ID
-freshShareID = do
-  i <- gets shareID
-  modify (setShareID (succ i))
-  return i
 
 --------------------------------------------------------------------------------
 
@@ -216,6 +178,8 @@ class HasPrimitiveInfo a where
 
 --------------------------------------------------------------------------------
 
+type ID = Int
+
 data FLVal (a :: Type) where
   Var        :: HasPrimitiveInfo a => ID -> FLVal a
   Val        :: a -> FLVal a
@@ -223,26 +187,30 @@ data FLVal (a :: Type) where
 
 --------------------------------------------------------------------------------
 
+data Untyped = forall a. Untyped a
+
+insertBinding :: Functor m => ID -> m a -> IntMap (m Untyped) -> IntMap (m Untyped)
+insertBinding i = IntMap.insert i . fmap Untyped
+
+lookupBinding :: Functor m => ID -> IntMap (m Untyped) -> Maybe (m a)
+lookupBinding i = fmap (fmap (\ (Untyped x) -> unsafeCoerce x)) . IntMap.lookup i
+
+--------------------------------------------------------------------------------
+
 data FLState = FLState {
-    _shareID        :: ID,
-    _shareMap       :: IntMap (FL Untyped),
     varID           :: ID,
     varMap          :: IntMap (FL Untyped),
+    shareID         :: ID,
+    shareMap        :: IntMap (FL Untyped),
     constraintStore :: ConstraintStore
   }
 
-instance ShareState FL FLState where
-  shareID         = _shareID
-  shareMap        = _shareMap
-  setShareID i s  = s { _shareID = i }
-  setShareMap m s = s { _shareMap = m }
-
 initialFLState :: FLState
 initialFLState = FLState {
-    _shareID        = 0,
-    _shareMap       = IntMap.empty,
     varID           = -1,
     varMap          = IntMap.empty,
+    shareID         = 0,
+    shareMap        = IntMap.empty,
     constraintStore = initialConstraintStore
   }
 
@@ -265,39 +233,39 @@ dereference = go []
   where go is nd = nd >>= \case
           Val x -> return (Val x)
           Var i | i `elem` is -> return (Var i)
-                | otherwise   -> get >>= \ FLState { .. } -> case findBinding i varMap of
+                | otherwise   -> get >>= \ FLState { .. } -> case lookupBinding i varMap of
                                                                Nothing -> return (Var i)
                                                                Just fl -> go (i : is) (unFL fl)
           HaskellVal x -> return (HaskellVal x)
 
 instantiateVar :: forall a. HasPrimitiveInfo a => ID -> FL a
 instantiateVar i = case primitiveInfo @a of
-  NoPrimitive -> msum (map (addBinding i) instantiate)
-  Primitive   -> get >>= \ FLState { .. } -> msum (map update (generate i constraintStore))
-    where update x = do
-            let c = eqConstraint (Var i) (Val x)
-            modify $ \ FLState { .. } -> FLState { varMap = insertBinding i (return x) varMap
-                                                 , constraintStore = insertConstraint c [i] constraintStore
-                                                 , .. }
-            return x
+  NoPrimitive -> msum (map (bindVar i) instantiate)
+  Primitive   -> FL $ do
+    FLState { .. } <- get
+    unFL $ msum (map (bindVarPrimitive i) (generate i constraintStore))
 
 instantiateVarSame :: forall a. HasPrimitiveInfo a => ID -> a -> FL a
 instantiateVarSame i x =  case primitiveInfo @a of
-  NoPrimitive -> addBinding i (instantiateSame x)
-  Primitive   -> do
+  NoPrimitive -> bindVar i (instantiateSame x)
+  Primitive   -> bindVarPrimitive i x
+
+bindVar :: ID -> FL a -> FL a
+bindVar i fl = FL $ do
+  flVal <- unFL fl
+  FLState { .. } <- get
+  put (FLState { varMap = insertBinding i (FL $ return flVal) varMap, .. })
+  return flVal
+
+--TODO: rename and check nd return type
+bindVarPrimitive :: (HasPrimitiveInfo a, Constrainable a) => ID -> a -> FL a
+bindVarPrimitive i x = FL $ do
     let c = eqConstraint (Var i) (Val x)
     modify $ \ FLState { .. } -> FLState { varMap = insertBinding i (return x) varMap
-                                          , constraintStore = insertConstraint c [i] constraintStore
-                                          , .. }
-    return x
+                                         , constraintStore = insertConstraint c [i] constraintStore
+                                         , .. }
+    return (Val x)
 
---TODO: check add binding auslagern (wird hier und oft woanders gebraucht)
---TODO: check if also usable for primitives.
-addBinding :: ID -> FL a -> FL a
-addBinding i fl = do
-  x <- fl
-  modify $ \ FLState { .. } -> FLState { varMap = insertBinding i (return x) varMap, .. }
-  return x
 instance Monad FL where
   fl >>= f = FL $ dereference (unFL fl) >>= \case
     Var i        -> unFL (instantiateVar i >>= f)
@@ -319,9 +287,25 @@ instance MonadFix FL where
       unVal (Val x) = x
       unVal _ = error "Not a Val in mfix"
 
-instance MonadState FLState FL where
-  get = FL (Val <$> get)
-  put s = FL (Val <$> put s)
+--TODO: Check if MonadState instanz wirklich nicht gewollt.
+
+freshShareID :: ND FLState ID
+freshShareID = do
+  i <- gets shareID
+  modify (\s -> s { shareID = succ i })
+  return i
+
+instance MonadShare FL where
+  share fl = FL $ do
+    i <- freshShareID
+    return $ Val $ FL $ do
+      FLState { shareMap = m } <- get
+      case lookupBinding i m of
+        Nothing  -> unFL fl >>= \flVal -> do
+          FLState { shareMap = m', .. } <- get
+          put (FLState { shareMap = insertBinding i (FL $ return flVal) m', .. })
+          return flVal
+        Just fl' -> unFL fl'
 
 freshVarID :: ND FLState ID
 freshVarID = do
@@ -331,8 +315,6 @@ freshVarID = do
 
 free :: HasPrimitiveInfo a => FL a
 free = FL (Var <$> freshVarID)
-
--- TODO: Curry module erstellen
 
 --------------------------------------------------------------------------------
 
@@ -371,6 +353,7 @@ normalFormFL fl = FL $ dereference (unFL fl) >>= \case
 --------------------------------------------------------------------------------
 
 --TODO: umbenennung bei input classes ist doof, weil die indizes verloren gehen könnten (id [var 1] [var 1] wird mit representanten zu var-1 oder so.)
+--TODO: Testen
 --TODO: just use negative indices for fresh variables and keep the positve ones from input classes
 
 class ShowFree a where
@@ -473,7 +456,7 @@ unifyFL fl1 fl2 = FL $ do
 unifyWithVar :: forall a. (Unifiable a, HasPrimitiveInfo a) => a -> ID -> FL ()
 unifyWithVar x i = case primitiveInfo @a of
   NoPrimitive -> instantiateVarSame i x >>= unify x
-  Primitive -> do
+  Primitive -> FL $ do
     FLState { .. } <- get
     let c = eqConstraint (Var i) (Val x)
         constraintStore' = insertConstraint c [i] constraintStore
@@ -482,7 +465,7 @@ unifyWithVar x i = case primitiveInfo @a of
         put (FLState { varMap = insertBinding i (return x) varMap
                      , constraintStore = constraintStore'
                      , .. })
-        return ()
+        return (Val ())
       else empty --TODO: auslagern
 
 -- output class lohnt sich für: $(inOutClassInv 'sort (Out [| [LT, var 1, GT] |] [| var 1 : var 2 |]))
@@ -551,8 +534,8 @@ nonStrictUnifyFL fl1 fl2 = FL $ dereference (unFL fl1) >>= \case
 
 nonStrictUnifyWithVar :: forall a. (Unifiable a, HasPrimitiveInfo a) => a -> ID -> FL ()
 nonStrictUnifyWithVar x i = case primitiveInfo @a of
-  NoPrimitive -> instantiateVarSame i x >>= nonStrictUnify x --TODO: instantiateVarWithSameConstructor i x anstelle von instantiateVar i
-  Primitive -> do
+  NoPrimitive -> instantiateVarSame i x >>= nonStrictUnify x
+  Primitive -> FL $ do
     FLState { .. } <- get
     let c = eqConstraint (Var i) (Val x)
         constraintStore' = insertConstraint c [i] constraintStore
@@ -561,7 +544,7 @@ nonStrictUnifyWithVar x i = case primitiveInfo @a of
         put (FLState { varMap = insertBinding i (return x) varMap
                      , constraintStore = constraintStore'
                      , .. })
-        return ()
+        return (Val ())
       else empty --TODO: auslagern
 
 -- "unify (error "bla") (var 1)" zeigt, dass es notwendig ist, dass man wissen muss ob 1 unconstrained ist.

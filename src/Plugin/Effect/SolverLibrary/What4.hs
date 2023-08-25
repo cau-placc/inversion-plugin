@@ -11,6 +11,8 @@
 {-# LANGUAGE TypeApplications          #-}
 {-# LANGUAGE TypeFamilyDependencies    #-}
 
+--TODO: Repair
+
 {-# OPTIONS_GHC -Wno-orphans              #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
@@ -549,7 +551,7 @@ toSym sym _   _    (HaskellVal x) = lit sym (to x)
 varToSym :: forall sym a. (IsSymExprBuilder sym, Constrainable a) => sym -> IORef (Heap Untyped) -> IORef [Pred sym] -> ID -> IO (SymExpr sym (What4BaseType a))
 varToSym sym ref ref2 i = do
   h <- readIORef ref
-  case findBinding i h of
+  case lookupBinding i h of
     Nothing -> do
       e <- freshConstant sym (safeSymbol (show i)) what4BaseTypeRepr
       case exprType e of
