@@ -601,5 +601,5 @@ toFL' :: To a => a -> FL (Lifted FL a)
 toFL' x | isBottom x = empty
         | otherwise  = return (toWith toFL' x)
 
-type Input a = (To a, Unifiable (Lifted FL a))
-type Output a = (From a, HasPrimitiveInfo (Lifted FL a), NormalForm (Lifted FL a)) --TODO: Get rid of the tpye family maybe?
+type Argument a = (HasPrimitiveInfo (Lifted FL a), NormalForm (Lifted FL a), From a)
+type Result a = (To a, Unifiable (Lifted FL a))
