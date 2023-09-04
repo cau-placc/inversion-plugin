@@ -60,8 +60,14 @@ flag use-bfs {
   Manual:      True
 }
 
+flag use-cs {
+  Description: Perform concurrent search
+  Default:     False
+  Manual:      True
+}
+
 flag use-ps {
-  Description: Perform parallel search instead
+  Description: Perform parallel search
   Default:     False
   Manual:      True
 }
@@ -83,6 +89,7 @@ common deps
     extra               -any,
     split               -any,
     tree-monad          -any,
+    parallel-tree-search -any,
     ChasingBottoms      -any,
     kan-extensions      -any,
     sbv                 -any,
@@ -102,13 +109,15 @@ common deps
   if flag(use-z3)
     cpp-options: -DUSE_Z3 -UUSE_CVC
   if flag(use-dfs)
-    cpp-options: -DUSE_DFS -UUSE_IDDFS -UUSE_BFS -UUSE_PS
+    cpp-options: -DUSE_DFS -UUSE_IDDFS -UUSE_BFS -UUSE_CS -UUSE_PS
   if flag(use-iddfs)
-    cpp-options: -DUSE_IDDFS -UUSE_DFS -UUSE_BFS -UUSE_PS
+    cpp-options: -DUSE_IDDFS -UUSE_DFS -UUSE_BFS -UUSE_CS -UUSE_PS
   if flag(use-bfs)
-    cpp-options: -DUSE_BFS -UUSE_DFS -UUSE_IDDFS -UUSE_PS
+    cpp-options: -DUSE_BFS -UUSE_DFS -UUSE_IDDFS -UUSE_CS -UUSE_PS
+  if flag(use-cs)
+    cpp-options: -DUSE_CS -UUSE_DFS -UUSE_IDDFS -UUSE_BFS -UUSE_PS
   if flag(use-ps)
-    cpp-options: -DUSE_PS -UUSE_DFS -UUSE_IDDFS -UUSE_BFS
+    cpp-options: -DUSE_PS -UUSE_CS -UUSE_DFS -UUSE_IDDFS -UUSE_BFS
   default-language: Haskell2010
   other-extensions:
     DefaultSignatures,

@@ -92,4 +92,5 @@ extra-deps:
   - void-0.7.3
   - zlib-0.6.3.0
   - ghc-tcplugin-api-0.7.1.0
+  - parallel-tree-search-0.4.2
 allow-newer: true

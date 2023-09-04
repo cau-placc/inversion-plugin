@@ -28,6 +28,10 @@ import Control.Exception      (Exception, throw, catch)
 import Control.Monad.Identity
 import Control.Monad.State
 
+#ifdef USE_PS
+import Control.Parallel.TreeSearch (parSearch)
+#endif
+
 import           Data.Kind                    (Type)
 import qualified Data.Kind
 import           Data.IntMap                  (IntMap)
@@ -70,8 +74,10 @@ evalND nd s = search (searchTree (evalStateT nd s))
     search = iddfs
 #elif defined(USE_BFS)
     search = bfs
+#elif defined(USE_CS)
+    search = concurrentSearch
 #elif defined(USE_PS)
-    search = bfs
+    search = parSearch
 #else
 #error No search strategy specified
 #endif
