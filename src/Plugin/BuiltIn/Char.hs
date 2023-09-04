@@ -6,7 +6,7 @@ import Plugin.Effect.Monad
 import Plugin.BuiltIn.Primitive
 
 chrFL :: FL (IntFL FL :--> CharFL FL)
-chrFL = undefined --toEnumFL
+chrFL = undefined --toEnumFL --TODO
 
 ordFL :: FL (CharFL FL :--> IntFL FL)
 ordFL = undefined --fromEnumFL

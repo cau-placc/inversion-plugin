@@ -293,8 +293,6 @@ instance MonadFix FL where
       unVal (Val x) = x
       unVal _ = error "Not a Val in mfix"
 
---TODO: Check if MonadState instanz wirklich nicht gewollt.
-
 freshShareID :: ND FLState ID
 freshShareID = do
   i <- gets shareID
@@ -395,7 +393,7 @@ to = toWith toFL
 
 toFL :: To a => a -> FL (Lifted FL a)
 toFL x = FL (return (HaskellVal x))
---TODO: Alternatively: toFL x = return (to x)
+-- Alternatively: toFL x = return (to x)
 
 class From a where
   from :: Lifted FL a -> a
@@ -572,30 +570,24 @@ nonStrictUnifyWithVar x i = case primitiveInfo @a of
 -- (1, var 1) (var 1, var 1)
 --------------------------------------------------------------------------------
 
---TODO: no longer needed, just for sanity checking if all necessary instances are defined for built-in types
+--TODO: No longer needed, just for sanity check if all necessary instances are defined for built-in types.
 class (From a, To a, Unifiable (Lifted FL a), NormalForm (Lifted FL a), HasPrimitiveInfo (Lifted FL a), ShowFree a) => Invertible a
 
 --------------------------------------------------------------------------------
 
---TODO: move?! But where to?
+--TODO: Move?! But where to?
 infixr 0 :-->
-type (:-->) = (-->) FL --TODO: move to util. gehört aber eigentlich auch nicht hier hin.
-
-newtype (-->) (m :: Type -> Type) (a :: Type) (b :: Type) = Func (m a -> m b)
-
---remark: newtype um instanzen angeben zu können und typklassen (partielle applikation ,e.g. functor, unterstützen)
+type (:-->) = (-->) FL
 
 infixr 0 -->
+newtype (-->) (m :: Type -> Type) (a :: Type) (b :: Type) = Func (m a -> m b)
 
 type instance Lifted m (->) = (-->) m
 type instance Lifted m ((->) a) = (-->) m (Lifted m a)
 type instance Lifted m ((->) a b) = (-->) m (Lifted m a) (Lifted m b)
 
 instance (From a, NormalForm (Lifted FL a), To b) => To (a -> b) where
-  toWith _ f = Func $ \x -> toFL' (f (fromFL (groundNormalFormFL x)))
-  --toWith _ f = Func $ \x -> FL $ groundNormalFormFL x >>= (unFL . toFL' . f . fromIdentity)
---instance (From a, NormalForm (Lifted FL a), To b) => To (a -> b) where
-  --toWith _ f = Func $ \x -> toFL' (f (fromFL (groundNormalFormFL x)))
+  toWith _ f = Func $ \fl -> groundNormalFormFL fl >>= \x -> toFL' (f (from x))
 
 appFL :: Monad m => m ((-->) m a b) -> m a -> m b
 mf `appFL` mx = mf >>= \ (Func f) -> f mx
@@ -611,4 +603,3 @@ toFL' x | isBottom x = empty
 
 type Input a = (To a, Unifiable (Lifted FL a))
 type Output a = (From a, HasPrimitiveInfo (Lifted FL a), NormalForm (Lifted FL a)) --TODO: Get rid of the tpye family maybe?
---TODO: welche typklassen sind wichtig?

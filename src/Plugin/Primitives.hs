@@ -152,6 +152,7 @@ createFreeMap = mapM (\case
 genInClassInv :: Bool -> Name -> [Class] -> ExpQ
 genInClassInv gnf f ins = [| let g x = $(genInOutClassInv gnf f ins [| x |]) in g |]
 
+--TODO: Comment generation scheme
 funPat :: Name -> [PatQ] -> PatQ
 funPat name qps = do
   ps <- sequence qps
