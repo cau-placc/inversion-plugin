@@ -195,19 +195,19 @@ data FLVal (a :: Type) where
 
 data Untyped = forall a. Untyped a
 
-insertBinding :: Functor m => ID -> m a -> IntMap (m Untyped) -> IntMap (m Untyped)
-insertBinding i = IntMap.insert i . fmap Untyped
+insertBinding :: ID -> FL a -> IntMap Untyped -> IntMap Untyped
+insertBinding i = IntMap.insert i . Untyped
 
-lookupBinding :: Functor m => ID -> IntMap (m Untyped) -> Maybe (m a)
-lookupBinding i = fmap (fmap (\ (Untyped x) -> unsafeCoerce x)) . IntMap.lookup i
+lookupBinding :: ID -> IntMap Untyped -> Maybe (FL a)
+lookupBinding i = fmap (\ (Untyped x) -> unsafeCoerce x) . IntMap.lookup i
 
 --------------------------------------------------------------------------------
 
 data FLState = FLState {
     varID           :: ID,
-    varMap          :: IntMap (FL Untyped),
+    varMap          :: IntMap Untyped,
     shareID         :: ID,
-    shareMap        :: IntMap (FL Untyped),
+    shareMap        :: IntMap Untyped,
     constraintStore :: ConstraintStore
   }
 

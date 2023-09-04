@@ -18,9 +18,9 @@ type ID = Int
 
 data Untyped
 
-insertBinding :: Functor m => ID -> m a -> IntMap (m Untyped) -> IntMap (m Untyped)
+insertBinding :: ID -> FL a -> IntMap Untyped -> IntMap Untyped
 
-lookupBinding :: Functor m => ID -> IntMap (m Untyped) -> Maybe (m a)
+lookupBinding :: ID -> IntMap Untyped -> Maybe (FL a)
 
 --------------------------------------------------------------------------------
 
