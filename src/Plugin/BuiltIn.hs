@@ -146,7 +146,7 @@ type StringFL m = ListFL m (CharFL m)
 type instance Lifted m [] = ListFL m
 type instance Lifted m [a] = ListFL m (Lifted m a)
 
-instance HasPrimitiveInfo a => HasPrimitiveInfo (ListFL FL a) where
+instance (HasPrimitiveInfo a, HasPrimitiveInfo (ListFL FL a)) => HasPrimitiveInfo (ListFL FL a) where
   primitiveInfo = NoPrimitive
 
 instance (HasPrimitiveInfo a, HasPrimitiveInfo (ListFL FL a)) => Instantiatable (ListFL FL a) where
