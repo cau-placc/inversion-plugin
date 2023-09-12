@@ -85,8 +85,8 @@ evalND nd s = search (searchTree (evalStateT nd s))
 --------------------------------------------------------------------------------
 
 class Instantiatable a where
-  instantiate :: [FL a]
-  instantiateSame :: a -> FL a
+  enumerate :: [FL a]
+  enumerateSame :: a -> FL a
 
 --------------------------------------------------------------------------------
 
@@ -246,7 +246,7 @@ dereference = go []
 
 instantiateVar :: forall a. HasPrimitiveInfo a => ID -> FL a
 instantiateVar i = case primitiveInfo @a of
-  NoPrimitive -> msum (map (bindTo i) instantiate)
+  NoPrimitive -> msum (map (bindTo i) enumerate)
   Primitive   -> FL $ do
     FLState { .. } <- get
     unFL $ msum (map (bindToPrimitive i) (generate i constraintStore))
@@ -452,7 +452,7 @@ unifyFL fl1 fl2 = FL $ do
 
 unifyWithVar :: forall a. (Unifiable a, HasPrimitiveInfo a) => a -> ID -> FL ()
 unifyWithVar x i = case primitiveInfo @a of
-  NoPrimitive -> bindTo i (instantiateSame x) >>= unify x
+  NoPrimitive -> bindTo i (enumerateSame x) >>= unify x
   Primitive -> FL $ do
     FLState { .. } <- get
     let c = eqConstraint (Var i) (Val x)
@@ -535,7 +535,7 @@ nonStrictUnifyFL fl1 fl2 = FL $ dereference (unFL fl1) >>= \case
 
 nonStrictUnifyWithVar :: forall a. (Unifiable a, HasPrimitiveInfo a) => a -> ID -> FL ()
 nonStrictUnifyWithVar x i = case primitiveInfo @a of
-  NoPrimitive -> bindTo i (instantiateSame x) >>= nonStrictUnify x
+  NoPrimitive -> bindTo i (enumerateSame x) >>= nonStrictUnify x
   Primitive -> FL $ do
     FLState { .. } <- get
     let c = eqConstraint (Var i) (Val x)

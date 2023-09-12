@@ -75,8 +75,8 @@ instance HasPrimitiveInfo a => HasPrimitiveInfo (SoloFL FL a) where
   primitiveInfo = NoPrimitive
 
 instance HasPrimitiveInfo a => Instantiatable (SoloFL FL a) where
-  instantiate = [SoloFL P.<$> share free]
-  instantiateSame (SoloFL _) = P.head instantiate
+  enumerate = [SoloFL P.<$> share free]
+  enumerateSame (SoloFL _) = P.head enumerate
 
 instance To a => To (Solo a) where
   toWith tf (Solo x) = SoloFL (tf x)
@@ -110,8 +110,8 @@ instance (HasPrimitiveInfo a, HasPrimitiveInfo b) => HasPrimitiveInfo (Tuple2FL 
   primitiveInfo = NoPrimitive
 
 instance (HasPrimitiveInfo a, HasPrimitiveInfo b) => Instantiatable (Tuple2FL FL a b) where
-  instantiate = [Tuple2FL P.<$> share free P.<*> share free]
-  instantiateSame (Tuple2FL _ _) = P.head instantiate
+  enumerate = [Tuple2FL P.<$> share free P.<*> share free]
+  enumerateSame (Tuple2FL _ _) = P.head enumerate
 
 instance (To a, To b) => To (a, b) where
   toWith tf (x1, x2) = Tuple2FL (tf x1) (tf x2)
@@ -150,9 +150,9 @@ instance (HasPrimitiveInfo a, HasPrimitiveInfo (ListFL FL a)) => HasPrimitiveInf
   primitiveInfo = NoPrimitive
 
 instance (HasPrimitiveInfo a, HasPrimitiveInfo (ListFL FL a)) => Instantiatable (ListFL FL a) where
-  instantiate = [P.return NilFL, ConsFL P.<$> share free P.<*> share free]
-  instantiateSame NilFL        = P.head instantiate
-  instantiateSame (ConsFL _ _) = instantiate P.!! 1
+  enumerate = [P.return NilFL, ConsFL P.<$> share free P.<*> share free]
+  enumerateSame NilFL        = P.head enumerate
+  enumerateSame (ConsFL _ _) = enumerate P.!! 1
 
 instance (To a, To [a]) => To [a] where
   toWith _  [] = NilFL
@@ -216,9 +216,9 @@ instance HasPrimitiveInfo a => HasPrimitiveInfo (MaybeFL FL a) where
   primitiveInfo = NoPrimitive
 
 instance HasPrimitiveInfo a => Instantiatable (MaybeFL FL a) where
-  instantiate = [P.return NothingFL, JustFL P.<$> share free]
-  instantiateSame NothingFL  = P.head instantiate
-  instantiateSame (JustFL _) = instantiate P.!! 1
+  enumerate = [P.return NothingFL, JustFL P.<$> share free]
+  enumerateSame NothingFL  = P.head enumerate
+  enumerateSame (JustFL _) = enumerate P.!! 1
 
 instance To a => To (P.Maybe a) where
   toWith _  P.Nothing = NothingFL
@@ -259,8 +259,8 @@ instance HasPrimitiveInfo a => HasPrimitiveInfo (RatioFL FL a) where
   primitiveInfo = NoPrimitive
 
 instance HasPrimitiveInfo a => Instantiatable (RatioFL FL a) where
-  instantiate = [(:%#) P.<$> share free P.<*> share free]
-  instantiateSame (_ :%# _)  = P.head instantiate
+  enumerate = [(:%#) P.<$> share free P.<*> share free]
+  enumerateSame (_ :%# _)  = P.head enumerate
 
 instance To a => To (P.Ratio a) where
   toWith tf (a P.:% b) = tf a :%# tf b
@@ -718,9 +718,9 @@ instance HasPrimitiveInfo (BoolFL FL) where
   primitiveInfo = NoPrimitive
 
 instance Instantiatable (BoolFL FL) where
-  instantiate = [P.return FalseFL, P.return TrueFL]
-  instantiateSame FalseFL = P.head instantiate
-  instantiateSame TrueFL  = instantiate P.!! 1
+  enumerate = [P.return FalseFL, P.return TrueFL]
+  enumerateSame FalseFL = P.head enumerate
+  enumerateSame TrueFL  = enumerate P.!! 1
 
 instance To Bool where
   toWith _ False = FalseFL
@@ -754,8 +754,8 @@ instance HasPrimitiveInfo (UnitFL FL) where
   primitiveInfo = NoPrimitive
 
 instance Instantiatable (UnitFL FL) where
-  instantiate = [P.return UnitFL]
-  instantiateSame UnitFL  = P.head instantiate
+  enumerate = [P.return UnitFL]
+  enumerateSame UnitFL  = P.head enumerate
 
 instance To () where
   toWith _ () = UnitFL
@@ -783,10 +783,10 @@ instance HasPrimitiveInfo (OrderingFL FL) where
   primitiveInfo = NoPrimitive
 
 instance Instantiatable (OrderingFL FL) where
-  instantiate = [P.return LTFL, P.return EQFL, P.return GTFL]
-  instantiateSame LTFL = P.head instantiate
-  instantiateSame EQFL = instantiate P.!! 1
-  instantiateSame GTFL = instantiate P.!! 2
+  enumerate = [P.return LTFL, P.return EQFL, P.return GTFL]
+  enumerateSame LTFL = P.head enumerate
+  enumerateSame EQFL = enumerate P.!! 1
+  enumerateSame GTFL = enumerate P.!! 2
 
 instance To Ordering where
   toWith _ LT = LTFL

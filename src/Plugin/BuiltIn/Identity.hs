@@ -22,8 +22,8 @@ instance HasPrimitiveInfo a => HasPrimitiveInfo (IdentityFL FL a) where
   primitiveInfo = NoPrimitive
 
 instance HasPrimitiveInfo a => Instantiatable (IdentityFL FL a) where
-  instantiate = [IdentityFL <$> share free]
-  instantiateSame (IdentityFL _) = head instantiate
+  enumerate = [IdentityFL <$> share free]
+  enumerateSame (IdentityFL _) = head enumerate
 
 instance To a => To (Identity a) where
   toWith tf (Identity x) = IdentityFL (tf x)
