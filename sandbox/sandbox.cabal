@@ -21,14 +21,13 @@ common deps
     deepseq          -any,
     parallel         -any
 
- library
+library
    import: deps
    exposed-modules:
       Test
       Robert
       TreeTraversal
       P
-      Main
       Janus
       JanusP
 
@@ -53,7 +52,10 @@ common deps
 executable main
   import:        deps
   main-is:       Main.hs
+  build-depends: sandbox
   other-modules:
+    P
+    Robert
     FunPat
     FunPatSrc
   ghc-options:   -O2 -threaded -rtsopts -main-is Main
