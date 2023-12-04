@@ -1,3 +1,7 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+
+{-# HLINT ignore "Use camelCase" #-}
+
 {-|
 Module      : Plugin.Trans.FunWiredIn
 Description : Functions to look up the replacement of wired-in functions
@@ -70,4 +74,10 @@ wiredIn =
   , mkOrig gHC_PRIM    (mkVarOcc "<#")
   , mkOrig gHC_PRIM    (mkVarOcc "==#")
   , mkOrig gHC_BASE    (mkVarOcc "++")
+  , mkOrig gHC_LIST    (mkVarOcc "filter")
+  , mkOrig gHC_BASE    (mkVarOcc "$")
+  , mkOrig dATA_MAYBE  (mkVarOcc "fromJust")
   ]
+
+dATA_MAYBE :: Module
+dATA_MAYBE = mkBaseModule (fsLit "Data.Either")

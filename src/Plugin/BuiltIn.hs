@@ -433,6 +433,24 @@ tailFL = returnFLF $ \xs -> xs P.>>= \case
     NilFL -> ys
     ConsFL a as -> P.return (ConsFL a ((++#) `appFL` as `appFL` ys))
 
+-- | Lifted filter function
+filterFL :: FL ((a :--> BoolFL FL) :--> ListFL FL a :--> ListFL FL a)
+filterFL = returnFLF $ \p -> returnFLF $ \xs ->
+  xs P.>>= \case
+    NilFL -> P.return NilFL
+    ConsFL a as -> (p `appFL` a) P.>>= \case
+      FalseFL -> filterFL `appFL` p `appFL` as
+      TrueFL -> P.return (ConsFL a (filterFL `appFL` p `appFL` as))
+
+-- | Lifted ($) function
+($#) :: FL ((a :--> b) :--> a :--> b)
+($#) = returnFLF $ \f -> returnFLF $ \x -> f `appFL` x
+
+-- | Lifted fromJust function
+fromJustFL :: FL (MaybeFL FL a :--> a)
+fromJustFL = returnFLF $ \m -> m P.>>= \case
+  NothingFL -> P.empty
+  JustFL x  -> x
 
 appendListNoShare :: FL (ListFL FL a :--> ListFL FL a :--> ListFL FL a)
 appendListNoShare = returnFLF $ \xs -> returnFLF $ \ys ->
@@ -1133,6 +1151,9 @@ class EqFL a => OrdFL a where
       _      -> a2
 
 instance OrdFL (BoolFL FL) where
+  compareFL = liftFL2Convert P.compare
+
+instance OrdFL (OrderingFL FL) where
   compareFL = liftFL2Convert P.compare
 
 instance OrdFL (UnitFL FL) where
