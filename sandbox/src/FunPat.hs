@@ -8,19 +8,32 @@ import FunPatSrc
 
 import Plugin.InversionPlugin
 
-lastTH $(funPat '(++) [[p| _ |], [p| [x] |]]) = x
+--appendInv :: (From [a], Unifiable [a], NormalForm [a]) => [a] -> [([a], [a])]
+--appendInv :: (Input [a], Output [a]) => [a] -> [([a], [a])]
+--appendInv = $(inv 'append)
+
+--fInv :: (From a, NormalForm a, To b, Unifiable b) => b -> [a]
+fInv x = $(inv 'FunPatSrc.f) x
+
+lastTH $(funPat 'append [[p| _ |], [p| [x] |]]) = x
 
 lastTHLegacy $(funPatLegacy '(++) [[p| _ |], [p| [x] |]]) = x
 
 isEmpty :: [Bool] -> Bool
 isEmpty $(funPat '(++) [[p| [] |], [p| [] |]]) = True
 
-f $(funPat 'h [[p| x |]]) = True
+data Bla = Blub
+
+instance Eq Bla where
+  (==) :: Bla -> Bla -> Bool
+  Blub == Blub = True
+
+--f $(funPat 'h [[p| x |]]) = True
 
 --lastTH2 $(funPatLegacy '(++) [[p| _ |], [p| [x] |]]) = x
 
 {-
---lazyUnifyFL (x, empty) (y,y)
+--nonStrictUnifyFL (x, empty) (y,y)
 -- (y,y) =:<= (x, failed)
 -- f (y, y)
 -- f (x, y) | x =:= y

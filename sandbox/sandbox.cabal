@@ -21,39 +21,39 @@ common deps
     deepseq          -any,
     parallel         -any
 
-library
-  import: deps
-  exposed-modules:
-    Arith
-    FunPat
-    FunPatSrc
-    Graph
-    Graph2
-    Huffman
-    Interpreter
-    Match
-    Palindrome
-    P
-    RunLength
-    TreeTraversal
-    Robert
-    Lambda
-    Quine
-    Lisp
-    Z
+ library
+   import: deps
+   exposed-modules:
+      Test
+      Robert
+      TreeTraversal
+      P
+      Main
+      Janus
+      JanusP
+
+--     Arith
+--     FunPat
+--     FunPatSrc
+--     Graph
+--     Graph2
+--     Huffman
+--     Interpreter
+--     Match
+--     Palindrome
+--     P
+--     RunLength
+--     TreeTraversal
+--     Robert
+--     Lambda
+--     Quine
+--     Lisp
+--     Z
 
 executable main
   import:        deps
   main-is:       Main.hs
   other-modules:
-    Conquer
-    Divide
-    Eden.Edi
-    Eden.Merge
-    Eden.EdenConcHs
-    Eden.ParPrimConcHs
-    Eden.Map
-    Eden.MapReduce
-    Eden.Auxiliary
-    Z
+    FunPat
+    FunPatSrc
   ghc-options:   -O2 -threaded -rtsopts -main-is Main

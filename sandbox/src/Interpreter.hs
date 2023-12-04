@@ -7,32 +7,33 @@ type Id = String
 data Val = List [Val] | Int Integer | Char Char | Bool Bool
   deriving (Eq, Show)
 
+--TODO: Stm nennen
 data Cmd = Skip
-         | Assign Id Expr
+         | Assign Id Exp
          | Seq Cmd Cmd
-         | Ite Expr Cmd Cmd
-         | While Expr Cmd
+         | Ite Exp Cmd Cmd --TODO If
+         | While Exp Cmd
          | Error
   deriving Show
 
-data Expr = Var Id
-          | Val Val
-          | Eq Expr Expr
-          | Not Expr
-          | And Expr Expr
-          | Or Expr Expr
-          | Cons Expr Expr
-          | Head Expr
-          | Tail Expr
-          | Lt Expr Expr
-          | Add Expr Expr
-          | Sub Expr Expr
-          | Mul Expr Expr
+data Exp = Var Id
+         | Val Val
+         | Eq Exp Exp
+         | Not Exp
+         | And Exp Exp
+         | Or Exp Exp
+         | Cons Exp Exp
+         | Head Exp
+         | Tail Exp
+         | Lt Exp Exp
+         | Add Exp Exp
+         | Sub Exp Exp
+         | Mul Exp Exp
   deriving Show
 
 type Env = [(Id, Val)]
 
-eval :: Env -> Expr -> Maybe Val
+eval :: Env -> Exp -> Maybe Val
 eval env (Var v)        = lookup v env
 eval env (Val x)        = Just x
 eval env (Eq e1 e2)     = Bool <$> ((==) <$> eval env e1 <*> eval env e2)

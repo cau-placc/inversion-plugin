@@ -4,6 +4,8 @@
 
 module TreeTraversal where
 
+import P
+
 -- Test with: $(inv 'inorder True) [7, 6, 5, 4, 3, 2, 1]
 
 data Tree a = Empty
@@ -14,10 +16,16 @@ preorder :: Tree a -> [a]
 preorder Empty        = []
 preorder (Node l x r) = [x] ++ preorder l ++ preorder r
 
+-- Does not terminate
 inorder :: Tree a -> [a]
 inorder Empty        = []
 inorder (Node l x r) = inorder l ++ [x] ++ inorder r
 
+inorderP :: P -> Tree a -> [a]
+inorderP _     Empty        = []
+inorderP (S n) (Node l x r) = inorderP n l ++ [x] ++ inorderP n r
+
+-- $(partialInv 'inorderP [0]) (S $ S $ S Z) (inorder exampleTree)
 {-
 inorderInv []
 inorder 0
