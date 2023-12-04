@@ -6,21 +6,12 @@
 module Plugin.Effect.Monad where
 
 import qualified Data.Kind
-import           Data.IntMap (IntMap)
 
 import Plugin.Lifted
 
 --------------------------------------------------------------------------------
 
 type ID = Int
-
---------------------------------------------------------------------------------
-
-data Untyped
-
-insertBinding :: ID -> FL a -> IntMap Untyped -> IntMap Untyped
-
-lookupBinding :: ID -> IntMap Untyped -> Maybe (FL a)
 
 --------------------------------------------------------------------------------
 
