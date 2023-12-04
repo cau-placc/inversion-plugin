@@ -6,7 +6,7 @@
 {-# LANGUAGE TypeApplications      #-}
 
 module Plugin.Primitives
-  ( Argument, Result, inv, To, partialInv, weakInv
+  ( Transform, Argument, Result, inv, To, partialInv, weakInv
   , Class, inOutClassInv, inClassInv, var
   , invFree, partialInvFree, weakInvFree, inClassInvFree, inOutClassInvFree, showFree
   , funPat, funPatLegacy

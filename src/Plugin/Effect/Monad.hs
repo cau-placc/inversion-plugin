@@ -9,6 +9,7 @@
 {-# LANGUAGE GADTs                     #-}
 {-# LANGUAGE LambdaCase                #-}
 {-# LANGUAGE MultiParamTypeClasses     #-}
+{-# LANGUAGE PolyKinds                 #-}
 {-# LANGUAGE QuantifiedConstraints     #-}
 {-# LANGUAGE RankNTypes                #-}
 {-# LANGUAGE RecordWildCards           #-}
@@ -598,5 +599,6 @@ toFL' :: To a => a -> FL (Lifted FL a)
 toFL' x | isBottom x = empty
         | otherwise  = return (toWith toFL' x)
 
-type Argument a = (HasPrimitiveInfo (Lifted FL a), NormalForm (Lifted FL a), From a)
-type Result a = (To a, Unifiable (Lifted FL a))
+type Transform (a :: k) = (Lifted FL a :: k)
+type Argument a = (HasPrimitiveInfo (Transform a), NormalForm (Transform a), From a)
+type Result a = (To a, Unifiable (Transform a))
