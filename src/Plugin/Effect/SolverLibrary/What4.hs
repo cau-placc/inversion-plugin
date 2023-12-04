@@ -22,14 +22,16 @@ module Plugin.Effect.SolverLibrary.What4 () where
 
 #ifdef USE_WHAT4
 
-import Data.Bits
-import Data.BitVector.Sized
-import Data.Coerce
-import Data.IORef
-import Data.Parameterized
-import Data.Parameterized.Nonce
-import Data.Text
-import Data.Typeable
+import           Data.Bits
+import           Data.BitVector.Sized
+import           Data.Coerce
+import           Data.IntMap                  (IntMap)
+import qualified Data.IntMap        as IntMap
+import           Data.IORef
+import           Data.Parameterized
+import           Data.Parameterized.Nonce
+import           Data.Text
+import           Data.Typeable
 
 import GHC.Float
 import GHC.Magic
@@ -43,6 +45,8 @@ import System.IO.Unsafe
 import                Plugin.BuiltIn.Primitive
 import {-# SOURCE #-} Plugin.Effect.Monad
 
+import Unsafe.Coerce (unsafeCoerce)
+
 import What4.Config
 import What4.Expr
 import What4.Expr.Builder
@@ -52,6 +56,14 @@ import What4.Protocol.Online
 import What4.Protocol.SMTLib2
 import What4.Solver
 import What4.Utils.StringLiteral
+
+data Untyped = forall a. Untyped a
+
+insertBinding :: ID -> a -> IntMap Untyped -> IntMap Untyped
+insertBinding i = IntMap.insert i . Untyped
+
+lookupBinding :: ID -> IntMap Untyped -> Maybe a
+lookupBinding i = fmap (\ (Untyped x) -> unsafeCoerce x) . IntMap.lookup i
 
 #ifdef USE_CVC
 type What4Solver = CVC4
@@ -79,7 +91,7 @@ instance SolverLibrary where
   checkConsistency cs = unsafePerformIO $ do
     Some (ng :: NonceGenerator IO x) <- newIONonceGenerator
     sym <- newExprBuilder FloatIEEERepr Proxy ng
-    ref <- newIORef emptyHeap
+    ref <- newIORef IntMap.empty
     ref2 <- newIORef []
     extendConfig what4SolverOptions (getConfiguration sym)
     solver <- startSolverProcess what4SolverFeatures Nothing sym :: IO (SolverProcess x (Writer What4Solver))
@@ -98,7 +110,7 @@ instance SolverLibrary where
   getModels i cs = unsafePerformIO $ do
     Some (ng :: NonceGenerator IO x) <- newIONonceGenerator
     sym <- newExprBuilder FloatIEEERepr Proxy ng
-    ref <- newIORef emptyHeap
+    ref <- newIORef IntMap.empty
     ref2 <- newIORef []
     extendConfig what4SolverOptions (getConfiguration sym)
     solver <- startSolverProcess what4SolverFeatures Nothing sym :: IO (SolverProcess x (Writer What4Solver))
@@ -233,7 +245,7 @@ data What4Constraint where
   DoubleLtConstraint, DoubleLeqConstraint, DoubleGtConstraint, DoubleGeqConstraint :: FLVal (DoubleFL FL) -> FLVal (DoubleFL FL) -> What4Constraint
   DoubleMaxConstraint, DoubleMinConstraint :: FLVal (DoubleFL FL) -> FLVal (DoubleFL FL) -> FLVal (DoubleFL FL) -> What4Constraint
 
-toPred :: IsSymExprBuilder sym => sym -> IORef (Heap Untyped) -> IORef [Pred sym] -> Constraint -> IO (Pred sym)
+toPred :: IsSymExprBuilder sym => sym -> IORef (IntMap Untyped) -> IORef [Pred sym] -> Constraint -> IO (Pred sym)
 toPred sym ref ref2 (EqConstraint x y) = do
   symX <- toSym sym ref ref2 x
   symY <- toSym sym ref ref2 y
@@ -543,12 +555,12 @@ isEq' sym x y = case exprType x of
   BaseStructRepr {} -> structEq sym x y
   BaseArrayRepr {}  -> arrayEq sym x y
 
-toSym :: (IsSymExprBuilder sym, Constrainable a) => sym -> IORef (Heap Untyped) -> IORef [Pred sym] -> FLVal a -> IO (SymExpr sym (What4BaseType a))
+toSym :: (IsSymExprBuilder sym, Constrainable a) => sym -> IORef (IntMap Untyped) -> IORef [Pred sym] -> FLVal a -> IO (SymExpr sym (What4BaseType a))
 toSym sym ref ref2 (Var i)        = varToSym sym ref ref2 i
 toSym sym _   _    (Val x)        = lit sym x
 toSym sym _   _    (HaskellVal x) = lit sym (to x)
 
-varToSym :: forall sym a. (IsSymExprBuilder sym, Constrainable a) => sym -> IORef (Heap Untyped) -> IORef [Pred sym] -> ID -> IO (SymExpr sym (What4BaseType a))
+varToSym :: forall sym a. (IsSymExprBuilder sym, Constrainable a) => sym -> IORef (IntMap Untyped) -> IORef [Pred sym] -> ID -> IO (SymExpr sym (What4BaseType a))
 varToSym sym ref ref2 i = do
   h <- readIORef ref
   case lookupBinding i h of
