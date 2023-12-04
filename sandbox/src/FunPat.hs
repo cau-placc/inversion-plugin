@@ -1,7 +1,7 @@
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE InstanceSigs          #-}
 {-# LANGUAGE ViewPatterns          #-}
-
 module FunPat where
 
 import FunPatSrc
