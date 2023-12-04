@@ -38,6 +38,7 @@ import GHC.Tc.Utils.Zonk
 import GHC.Types.Error
 import GHC.Types.SourceText
 import GHC.Types.TypeEnv
+import GHC.Types.Avail
 import GHC.Iface.Env
 import GHC.Tc.Utils.Monad as TcRnMonad
 import GHC.Tc.Module
@@ -291,7 +292,16 @@ liftMonadPlugin mdopts env = do
                               , tcg_type_env   = tenvfinal
                               }
 
-          let keepNames = filter (not . isDictFun) umSorted
+          let newDataNames = [ AvailTC (tyConName tc')
+                                       (map (NormalGreName . dataConName) (tyConDataCons tc') ++
+                                       concatMap (map FieldGreName . dataConFieldLabels) (tyConDataCons tc'))
+                             | (_, Just tc') <- liftedTycons ]
+          let tcwrappers = concat [ map (varName . dataConWrapId) (tyConDataCons tc)
+                                  | (_, Just tc) <- liftedTycons ]
+          let keepNames = filter (not . isDictFun) umSorted ++
+                          concatMap availNames newDataNames ++
+                          tcwrappers
+
           nms <- mapM (externaliseName (tcg_mod env)) keepNames
           liftIO $ modifyIORef (tcg_keep finalEnv)
                       (`extendNameSetList` nms)
