@@ -566,10 +566,6 @@ nonStrictUnifyWithVar x i = case primitiveInfo @a of
 
 -- (1, error "bla") (var 1, var 1)
 -- (1, var 1) (var 1, var 1)
---------------------------------------------------------------------------------
-
---TODO: No longer needed, just for sanity check if all necessary instances are defined for built-in types.
-class (From a, To a, Unifiable (Lifted FL a), NormalForm (Lifted FL a), HasPrimitiveInfo (Lifted FL a), ShowFree a) => Invertible a
 
 --------------------------------------------------------------------------------
 

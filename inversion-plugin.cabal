@@ -21,12 +21,12 @@ source-repository head
 
 flag use-sbv {
   Description: Use SBV
-  Default:     True
+  Default:     False
   Manual:      True
 }
 flag use-what4 {
   Description: Use What4
-  Default:     False
+  Default:     True
   Manual:      True
 }
 

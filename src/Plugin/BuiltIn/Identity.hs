@@ -44,5 +44,3 @@ instance NormalForm a => NormalForm (IdentityFL FL a) where
 instance ShowFree a => ShowFree (Identity a) where
   showsFreePrec' d (Identity x) = showParen (d > 10) $
     showString "Identity " . showsFreePrec 11 x
-
-instance Invertible a => Invertible (Identity a)

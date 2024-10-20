@@ -172,7 +172,7 @@ fibiterUncall :: Int -> Int -> Int
 fibiterUncall x1 x2 | Just res <- run [("fibiter", fibiterStm)] [("x1", x1), ("x2", x2)] (Uncall "fibiter") >>= return . find "n" = res
 
 fibiterUncall2 :: Int -> Int -> Int -> (Int, Int, Int)
-fibiterUncall2 n x1 x2 | Just res <- run [("fibiter", fibiterStm)] [("n", n), ("x1", x1), ("x2", x2)] (Uncall "fibiter") >>= \env -> return (find "n" env, find "x1" env, find "x2" env) = res
+fibiterUncall2 n x1 x2 | Just res <- run [("fibiter", fibiterStm)] [("n", n), ("x1", x1), ("x2", x2)] (Uncall "fibiter") >>= \env -> return (find "n" env, find "x1" env, find "x2" env) = res      
 
 {-
 Tests:

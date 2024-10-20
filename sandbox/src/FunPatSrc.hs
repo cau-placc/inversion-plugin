@@ -56,7 +56,24 @@ loopTest True = True
 ctest :: [a] -> b -> c
 ctest x y = error "bla"
 
+mapBool :: (Bool -> Bool) -> [Bool] -> [Bool]
+mapBool f [] = []
+mapBool f (x:xs) = f x : mapBool f xs
+
+
+myzip :: [a] -> [b] -> [(a, b)]
+myzip [] _ = []
+myzip _ [] = []
+myzip (x:xs) (y:ys) = (x, y) : myzip xs ys
 
 mylookup :: Eq a => a -> [(a, b)] -> Maybe b
 mylookup _ [] = Nothing
 mylookup x ((y, z):ys) = if x == y then Just z else mylookup x ys
+
+mynull :: [a] -> Bool
+mynull [] = True
+mynull _ = False
+
+nand :: Bool -> Bool -> Bool
+nand True True = False
+nand _ _ = True

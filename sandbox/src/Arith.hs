@@ -2,7 +2,7 @@
 
 module Arith where
 
-formel x y z = x && y || z
+{-formel x y z = x && y || z
 --TODO: schaltkreis beispiel zur analyse
 -- TODO: fulladder
 
@@ -34,3 +34,9 @@ isAckRes n m r = ackG n m == r -- take 10 $ $(inv 'isAckRes) True -- 16s
 cantor :: (Ord a, Num a, Integral a) => a -> a -> a
 cantor x y | x >= 0 && y >= 0 = ((x + y) * (x + y + 1) `div` 2) + y -- $(inv 'cantor) 14
 -- ^ 1 res immediately, but takes a loooooooooong time to terminate
+-}
+mynub :: (Eq a) => [a] -> [a]
+mynub [] = []
+mynub (x:xs) = x : mynub (filter (\y -> x /= y) xs)
+
+f x y z z2 | all (<= 9) [x,y,z,z2] && all (> 0) [x,y,z,z2] && mynub [x,y,z,z2] == [x,y,z,z2] = (x*y)-z-z2

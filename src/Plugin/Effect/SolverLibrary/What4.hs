@@ -245,6 +245,24 @@ data What4Constraint where
   DoubleLtConstraint, DoubleLeqConstraint, DoubleGtConstraint, DoubleGeqConstraint :: FLVal (DoubleFL FL) -> FLVal (DoubleFL FL) -> What4Constraint
   DoubleMaxConstraint, DoubleMinConstraint :: FLVal (DoubleFL FL) -> FLVal (DoubleFL FL) -> FLVal (DoubleFL FL) -> What4Constraint
 
+{-
+/home/fte/Projects/University/dissertation/inversion-plugin/src/Plugin/Effect/SolverLibrary/What4.hs:249:1: warning: [-Wincomplete-patterns]
+inversion-plugin>     Pattern match(es) are non-exhaustive
+inversion-plugin>     In an equation for ‘toPred’:
+inversion-plugin>         Patterns of type ‘sym’, ‘IORef (IntMap Untyped)’,
+inversion-plugin>                          ‘IORef [Pred sym]’, ‘Constraint’ not matched:
+inversion-plugin>             _ (GHC.IORef.IORef (GHC.STRef.STRef _))
+inversion-plugin>             (GHC.IORef.IORef (GHC.STRef.STRef _)) (IntQuotConstraint _ _ _)
+inversion-plugin>             _ (GHC.IORef.IORef (GHC.STRef.STRef _))
+inversion-plugin>             (GHC.IORef.IORef (GHC.STRef.STRef _)) (IntModConstraint _ _ _)
+inversion-plugin>             _ (GHC.IORef.IORef (GHC.STRef.STRef _))
+inversion-plugin>             (GHC.IORef.IORef (GHC.STRef.STRef _)) (IntegerQuotConstraint _ _ _)
+inversion-plugin>             _ (GHC.IORef.IORef (GHC.STRef.STRef _))
+inversion-plugin>             (GHC.IORef.IORef (GHC.STRef.STRef _)) (IntegerRemConstraint _ _ _)
+inversion-plugin>     |
+inversion-plugin> 249 | toPred sym ref ref2 (EqConstraint x y) = do
+inversion-plugin>     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^...
+-}
 toPred :: IsSymExprBuilder sym => sym -> IORef (IntMap Untyped) -> IORef [Pred sym] -> Constraint -> IO (Pred sym)
 toPred sym ref ref2 (EqConstraint x y) = do
   symX <- toSym sym ref ref2 x

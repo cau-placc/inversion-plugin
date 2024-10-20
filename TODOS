@@ -1,0 +1,78 @@
+TODOS
+
+" -> enquote
+
+Lifted m -> Transform ohne m
+
+* Typklassen auch in den Index aufnehmen
+
+TEST suite schreiben
+
+
+cite \cite{Reddy1985NarrowingOperationalSemantics} einbauen (war vorher bei bind operation)
+
+https://github.com/dcgauld/starwars/blob/master/lib/starwars.js
+
+'Sometimes there are things no one can fix.'
+
+ 'You cannot hide forever.'
+
+   'Would it help if I got out and pushed?'
+
+
+   'Don\'t be too proud of this technological terror you\'ve constructed.'
+
+     'You still have much to learn, my young padawan.'
+
+      'It\'s against my programming to impersonate a deity.'
+
+       'Use the Force, Luke.'
+
+       'No more training do you require. Already know you that which you need.',
+
+       'A Long Time Ago In A Galaxy Far Far Away...',
+
+        'Don\'t make me destroy you.'
+
+         'I\'ve got a very bad feeling about this.',
+
+          'It\'s a trap!'
+
+          Sometimes we must do what is requested of us.'
+
+          'Everything is proceeding as I have foreseen.'
+
+          'Patience, my blue friend.',
+
+          Always in motion is the future.
+
+          'I find your lack of faith disturbing.'
+
+           'Pass on what you have learned.'
+
+           'Use my knowledge, I beg you.'
+
+           'Keep your concentration here and now, where it belongs.'
+
+             'Oh my goodness, shut me down! Machines making machines. How perverse.',
+
+             'Don\'t get technical with me
+
+             'I\'m altering the deal. Pray I don\'t alter it any further.'
+
+              'You know better than to trust a strange computer.',
+
+              'You must unlearn what you have learned.',
+
+              'Clear your mind of questions.'
+
+'Rejoice for those around you who transform into the Force.',
+
+'Only a sith deals in absolutes.'
+
+'Anything is possible.'
+
+'This station is now the ultimate power in the universe! I suggest we use it.',
+
+
+\dissepigraph{If one is to understand the great mystery, one must study all its aspects.}{Supreme Chancellor Sheev Palpatine\\Star Wars: Episode III -- Revenge of the Sith}

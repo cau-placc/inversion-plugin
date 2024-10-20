@@ -61,8 +61,8 @@ genPartialInv gnf name fixedArgIndices = do
   let validFixedArgIndices = [0 .. originalArity - 1]
   when (any (`notElem` validFixedArgIndices) fixedArgIndices) $ fail $
     "Invalid argument index sequence for partial inverse provided (has to be a subsequence of " ++ show validFixedArgIndices ++ ")"
-  when (length (nub fixedArgIndices) == originalArity) $ fail $
-    "Invalid argument index sequence for partial inverse provided (must not contain all indices)"
+  --when (length (nub fixedArgIndices) == originalArity) $ fail $
+  --  "Invalid argument index sequence for partial inverse provided (must not contain all indices)"
   let nubbedFixedArgIndices = nub fixedArgIndices
       nonFixedArgIndices = filter (`notElem` fixedArgIndices) validFixedArgIndices
   fixedArgNames <- replicateM (length nubbedFixedArgIndices) (newName "fixedArg")

@@ -71,7 +71,7 @@ data SoloFL (m :: Type -> Type) a = SoloFL (m a)
 type instance Lifted m Solo = SoloFL m
 type instance Lifted m (Solo a) = SoloFL m (Lifted m a)
 
-instance HasPrimitiveInfo a => HasPrimitiveInfo (SoloFL FL a) where
+instance Instantiatable (SoloFL FL a) => HasPrimitiveInfo (SoloFL FL a) where
   primitiveInfo = NoPrimitive
 
 instance HasPrimitiveInfo a => Instantiatable (SoloFL FL a) where
@@ -98,15 +98,13 @@ instance ShowFree a => ShowFree (Solo a) where
   showsFreePrec' d (Solo x) = P.showParen (d P.> 10) $
     P.showString "Solo " P.. showsFreePrec 11 x
 
-instance Invertible a => Invertible (Solo a)
-
 data Tuple2FL (m :: Type -> Type) a b = Tuple2FL (m a) (m b)
 
 type instance Lifted m (,) = Tuple2FL m
 type instance Lifted m ((,) a) = Tuple2FL m (Lifted m a)
 type instance Lifted m (a, b) = Tuple2FL m (Lifted m a) (Lifted m b)
 
-instance (HasPrimitiveInfo a, HasPrimitiveInfo b) => HasPrimitiveInfo (Tuple2FL FL a b) where
+instance Instantiatable (Tuple2FL FL a b) => HasPrimitiveInfo (Tuple2FL FL a b) where
   primitiveInfo = NoPrimitive
 
 instance (HasPrimitiveInfo a, HasPrimitiveInfo b) => Instantiatable (Tuple2FL FL a b) where
@@ -133,8 +131,6 @@ instance (NormalForm a, NormalForm b) => NormalForm (Tuple2FL FL a b) where
 instance (ShowFree a, ShowFree b) => ShowFree (a, b) where
   showsFreePrec' _ (x1, x2) = P.showString "(" P.. showsFree x1 P.. P.showString "," P.. showsFree x2 P.. P.showString ")"
 
-instance (Invertible a, Invertible b) => Invertible (a, b)
-
 P.concat P.<$> P.mapM genLiftedTupleDataDeclAndInstances [3 .. maxTupleArity]
 
 -- * Lifted list type and internal instances
@@ -146,7 +142,7 @@ type StringFL m = ListFL m (CharFL m)
 type instance Lifted m [] = ListFL m
 type instance Lifted m [a] = ListFL m (Lifted m a)
 
-instance (HasPrimitiveInfo a, HasPrimitiveInfo (ListFL FL a)) => HasPrimitiveInfo (ListFL FL a) where
+instance Instantiatable (ListFL FL a) => HasPrimitiveInfo (ListFL FL a) where
   primitiveInfo = NoPrimitive
 
 instance (HasPrimitiveInfo a, HasPrimitiveInfo (ListFL FL a)) => Instantiatable (ListFL FL a) where
@@ -185,8 +181,6 @@ instance (ShowFree a, ShowFree [a]) => ShowFree [a] where
     P.showString " : " P..
     showsFreePrec 6 xs
 
-instance Invertible a => Invertible [a]
-
 instance FunctorFL (MaybeFL FL) where
   fmapFL = returnFLF $ \f -> returnFLF $ \x -> x P.>>= \case
     NothingFL -> P.return NothingFL
@@ -212,7 +206,7 @@ data MaybeFL (m :: Type -> Type) a = NothingFL | JustFL (m a)
 type instance Lifted m P.Maybe = MaybeFL m
 type instance Lifted m (P.Maybe a) = MaybeFL m (Lifted m a)
 
-instance HasPrimitiveInfo a => HasPrimitiveInfo (MaybeFL FL a) where
+instance Instantiatable (MaybeFL FL a) => HasPrimitiveInfo (MaybeFL FL a) where
   primitiveInfo = NoPrimitive
 
 instance HasPrimitiveInfo a => Instantiatable (MaybeFL FL a) where
@@ -248,14 +242,12 @@ instance ShowFree a => ShowFree (P.Maybe a) where
   showsFreePrec' d (P.Just x) = P.showParen (d P.> 10) $
     P.showString "Just " P.. showsFreePrec 11 x
 
-instance Invertible a => Invertible (P.Maybe a)
-
 data RatioFL m a = m a :%# m a
 
 type instance Lifted m P.Ratio = RatioFL m
 type instance Lifted m (P.Ratio a) = RatioFL m (Lifted m a)
 
-instance HasPrimitiveInfo a => HasPrimitiveInfo (RatioFL FL a) where
+instance Instantiatable (RatioFL FL a) => HasPrimitiveInfo (RatioFL FL a) where
   primitiveInfo = NoPrimitive
 
 instance HasPrimitiveInfo a => Instantiatable (RatioFL FL a) where
@@ -282,8 +274,6 @@ instance NormalForm a => NormalForm (RatioFL FL a) where
 instance ShowFree a => ShowFree (P.Ratio a) where
   showsFreePrec' d (x P.:% y) = P.showParen (d P.> 7) $
     showsFreePrec 8 x P.. P.showString " % " P.. showsFreePrec 8 y
-
-instance Invertible a => Invertible (P.Ratio a)
 
 type RationalFL m = RatioFL m (IntegerFL m)
 
@@ -762,8 +752,6 @@ instance ShowFree Bool where
   showFree' False = "False"
   showFree' True  = "True"
 
-instance Invertible Bool
-
 data UnitFL (m :: Type -> Type) = UnitFL
 
 type instance Lifted m () = UnitFL m
@@ -790,8 +778,6 @@ instance NormalForm (UnitFL FL) where
 
 instance ShowFree () where
   showFree' () = "()"
-
-instance Invertible ()
 
 data OrderingFL (m :: Type -> Type) = LTFL | EQFL | GTFL
 
@@ -834,9 +820,7 @@ instance ShowFree Ordering where
   showFree' EQ = "EQ"
   showFree' GT = "GT"
 
-instance Invertible Ordering
-
-instance HasPrimitiveInfo (IntegerFL FL) where
+instance Constrainable (IntegerFL FL) => HasPrimitiveInfo (IntegerFL FL) where
   primitiveInfo = Primitive
 
 instance To Integer where
@@ -855,9 +839,7 @@ instance NormalForm (IntegerFL FL) where
 instance ShowFree Integer where
   showFree' = P.show
 
-instance Invertible Integer
-
-instance HasPrimitiveInfo (IntFL FL) where
+instance Constrainable (IntFL FL) => HasPrimitiveInfo (IntFL FL) where
   primitiveInfo = Primitive
 
 instance To Int where
@@ -876,9 +858,7 @@ instance NormalForm (IntFL FL) where
 instance ShowFree Int where
   showFree' = P.show
 
-instance Invertible Int
-
-instance HasPrimitiveInfo (FloatFL FL) where
+instance Constrainable (FloatFL FL) => HasPrimitiveInfo (FloatFL FL) where
   primitiveInfo = Primitive
 
 instance To Float where
@@ -897,9 +877,7 @@ instance NormalForm (FloatFL FL) where
 instance ShowFree Float where
   showFree' = P.show
 
-instance Invertible Float
-
-instance HasPrimitiveInfo (DoubleFL FL) where
+instance Constrainable (DoubleFL FL) => HasPrimitiveInfo (DoubleFL FL) where
   primitiveInfo = Primitive
 
 instance To Double where
@@ -918,9 +896,7 @@ instance NormalForm (DoubleFL FL) where
 instance ShowFree Double where
   showFree' = P.show
 
-instance Invertible Double
-
-instance HasPrimitiveInfo (CharFL FL) where
+instance Constrainable (CharFL FL) => HasPrimitiveInfo (CharFL FL) where
   primitiveInfo = Primitive
 
 instance To P.Char where
@@ -938,8 +914,6 @@ instance NormalForm (CharFL FL) where
 
 instance ShowFree P.Char where
   showFree' = P.show
-
-instance Invertible P.Char
 
 -- | Lifted ShowS type
 type ShowSFL m = (-->) m (StringFL m) (StringFL m)
@@ -1030,7 +1004,7 @@ instance ShowFL (DoubleFL FL) where
 
 instance ShowFL (CharFL FL) where
   showFL = liftFL1Convert P.show
-  showListFL = returnFLF $ \x -> groundNormalFormFL x P.>>= \v -> toFL (P.showList (from v))
+  showListFL = returnFLF $ \x -> groundNormalFormFL x P.>>= \v -> toFL (P.showList (from v)) --TODO: Check
 
 instance ShowFL a => ShowFL (ListFL FL a) where
   showFL = returnFLF $ \xs -> apply2FL showListFL xs (P.return NilFL)

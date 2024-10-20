@@ -250,7 +250,7 @@ genInstances originalDataDec liftedDataDec = do
       genHasPrimitiveInfo = do
         let body = NormalB $ ConE 'NoPrimitive
             dec = FunD 'primitiveInfo [Clause [] body []]
-            ctxt = map mkHasPrimitiveInfoConstraint liftedConArgs
+            ctxt = [mkInstantiatableConstraint liftedTy]
         return $ InstanceD Nothing ctxt (mkHasPrimitiveInfoConstraint liftedTy) [dec]
 
       genInstantiatable = do
@@ -352,18 +352,8 @@ genInstances originalDataDec liftedDataDec = do
         let ctxt = map mkShowFreeConstraint originalConArgs
         return $ InstanceD Nothing ctxt (mkShowFreeConstraint originalTy) [dec]
 
-      genInvertible = do
-        let ctxt = [ mkToConstraint originalTy
-                   , mkFromConstraint originalTy
-                   , mkUnifiableConstraint (mkLifted (ConT ''FL) originalTy)
-                   , mkNormalFormConstraint (mkLifted (ConT ''FL) originalTy)
-                   , mkHasPrimitiveInfoConstraint (mkLifted (ConT ''FL) originalTy)
-                   , mkShowFreeConstraint originalTy
-                   ] ++ map mkInvertibleConstraint originalConArgs
-        return $ InstanceD Nothing ctxt (mkInvertibleConstraint originalTy) [] :: Q Dec
-
   (++) <$> genLifted originalTc liftedTc liftedTyVars mTy
-       <*> sequence [genHasPrimitiveInfo, genInstantiatable, genTo, genFrom, genUnifiable, genNormalForm, genShowFree, genInvertible]
+       <*> sequence [genHasPrimitiveInfo, genInstantiatable, genTo, genFrom, genUnifiable, genNormalForm, genShowFree]
 
 replaceMTyVar :: Name -> Type -> Type -> Type
 replaceMTyVar tvar replacement = go
@@ -402,6 +392,3 @@ mkShowFreeConstraint ty = applyType (ConT ''ShowFree) [ty]
 
 mkNormalFormConstraint :: Type -> Type
 mkNormalFormConstraint ty = applyType (ConT ''NormalForm) [ty]
-
-mkInvertibleConstraint :: Type -> Type
-mkInvertibleConstraint ty = applyType (ConT ''Invertible) [ty]
