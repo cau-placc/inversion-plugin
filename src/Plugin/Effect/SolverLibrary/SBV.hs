@@ -40,6 +40,7 @@ runSBVSolver = runSMTWith z3
 instance SolverLibrary where
   type Constraint = SBool
 
+  {-# NOINLINE checkConsistency #-}
   checkConsistency cs = unsafePerformIO $ runSBVSolver $
     query $ checkSatAssuming cs >>= \case
       Sat -> return True

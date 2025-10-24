@@ -19,14 +19,19 @@ source-repository head
   type:     git
   location: https://github.com/cau-placc/inversion-plugin
 
+flag gen-solo {
+  Description: Generate Solo tuples
+  Default:     False
+  Manual:      True
+}
 flag use-sbv {
   Description: Use SBV
-  Default:     False
+  Default:     True
   Manual:      True
 }
 flag use-what4 {
   Description: Use What4
-  Default:     True
+  Default:     False
   Manual:      True
 }
 
@@ -100,6 +105,8 @@ common deps
     bv-sized            -any,
     OneTuple            -any
   ghc-options: -Wall -Wincomplete-uni-patterns
+  if flag(gen-solo)
+    cpp-options: -DGEN_SOLO
   if flag(use-sbv)
     cpp-options: -DUSE_SBV -UUSE_WHAT4
   if flag(use-what4)

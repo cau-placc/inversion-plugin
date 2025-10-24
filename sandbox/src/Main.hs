@@ -1,12 +1,15 @@
-{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleContexts, ViewPatterns #-}
 module Main where
 
 import Plugin.InversionPlugin
 
-import P
+--import Test
+--import List
 
 --import Janus
-import Robert
+--import Robert
+
+--f $(funPat 'unusedUnitArg [[p| x |]]) = x
 
 main = return ()
   --print $ lastTH (replicate 1600 True ++ [False])
@@ -49,7 +52,7 @@ permutationsMP :: (Ord a, Transform (Ord a), Argument a, Result a) => [a] -> [[a
 permutationsMP xs = let n = lengthP xs in $(partialInv 'mergeSortP [0]) n (mergeSortP n xs)
 -}
 
-permutationsQ :: (Ord a, Transform (Ord a), Argument a, Result a) => [a] -> [[a]]
+{-permutationsQ :: (Ord a, Transform (Ord a), Argument a, Result a) => [a] -> [[a]]
 permutationsQ xs = $(inv 'quickSort) (quickSort xs)
 
 permutationsQP :: (Ord a, Transform (Ord a), Argument a, Result a) => [a] -> [[a]]
@@ -62,7 +65,7 @@ permutationsQ2 :: (Ord a, Transform (Ord a), Argument a, Result a) => [a] -> [[a
 permutationsQ2 xs = $(inv 'quickSort2) (quickSort2 xs)
 
 permutationsQ2P :: (Ord a, Transform (Ord a), Argument a, Result a) => [a] -> [[a]]
-permutationsQ2P xs = let n = lengthP xs in $(partialInv 'quickSort2P [0]) n (quickSort2P n xs)
+permutationsQ2P xs = let n = lengthP xs in $(partialInv 'quickSort2P [0]) n (quickSort2P n xs)-}
 
 {-fibiterInv :: Int -> [Int]
 fibiterInv x = $(inv 'fibiter) x

@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -fplugin Plugin.InversionPlugin -fforce-recomp #-}
+{-# OPTIONS_GHC -fplugin Plugin.InversionPlugin #-}
 
 module P where
 

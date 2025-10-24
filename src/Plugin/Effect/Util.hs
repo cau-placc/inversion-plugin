@@ -23,11 +23,11 @@ liftFL2 f = returnFLF $ \a -> returnFLF $ \b ->
 --TODO: only use for primitives
 liftFL1Convert :: (From a, To b) => (a -> b) -> FL (Lifted FL (a -> b))
 liftFL1Convert f = returnFLF $ \a ->
-    a >>= \a' -> return $ to (f (unsafeFrom a'))
+    a >>= \a' -> return $ to (f (from a'))
 
 liftFL2Convert :: (From a, From b, To c) => (a -> b -> c) -> FL (Lifted FL (a -> b -> c))
 liftFL2Convert f = returnFLF $ \a -> returnFLF $ \b ->
-    a >>= \a' -> b >>= \b' -> return $ to (f (unsafeFrom a') (unsafeFrom b'))
+    a >>= \a' -> b >>= \b' -> return $ to (f (from a') (from b'))
 
 assertConstraintND :: Constraint -> [ID] -> ND FLState ()
 assertConstraintND c ids = get >>= \FLState { .. } -> put (FLState { constraintStore = insertConstraint c ids constraintStore, .. })
@@ -40,6 +40,3 @@ apply2FL f a b = f `appFL` a `appFL` b
 
 apply3FL :: FL ((-->) FL a ((-->) FL b ((-->) FL c d))) -> FL a -> FL b -> FL c -> FL d
 apply3FL f a b c = f `appFL` a `appFL` b `appFL` c
-
-unsafeFrom :: From a => Lifted FL a -> a
-unsafeFrom = from

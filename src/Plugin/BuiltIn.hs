@@ -23,6 +23,7 @@
 {-# OPTIONS_GHC -Wno-orphans              #-}
 {-# OPTIONS_GHC -Wno-unused-foralls       #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+--{-# OPTIONS_GHC -fdefer-type-errors       #-}
 
 {-# HLINT ignore "Use newtype instead of data" #-}
 {-# HLINT ignore "Use >=>" #-}
@@ -31,7 +32,7 @@
 -- |
 -- Module      : Plugin.InversionPlugin.BuiltIn
 -- Description : Built-in functions, types and type classes
--- Copyright   : (c) 2020-2023 Finn Teegen, Kai-Oliver Prott
+-- Copyright   : (c) 2020-2025 Finn Teegen, Kai-Oliver Prott
 -- License     : BSD-3 Clause
 -- Maintainer  : fte@informatik.uni-kiel.de
 --
@@ -82,7 +83,7 @@ instance To a => To (Solo a) where
   toWith tf (Solo x) = SoloFL (tf x)
 
 instance From a => From (Solo a) where
-  from (SoloFL x) = Solo (fromFL x)
+  fromWith ff (SoloFL x) = Solo (ff x)
 
 instance Unifiable a => Unifiable (SoloFL FL a) where
   unify (SoloFL x) (SoloFL y) = unifyFL x y
@@ -115,7 +116,7 @@ instance (To a, To b) => To (a, b) where
   toWith tf (x1, x2) = Tuple2FL (tf x1) (tf x2)
 
 instance (From a, From b) => From (a, b) where
-  from (Tuple2FL x1 x2) = (fromFL x1, fromFL x2)
+  fromWith ff (Tuple2FL x1 x2) = (ff x1, ff x2)
 
 instance (Unifiable a, Unifiable b) => Unifiable (Tuple2FL FL a b) where
   unify (Tuple2FL x1 x2) (Tuple2FL y1 y2) = unifyFL x1 y1 P.>> unifyFL x2 y2
@@ -155,8 +156,8 @@ instance (To a, To [a]) => To [a] where
   toWith tf (x : xs) = ConsFL (tf x) (tf xs)
 
 instance (From a, From [a]) => From [a] where
-  from NilFL = []
-  from (ConsFL x xs) = fromFL x : fromFL xs
+  fromWith _  NilFL = []
+  fromWith ff (ConsFL x xs) = ff x : ff xs
 
 instance (Unifiable a, Unifiable (ListFL FL a)) => Unifiable (ListFL FL a) where
   unify NilFL NilFL = P.return ()
@@ -219,8 +220,8 @@ instance To a => To (P.Maybe a) where
   toWith tf (P.Just x) = JustFL (tf x)
 
 instance From a => From (P.Maybe a) where
-  from NothingFL = P.Nothing
-  from (JustFL x) = P.Just (fromFL x)
+  fromWith _  NothingFL = P.Nothing
+  fromWith ff (JustFL x) = P.Just (ff x)
 
 instance Unifiable a => Unifiable (MaybeFL FL a) where
   unify NothingFL NothingFL = P.return ()
@@ -258,7 +259,7 @@ instance To a => To (P.Ratio a) where
   toWith tf (a P.:% b) = tf a :%# tf b
 
 instance From a => From (P.Ratio a) where
-  from (a :%# b) = fromFL a P.:% fromFL b
+  fromWith ff (a :%# b) = ff a P.:% ff b
 
 instance Unifiable a => Unifiable (RatioFL FL a) where
   unify (a :%# b) (x :%# y) = unifyFL a x P.>> unifyFL b y
@@ -735,8 +736,8 @@ instance To Bool where
   toWith _ True = TrueFL
 
 instance From Bool where
-  from FalseFL = False
-  from TrueFL  = True
+  fromWith _ FalseFL = False
+  fromWith _ TrueFL  = True
 
 instance Unifiable (BoolFL FL) where
   unify = nonStrictUnify
@@ -767,7 +768,7 @@ instance To () where
   toWith _ () = UnitFL
 
 instance From () where
-  from UnitFL = ()
+  fromWith _ UnitFL = ()
 
 instance Unifiable (UnitFL FL) where
   unify = nonStrictUnify
@@ -798,7 +799,7 @@ instance To Ordering where
   toWith _ GT = GTFL
 
 instance From Ordering where
-  from = \case
+  fromWith _ = \case
     LTFL -> LT
     EQFL -> EQ
     GTFL -> GT
@@ -827,7 +828,7 @@ instance To Integer where
   toWith _ = IntegerFL
 
 instance From Integer where
-  from (IntegerFL x) = x
+  fromWith _ (IntegerFL x) = x
 
 instance Unifiable (IntegerFL FL) where
   unify = nonStrictUnify
@@ -846,7 +847,7 @@ instance To Int where
   toWith _ = P.coerce
 
 instance From Int where
-  from = P.coerce
+  fromWith _ = P.coerce
 
 instance Unifiable (IntFL FL) where
   unify = nonStrictUnify
@@ -865,7 +866,7 @@ instance To Float where
   toWith _ = P.coerce
 
 instance From Float where
-  from = P.coerce
+  fromWith _ = P.coerce
 
 instance Unifiable (FloatFL FL) where
   unify = nonStrictUnify
@@ -884,7 +885,7 @@ instance To Double where
   toWith _ = P.coerce
 
 instance From Double where
-  from = P.coerce
+  fromWith _ = P.coerce
 
 instance Unifiable (DoubleFL FL) where
   unify = nonStrictUnify
@@ -903,7 +904,7 @@ instance To P.Char where
   toWith _ = P.coerce
 
 instance From P.Char where
-  from = P.coerce
+  fromWith _ = P.coerce
 
 instance Unifiable (CharFL FL) where
   unify = nonStrictUnify
@@ -952,10 +953,10 @@ shows :: P.Show a => a -> P.ShowS
 shows = P.showsPrec 0
 
 showsFL :: ShowFL a => FL (a :--> ShowSFL FL)
-showsFL = showsPrecFL `appFL` toFL 0
+showsFL = showsPrecFL `appFL` P.return (IntFL 0)
 
 showsFLNoShare :: ShowFL a => FL (a :--> ShowSFL FL)
-showsFLNoShare = showsPrecFL `appFL` toFL 0
+showsFLNoShare = showsPrecFL `appFL` P.return (IntFL 0)
 
 showString :: P.String -> P.ShowS
 showString = (P.++)
@@ -1195,7 +1196,7 @@ class NumFL a where
     (+#) `appFL` a `appFL` (negateFL `appFL` b)
   (*#) :: FL (a :--> a :--> a)
   negateFL :: FL (a :--> a)
-  negateFL = returnFLF $ \a -> (-#) `appFL` (fromIntegerFL `appFL` toFL 0) `appFL` a
+  negateFL = returnFLF $ \a -> (-#) `appFL` (fromIntegerFL `appFL` (P.return (IntegerFL 0))) `appFL` a
   absFL    :: FL (a :--> a)
   signumFL :: FL (a :--> a)
   fromIntegerFL :: FL (IntegerFL FL :--> a)
@@ -1247,7 +1248,7 @@ class NumFL a => FractionalFL a where
   (/#) = returnFLF $ \x -> returnFLF $ \y -> apply2FL (*#) x  (recipFL `appFL` y)
 
   recipFL :: FL (a :--> a)
-  recipFL = returnFLF $ \x -> apply2FL (/#) (fromIntegerFL `appFL` toFL 1) x
+  recipFL = returnFLF $ \x -> apply2FL (/#) (fromIntegerFL `appFL` P.return (IntegerFL 1)) x
 
   fromRationalFL :: FL (RationalFL FL :--> a)
 
@@ -1304,7 +1305,7 @@ class (RealFL a, EnumFL a) => IntegralFL a where
                                                                (negateFL `appFL` (signumFL `appFL` d))
        P.>>= \case
          TrueFL -> P.return (Tuple2FL (apply2FL (-#) q
-                                 (fromIntegerFL `appFL` toFL 1))
+                                 (fromIntegerFL `appFL` (P.return (IntegerFL 1))))
                                  (apply2FL (+#) r d))
          FalseFL -> qr
 
@@ -1436,10 +1437,10 @@ type instance Lifted FL (P.Enum f) = EnumFL (Lifted FL f)
 class EnumFL a where
   succFL :: FL (a :--> a)
   succFL = returnFLF $ \a ->
-    toEnumFL `appFL` apply2FL (+#) (toFL 1) (fromEnumFL `appFL` a)
+    toEnumFL `appFL` apply2FL (+#) (P.return (IntFL 1)) (fromEnumFL `appFL` a)
   predFL :: FL (a :--> a)
   predFL = returnFLF $ \a ->
-    toEnumFL `appFL` apply2FL (-#) (toFL 1) (fromEnumFL `appFL` a)
+    toEnumFL `appFL` apply2FL (-#) (P.return (IntFL 1)) (fromEnumFL `appFL` a)
 
   toEnumFL   :: FL (IntFL FL :--> a)
   fromEnumFL :: FL (a :--> IntFL FL)
@@ -1465,31 +1466,31 @@ class EnumFL a where
       (fromEnumFL `appFL` x1) (fromEnumFL `appFL` x2) (fromEnumFL `appFL` x3))
 
 instance EnumFL (IntFL FL) where
-  succFL = (+#) `appFL` toFL 1
-  predFL = (-#) `appFL` toFL 1
+  succFL = (+#) `appFL` P.return (IntFL 1)
+  predFL = (-#) `appFL` P.return (IntFL 1)
 
   toEnumFL   = returnFLF P.id
   fromEnumFL = returnFLF P.id
 
   enumFromFL = returnFLF $ \x1 ->
     x1 P.>>= \(IntFL v1) ->
-    toFL (P.map P.fromIntegral (P.enumFrom v1))
+    toFL (P.enumFrom v1)
 
   enumFromThenFL = returnFLF $ \x1 -> returnFLF $ \x2 ->
     x1 P.>>= \(IntFL v1) -> x2 P.>>= \(IntFL v2) ->
-    toFL (P.map P.fromIntegral (P.enumFromThen v1 v2))
+    toFL (P.enumFromThen v1 v2)
 
   enumFromToFL = returnFLF $ \x1 -> returnFLF $ \x3 ->
     x1 P.>>= \(IntFL v1) -> x3 P.>>= \(IntFL v3) ->
-    toFL (P.map P.fromIntegral (P.enumFromTo v1 v3))
+    toFL (P.enumFromTo v1 v3)
 
   enumFromThenToFL = returnFLF $ \x1 -> returnFLF $ \x2 -> returnFLF $ \x3 ->
     x1 P.>>= \(IntFL v1) -> x2 P.>>= \(IntFL v2) -> x3 P.>>= \(IntFL v3) ->
-    toFL (P.map P.fromIntegral (P.enumFromThenTo v1 v2 v3))
+    toFL (P.enumFromThenTo v1 v2 v3)
 
 instance EnumFL (IntegerFL FL) where
-  succFL = (+#) `appFL` toFL 1
-  predFL = (-#) `appFL` toFL 1
+  succFL = (+#) `appFL` P.return (IntegerFL 1)
+  predFL = (-#) `appFL` P.return (IntegerFL 1)
 
   toEnumFL   = toIntegerFL
   fromEnumFL = fromIntegerFL
@@ -1520,8 +1521,8 @@ class BoundedFL a where
   maxBoundFL :: FL a
 
 instance BoundedFL (IntFL FL) where
-  minBoundFL = toFL P.minBound
-  maxBoundFL = toFL P.maxBound
+  minBoundFL = P.return (IntFL P.minBound)
+  maxBoundFL = P.return (IntFL P.maxBound)
 
 type instance Lifted FL P.IsString = IsStringFL
 type instance Lifted FL (P.IsString f) = IsStringFL (Lifted FL f)

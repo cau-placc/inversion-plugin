@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP               #-}
 {-# LANGUAGE TemplateHaskell   #-}
 {-# LANGUAGE TupleSections     #-}
 {-# LANGUAGE LambdaCase        #-}
@@ -7,7 +8,9 @@ module Plugin.Effect.TH where
 import Control.Applicative
 import Control.Monad
 
---import Data.Tuple.Solo
+#ifdef GEN_SOLO
+import Data.Tuple.Solo
+#endif
 
 import GHC.Data.FastString
 import GHC (mkModuleName)
@@ -31,8 +34,10 @@ lookupBuiltin ":"  = Just "ConsFL"
 lookupBuiltin "()" = Just "UnitFL"
 lookupBuiltin s | Just n <- tupleConArity s = Just $ "Tuple" ++ show n ++ "FL"
                 | otherwise                 = Nothing
-  where tupleConArity ('(':rest) = Just $ succ $ length $ takeWhile (== ',') rest
-        tupleConArity _          = Nothing
+
+tupleConArity :: String -> Maybe Int
+tupleConArity ('(':rest) = Just $ succ $ length $ takeWhile (== ',') rest
+tupleConArity _          = Nothing
 
 liftTHName :: Name -> Name
 liftTHName (Name (OccName str) flav) = Name withSuffix flav'
@@ -63,14 +68,26 @@ liftTHNameQ name = do
 var :: Integer -> a --TODO: Use Int
 var _ = error "var is undefined outside of input and output classes"
 
-getFunArity :: Name -> Q Int
-getFunArity name = do
+getFunType :: Name -> Q Type
+getFunType name = do
   info <- reify name
   (_, _, ty) <- decomposeForallT <$> case info of
     VarI _ ty' _     -> return ty'
     ClassOpI _ ty' _ -> return ty'
     _                -> fail $ show name ++ " is no function or class method"
-  return $ arrowArity ty
+  return ty
+
+getFunContext :: Name -> Q Cxt
+getFunContext name = do
+  info <- reify name
+  (_, ctxt, _) <- decomposeForallT <$> case info of
+    VarI _ ty _     -> return ty
+    ClassOpI _ ty _ -> return ty
+    _                -> fail $ show name ++ " is no function or class method"
+  return ctxt
+
+getFunArity :: Name -> Q Int
+getFunArity name = arrowArity <$> getFunType name
 
 getConArity :: Name -> Q Int
 getConArity name = do
@@ -88,7 +105,9 @@ thisPkgName = case 'toFL of
 
 --TODO: lift to q and throw error when length of list is > maxTupleArity
 mkLiftedTupleE :: [Exp] -> Exp
+#ifndef GEN_SOLO
 mkLiftedTupleE [x] = x
+#endif
 mkLiftedTupleE xs = AppE (VarE 'return) (applyExp liftedTupleConE xs)
   where
     -- TODO does this really work?
@@ -127,15 +146,27 @@ genLiftedApply :: Exp -> [Exp] -> ExpQ
 genLiftedApply = foldM (\f arg -> newName "v" >>= \vName -> return $ applyExp (VarE '(>>=)) [f, LamE [ConP 'Func [] [VarP vName]] $ AppE (VarE vName) arg])
 
 mkTupleE :: [Exp] -> Exp
-mkTupleE [e] = e --AppE (ConE 'Solo) e
+#ifdef GEN_SOLO
+mkTupleE [e] = AppE (ConE 'Solo) e
+#else
+mkTupleE [e] = e
+#endif
 mkTupleE es  = TupE $ map Just es
 
 mkTupleT :: [Type] -> Type
-mkTupleT [ty] = ty --AppT (ConT ''Solo) ty
+#ifdef GEN_SOLO
+mkTupleT [ty] = AppT (ConT ''Solo) ty
+#else
+mkTupleT [ty] = ty
+#endif
 mkTupleT tys  = applyType (TupleT (length tys)) tys
 
 mkTupleP :: [Pat] -> Pat
-mkTupleP [p] = p -- ConP 'Solo [] [p]
+#ifdef GEN_SOLO
+mkTupleP [p] = ConP 'Solo [] [p]
+#else
+mkTupleP [p] = p
+#endif
 mkTupleP ps' = TupP ps'
 
 mkArrowT :: Type -> Type -> Type
@@ -143,6 +174,10 @@ mkArrowT ty1 ty2 = applyType ArrowT [ty1, ty2]
 
 applyType :: Type -> [Type] -> Type
 applyType = foldl AppT
+
+unapplyType :: Type -> (Type, [Type])
+unapplyType (AppT ty1 ty2) = let (ty, tys) = unapplyType ty1 in (ty, tys ++ [ty2])
+unapplyType ty             = (ty, [])
 
 arrowUnapply :: Type -> ([Type], Type)
 arrowUnapply (AppT (AppT ArrowT ty1) ty2) = (ty1 : tys, ty)
@@ -285,14 +320,15 @@ genInstances originalDataDec liftedDataDec = do
 
       genFrom = do
         let genFrom' = do
+              ff <- newName "ff"
               let genMatch liftedConInfo originalConInfo = do
                     argNames <- replicateM (conArity liftedConInfo) (newName "x")
                     let pat = ConP (conName liftedConInfo) [] $ map VarP argNames
-                        body = NormalB $ applyExp (ConE $ conName originalConInfo) $ map (AppE (VarE 'fromFL) . VarE) argNames
+                        body = NormalB $ applyExp (ConE $ conName originalConInfo) $ map (AppE (VarE ff) . VarE) argNames
                     return $ Match pat body []
               arg <- newName "arg"
               matches <- zipWithM genMatch liftedConInfos originalConInfos
-              return $ FunD 'from [Clause [VarP arg] (NormalB (CaseE (VarE arg) matches)) []]
+              return $ FunD 'fromWith [Clause [VarP ff, VarP arg] (NormalB (CaseE (VarE arg) matches)) []]
         let ctxt = map mkFromConstraint originalConArgs
         InstanceD Nothing ctxt (mkFromConstraint originalTy) <$>
           sequence [genFrom']

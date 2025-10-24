@@ -24,12 +24,13 @@ common deps
 library
    import: deps
    exposed-modules:
-      Test
-      Robert
-      TreeTraversal
-      P
-      Janus
-      JanusP
+--      Test
+--      Robert
+--      TreeTraversal
+--      P
+--      Janus
+--      JanusP
+--      Typechecker
 
 --     Arith
 --     FunPat
@@ -54,8 +55,8 @@ executable main
   main-is:       Main.hs
   build-depends: sandbox
   other-modules:
-    P
-    Robert
-    FunPat
-    FunPatSrc
+    --P
+    --Robert
+    --FunPat
+    --FunPatSrc
   ghc-options:   -O2 -threaded -rtsopts -main-is Main

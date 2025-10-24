@@ -1,8 +1,8 @@
-{-# OPTIONS_GHC -fplugin Plugin.InversionPlugin #-}
+{-# OPTIONS_GHC -fplugin Plugin.InversionPlugin -fforce-recomp #-}
 
 module RunLength where
 
---TODO: Add paper
+--TODO: Add paper (which one?)
 --TODO num instanz
 
 -- [('h',S Z),('a',S Z),('l',S (S Z)),('o',S Z),('w',S Z),('e',S Z),('l',S Z),('t',S Z)]
@@ -11,7 +11,7 @@ import P
 
 rle :: Eq a => [a] -> [(a, Int)]
 rle = foldr rle' []
-  where rle' c ((x, n) : ts) | c == x = (x, n + 1) : ts
+  where rle' c ((x, n) : ts) | c == x && n > 0= (x, n + 1) : ts
         rle' c ts                     = (c, 1) : ts
 
 rle2 :: Eq a => [a] -> [(a, Int)]
@@ -31,6 +31,8 @@ rleP [] = []
 rleP (c:cs) = let l = lengthP (takeWhile (== c) cs)
               in (c, S l) : rleP (dropP l cs)
 
+
+-- [(A,2),(A,0),(A,1)]
 -- The inverses of `unrleNaive` and `unrleNaiveButBetter`are not the "right" ones as they computes run-length encodings that have too short sequences in it (or even sequences of length 0 in case of `unrleNaive`).
 
 -- man ist es nicht gewohnt zu invertieren, instruktiv (aber unabhöngig vom system)
@@ -41,6 +43,11 @@ unrleNaive = concatMap (uncurry (flip replicate))
 unrleNaiveButBetter :: [(a, Int)] -> [a]
 unrleNaiveButBetter [] = []
 unrleNaiveButBetter ((x, n) : ts) | n > 0 = replicate n x ++ unrleNaiveButBetter ts
+
+{-
+replicate 0 _ = []
+replicate n x = x : replicate (n - 1) x
+-}
 
 -- The following correct inverse of `rle` does not terminate.
 unrle :: Eq a => [(a, Int)] -> [a]

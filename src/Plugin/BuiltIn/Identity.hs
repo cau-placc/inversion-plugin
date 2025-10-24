@@ -29,7 +29,7 @@ instance To a => To (Identity a) where
   toWith tf (Identity x) = IdentityFL (tf x)
 
 instance From a => From (Identity a) where
-  from (IdentityFL x) = Identity (fromFL x)
+  fromWith ff (IdentityFL x) = Identity (ff x)
 
 instance Unifiable a => Unifiable (IdentityFL FL a) where
   unify (IdentityFL x) (IdentityFL y) = unifyFL x y

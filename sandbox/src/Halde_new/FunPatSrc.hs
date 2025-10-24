@@ -1,4 +1,6 @@
 {-# OPTIONS_GHC -fplugin Plugin.InversionPlugin #-}
+{-# OPTIONS_GHC -ddump-tc -ddump-splices #-}
+
 -- {-# OPTIONS_GHC -fplugin-opt Plugin.InversionPlugin:dump-pattern-matched #-}
 -- {-# OPTIONS_GHC -fplugin-opt Plugin.InversionPlugin:dump-gen-instances #-}
 --{-# OPTIONS_GHC -ddump-tc #-}

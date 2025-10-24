@@ -126,6 +126,26 @@ fibrec n | n >= 0, Just res <- run [("fibrec", fibrecStm)] [("n", n)] (Call "fib
 fibrecPair :: Int -> (Int, Int)
 fibrecPair n | n >= 0, Just res <- run [("fibrec", fibrecStm)] [("n", n)] (Call "fibrec") >>= \env -> return (find "x1" env, find "x2" env) = res
 
+-- Old-school Haskell fib
+fib :: Int -> Int
+fib 0 = 1
+fib 1 = 1
+fib n = fib (n - 1) + fib (n - 2)
+
+-- Old-school Haskell fib
+fibPair :: Int -> (Int, Int)
+fibPair 0 = (0, 1)
+fibPair n | n > 0 = let (a, b) = fibPair (n - 1) in (b, a + b)
+
+fibAcc :: Int -> Int
+fibAcc n = fibAcc' n 1 1
+  where
+    fibAcc' 0 a _ = a
+    fibAcc' m a b | m > 0 = fibAcc' (m - 1) b (a + b)
+
+fibrecUncall :: Int -> Int -> Int
+fibrecUncall x1 x2 | Just res <- run [("fibrec", fibrecStm)] [("x1", x1), ("x2", x2)] (Uncall "fibrec") >>= return . find "n" = res
+
 {-
 // Computes the n-th Fibonacci number in x1 and the (n+1)-th Fibonacci number in x2
 procedure fibiter
@@ -172,7 +192,7 @@ fibiterUncall :: Int -> Int -> Int
 fibiterUncall x1 x2 | Just res <- run [("fibiter", fibiterStm)] [("x1", x1), ("x2", x2)] (Uncall "fibiter") >>= return . find "n" = res
 
 fibiterUncall2 :: Int -> Int -> Int -> (Int, Int, Int)
-fibiterUncall2 n x1 x2 | Just res <- run [("fibiter", fibiterStm)] [("n", n), ("x1", x1), ("x2", x2)] (Uncall "fibiter") >>= \env -> return (find "n" env, find "x1" env, find "x2" env) = res      
+fibiterUncall2 n x1 x2 | Just res <- run [("fibiter", fibiterStm)] [("n", n), ("x1", x1), ("x2", x2)] (Uncall "fibiter") >>= \env -> return (find "n" env, find "x1" env, find "x2" env) = res
 
 {-
 Tests:

@@ -9,6 +9,9 @@ import Control.Monad.SearchTree
 import           Data.Maybe
 import           Data.Monoid
 import qualified Data.Sequence as Seq
+import qualified Data.Set      as Set
+
+import GHC.Exts (noinline)
 
 import System.IO.Unsafe
 import System.Mem.Weak
@@ -61,6 +64,37 @@ bfs = go . Seq.singleton
           One x      -> x : go ts
           Choice l r -> go (ts Seq.:|> l Seq.:|> r)
 
+{-# NOINLINE concurrentSearch #-}
+concurrentSearch :: SearchTree a -> [a]
+concurrentSearch t = unsafePerformIO $ do
+  ch <- newChan
+  mTids <- newEmptyMVar
+  putMVar mTids Set.empty
+  let go t' = case t' of
+        None       -> return ()
+        One x      -> writeChan ch (Just x)
+        Choice l r -> do
+          mL <- newEmptyMVar
+          mR <- newEmptyMVar
+          tids <- takeMVar mTids
+          tidL <- forkFinally (go l) $ \_ -> finalizeT mL
+          tidR <- forkFinally (go r) $ \_ -> finalizeT mR
+          putMVar mTids $ Set.insert tidL (Set.insert tidR tids)
+          takeMVar mL
+          takeMVar mR
+      finalizeT mT = do
+        putMVar mT ()
+        tid <- myThreadId
+        modifyMVar_ mTids (return . Set.delete tid)
+  tid <- forkFinally (go t) $ \_ -> writeChan ch Nothing
+  results <- catMaybes . takeWhile isJust <$> getChanContents ch
+  addFinalizer results $ do
+    tids <- takeMVar mTids
+    mapM_ killThread (tid : Set.toList tids)
+  return (foldr (\x xs -> noinline (const id) results (x : xs)) [] results)
+
+{- old:
+{-# NOINLINE concurrentSearch #-}
 concurrentSearch :: SearchTree a -> [a]
 concurrentSearch t = unsafePerformIO $ do
   ch <- newChan
@@ -84,9 +118,11 @@ concurrentSearch t = unsafePerformIO $ do
     tids <- takeMVar mvarTids
     mapM_ killThread (tid : tids)
   return result
+  -}
 
 {-
 -- Implementation of concurrent search without knowing when the search tree is exhausted and without finalizer.
+{-# NOINLINE concurrentSearch #-}
 concurrentSearch :: SearchTree a -> [a]
 concurrentSearch t = unsafePerformIO $ do
   ch <- newChan
@@ -101,6 +137,7 @@ concurrentSearch t = unsafePerformIO $ do
   getChanContents ch
 
 -- Implementation of concurrent search without finalizer.
+{-# NOINLINE concurrentSearch #-}
 concurrentSearch :: SearchTree a -> [a]
 concurrentSearch t = unsafePerformIO $ do
   ch <- newChan
@@ -118,6 +155,7 @@ concurrentSearch t = unsafePerformIO $ do
   catMaybes . takeWhile isJust <$> getChanContents ch
 
 -- Implementation of concurrent search with finalizer.
+{-# NOINLINE concurrentSearch #-}
 concurrentSearch :: SearchTree a -> [a]
 concurrentSearch t = unsafePerformIO $ do
   ch <- newChan

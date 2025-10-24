@@ -6,10 +6,11 @@
 {-# LANGUAGE TypeApplications      #-}
 
 module Plugin.Primitives
-  ( Transform, Argument, Result, inv, To, partialInv, weakInv
+  ( Transform, Argument, Result, inv, To, partialInv, semiInv, weakInv
   , Class, inOutClassInv, inClassInv, var
-  , invFree, partialInvFree, weakInvFree, inClassInvFree, inOutClassInvFree, showFree
+  , invFree, partialInvFree, semiInvFree, weakInvFree, inClassInvFree, inOutClassInvFree, showFree
   , funPat, funPatLegacy
+  , module Plugin.BuiltIn.Primitive
   ) where
 
 import Control.Monad.State
@@ -23,6 +24,7 @@ import Generics.SYB
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax
 
+import Plugin.BuiltIn.Primitive
 import Plugin.Effect.Monad
 import Plugin.Effect.TH
 
@@ -35,6 +37,11 @@ invFree = genInv False
 partialInv, partialInvFree :: Name -> [Int] -> ExpQ
 partialInv = genPartialInv True
 partialInvFree = genPartialInv False
+
+--TODO: Free in nonGround umbenennen
+semiInv, semiInvFree :: Name -> [Int] -> [Int] -> ExpQ
+semiInv = genSemiInv True
+semiInvFree = genSemiInv False
 
 weakInv, weakInvFree :: Name -> ExpQ
 weakInv = genWeakInv True
@@ -57,8 +64,61 @@ genInv gnf = flip (genPartialInv gnf) []
 genPartialInv :: Bool -> Name -> [Int] -> ExpQ
 genPartialInv gnf name fixedArgIndices = do
   originalArity <- getFunArity name
-  when (originalArity == 0) $ fail "Cannot create inverse for a nullary function"
-  let validFixedArgIndices = [0 .. originalArity - 1]
+  --when (originalArity == 0) $ fail "Cannot create inverse for a nullary function"
+  let validFixedArgIndices = [1 .. originalArity]
+  when (any (`notElem` validFixedArgIndices) fixedArgIndices) $ fail $
+    "Invalid argument index sequence for partial inverse provided (has to be a subsequence of " ++ show validFixedArgIndices ++ ")"
+  let nubbedFixedArgIndices = nub fixedArgIndices
+      nonFixedArgIndices = filter (`notElem` fixedArgIndices) validFixedArgIndices
+  fixedArgNames <- replicateM (length nubbedFixedArgIndices) (newName "fixedArg")
+  nonFixedArgNames <- replicateM (length nonFixedArgIndices) (newName "freeArg")
+  resArgName <- newName "resArg"
+  let fixedArgExps = zip nubbedFixedArgIndices $ map (AppE (VarE 'toFL) . VarE) fixedArgNames
+      nonFixedArgExps = zip nonFixedArgIndices $ map VarE nonFixedArgNames
+      argExps = map snd $ sortOn fst $ fixedArgExps ++ nonFixedArgExps
+  g <- newName "g"
+
+  liftedName <- liftTHNameQ name
+  funPatExp <- genLiftedApply (VarE liftedName) argExps
+  let resExp = AppE (VarE 'toFL) (VarE resArgName)
+      nonStrictUnifyExp = applyExp (VarE 'nonStrictUnifyFL) [funPatExp, resExp]
+      doExp = DoE Nothing [NoBindS nonStrictUnifyExp, NoBindS (AppE (VarE (if gnf then 'groundNormalFormFL else 'normalFormFL)) returnExp)]
+      returnExp = mkLiftedTupleE $ map snd nonFixedArgExps
+      bodyExp = AppE (VarE 'fromFL) doExp
+  bNm <- newName "b"
+  let letDecs = [FunD bNm [Clause (map VarP nonFixedArgNames) (NormalB bodyExp) []]]
+  let freeExps = take (length nonFixedArgExps) $ map (AppE (ConE 'FL) . AppE (VarE 'return) . AppE (ConE 'Var) . mkIntExp) [0 ..]
+  let invExp = LetE letDecs (applyExp (VarE bNm) freeExps)
+
+  typ <- getFunType name
+  let (argTys, resTy) = arrowUnapply typ
+      indexedArgTys = zip [1 ..] argTys
+      fixedArgTys = filter (\(i, _) -> i `elem` nubbedFixedArgIndices) indexedArgTys
+      unfixedArgTys = filter (\(i, _) -> i `notElem` nubbedFixedArgIndices) indexedArgTys
+  ctxt <- getFunContext name
+  let invContext = context ++ map (AppT (ConT ''Transform)) ctxt
+      context = nub $ map (AppT (ConT ''Argument) . snd) unfixedArgTys ++
+                return (AppT (ConT ''Result) resTy) ++
+                map (AppT (ConT ''To) . snd) fixedArgTys
+      invTy = ForallT [] invContext $ foldr mkArrowT (AppT ListT $ mkTupleT $ map snd unfixedArgTys) $ map snd fixedArgTys ++ [resTy]
+
+  --return $ LamE (map VarP $ fixedArgNames ++ [resArgName]) invExp
+  return $ LetE [
+    SigD g invTy,
+    FunD g [Clause (map VarP $ fixedArgNames ++ [resArgName]) (NormalB invExp) []]] (VarE g)
+  {-params <- replicateM (length fixedArgNames + 1) (newName "param")
+  return $ LamE (map VarP params) $ LetE [
+    SigD g invTy,
+    FunD g [Clause (map VarP $ fixedArgNames ++ [resArgName]) (NormalB invExp) []]] $ applyExp (VarE g) $ map VarE params-}
+
+{-
+-- CAUTION! This primitive has to generate a let expression (instead of a lambda expression).
+-- See also remark at `inClassInv`.
+genPartialInv :: Bool -> Name -> [Int] -> ExpQ
+genPartialInv gnf name fixedArgIndices = do
+  originalArity <- getFunArity name
+  --when (originalArity == 0) $ fail "Cannot create inverse for a nullary function"
+  let validFixedArgIndices = [1 .. originalArity]
   when (any (`notElem` validFixedArgIndices) fixedArgIndices) $ fail $
     "Invalid argument index sequence for partial inverse provided (has to be a subsequence of " ++ show validFixedArgIndices ++ ")"
   --when (length (nub fixedArgIndices) == originalArity) $ fail $
@@ -71,7 +131,153 @@ genPartialInv gnf name fixedArgIndices = do
       inClassExps = map snd $ sortOn fst $ fixedArgExps ++ nonFixedArgExps
   g <- newName "g"
   invE <- genInClassInv gnf name (map return inClassExps)
-  return $ LetE [FunD g [Clause (map VarP fixedArgNames) (NormalB invE) []]] (VarE g)
+  typ <- getFunType name
+  let (argTys, resTy) = arrowUnapply typ
+      indexedArgTys = zip [1 ..] argTys
+      fixedArgTys = filter (\(i, _) -> i `elem` nubbedFixedArgIndices) indexedArgTys
+      unfixedArgTys = filter (\(i, _) -> i `notElem` nubbedFixedArgIndices) indexedArgTys
+      context = nub $ map (AppT (ConT ''Argument) . snd) unfixedArgTys ++
+                return (AppT (ConT ''Result) resTy) ++
+                map (AppT (ConT ''To) . snd) fixedArgTys
+      invTy = ForallT [] context $ foldr mkArrowT (AppT ListT $ mkTupleT $ map snd unfixedArgTys) $ map snd fixedArgTys ++ [resTy]
+  return $ LetE [SigD g invTy, FunD g [Clause (map VarP fixedArgNames) (NormalB invE) []]] (VarE g)
+-}
+
+genSemiInv :: Bool -> Name -> [Int] -> [Int] -> ExpQ
+genSemiInv gnf name fixedArgIndices fixedResIndices = do
+  originalArity <- getFunArity name
+  -- when (originalArity == 0) $ fail "Cannot create inverse for a nullary function"
+  let validFixedArgIndices = [1 .. originalArity]
+  when (any (`notElem` validFixedArgIndices) fixedArgIndices) $ fail $
+    "Invalid argument index sequence for semi inverse provided (has to be a subsequence of " ++ show validFixedArgIndices ++ ")"
+  --when (length (nub fixedArgIndices) == originalArity) $ fail $
+  --  "Invalid argument index sequence for partial inverse provided (must not contain all indices)"
+  let nubbedFixedArgIndices = nub fixedArgIndices
+      nonFixedArgIndices = filter (`notElem` fixedArgIndices) validFixedArgIndices
+  fixedArgNames <- replicateM (length nubbedFixedArgIndices) (newName "fixedArg")
+  nonFixedArgNames <- replicateM (length nonFixedArgIndices) (newName "freeArg")
+  typ <- getFunType name
+  let resultArity = fromMaybe 1 $ case fst (unapplyType (snd (arrowUnapply typ))) of
+          ConT (Name (OccName resultOccConName) _) -> tupleConArity resultOccConName
+          TupleT n           -> Just n
+          _                  -> Nothing
+  let validFixedResIndices = [1 .. resultArity]
+  when (any (`notElem` validFixedResIndices) fixedResIndices) $ fail $
+    "Invalid result index sequence for semi inverse provided (has to be a subsequence of " ++ show validFixedResIndices ++ ")"
+  let nubbedFixedResIndices = nub fixedResIndices
+      nonFixedResIndices = filter (`notElem` fixedResIndices) validFixedResIndices
+  fixedResNames <- replicateM (length nubbedFixedResIndices) (newName "fixedResult")
+  nonFixedResNames <- replicateM (length nonFixedResIndices) (newName "freeRes")
+
+  let fixedArgExps = zip nubbedFixedArgIndices $ map (AppE (VarE 'toFL) . VarE) fixedArgNames
+      nonFixedArgExps = zip nonFixedArgIndices $ map VarE nonFixedArgNames
+      argExps = map snd $ sortOn fst $ fixedArgExps ++ nonFixedArgExps
+  let fixedResExps = zip nubbedFixedResIndices $ map (AppE (VarE 'toFL) . VarE) fixedResNames
+      nonFixedResExps = zip nonFixedResIndices $ map VarE nonFixedResNames
+      resExps = map snd $ sortOn fst $ fixedResExps ++ nonFixedResExps
+
+  g <- newName "g"
+
+  liftedName <- liftTHNameQ name
+  funPatExp <- genLiftedApply (VarE liftedName) argExps
+  let resExp = mkTupleE' resExps
+      mkTupleE' [e] = e
+      mkTupleE' es = mkLiftedTupleE es
+      nonStrictUnifyExp = applyExp (VarE 'nonStrictUnifyFL) [funPatExp, resExp]
+      doExp = DoE Nothing [NoBindS nonStrictUnifyExp, NoBindS (AppE (VarE (if gnf then 'groundNormalFormFL else 'normalFormFL)) returnExp)]
+      returnExp = mkLiftedTupleE $ map snd $ nonFixedArgExps ++ nonFixedResExps
+      bodyExp = AppE (VarE 'fromFL) doExp
+  bNm <- newName "b"
+  let letDecs = [FunD bNm [Clause (map VarP $ nonFixedArgNames ++ nonFixedResNames) (NormalB bodyExp) []]]
+  let freeExps = take (length $ nonFixedArgExps ++ nonFixedResExps) $ map (AppE (ConE 'FL) . AppE (VarE 'return) . AppE (ConE 'Var) . mkIntExp) [0 ..]
+  let invExp = LetE letDecs (applyExp (VarE bNm) freeExps)
+
+  let (argTys, resTy) = arrowUnapply typ
+      resTys = case unapplyType resTy of
+          (ConT (Name (OccName resultOccConName) _), tys) | Just _ <- tupleConArity resultOccConName -> tys
+          (TupleT _, tys) -> tys
+          _ -> [resTy]
+      indexedArgTys = zip [1 ..] argTys
+      fixedArgTys = filter (\(i, _) -> i `elem` nubbedFixedArgIndices) indexedArgTys
+      unfixedArgTys = filter (\(i, _) -> i `notElem` nubbedFixedArgIndices) indexedArgTys
+
+      indexedResTys = zip [1 ..] resTys
+      fixedResTys = filter (\(i, _) -> i `elem` nubbedFixedResIndices) indexedResTys
+      fixedResTupleTy = if length fixedResTys > 1 then [mkTupleT (map snd fixedResTys)] else take 1 (map snd fixedResTys)
+      unfixedResTys = filter (\(i, _) -> i `notElem` nubbedFixedResIndices) indexedResTys
+
+
+  ctxt <- getFunContext name
+  let invContext = context ++ map (AppT (ConT ''Transform)) ctxt
+      context = nub $ map (AppT (ConT ''Argument) . snd) (unfixedArgTys ++ unfixedResTys) ++
+                return (AppT (ConT ''Unifiable) (AppT (ConT ''Transform) resTy)) ++
+                {-map (AppT (ConT ''NormalForm) . AppT (ConT ''Transform) . snd) unfixedResTys ++
+                map (AppT (ConT ''From) . snd) unfixedResTys ++
+                map (AppT (ConT ''HasPrimitiveInfo) . AppT (ConT ''Transform) . snd) unfixedResTys ++-}
+                map (AppT (ConT ''To) . snd) (fixedArgTys ++ fixedResTys)
+      invTy = ForallT [] invContext $ foldr mkArrowT (AppT ListT $ mkTupleT $ map snd $ unfixedArgTys ++ unfixedResTys) $ map snd fixedArgTys ++ fixedResTupleTy
+
+  let resPs | length fixedResExps > 1 = [mkTupleP (map VarP fixedResNames)]
+            | length fixedResExps == 1 = [VarP (head fixedResNames)]
+            | otherwise = []
+  return $ LetE [
+    SigD g invTy,
+    FunD g [Clause (map VarP fixedArgNames ++ resPs) (NormalB invExp) []]] (VarE g)
+
+{-
+-- CAUTION! This primitive has to generate a let expression (instead of a lambda expression).
+-- See also remark at `inClassInv`.
+-- TODO: Check if indices beginning with 0 or 1 are better.
+genSemiInv :: Bool -> Name -> [Int] -> [Int] -> ExpQ
+genSemiInv gnf name fixedArgIndices fixedResultIndices = do
+  originalArity <- getFunArity name
+  -- when (originalArity == 0) $ fail "Cannot create inverse for a nullary function"
+  let validFixedArgIndices = [1 .. originalArity]
+  when (any (`notElem` validFixedArgIndices) fixedArgIndices) $ fail $
+    "Invalid argument index sequence for semi inverse provided (has to be a subsequence of " ++ show validFixedArgIndices ++ ")"
+  --when (length (nub fixedArgIndices) == originalArity) $ fail $
+  --  "Invalid argument index sequence for partial inverse provided (must not contain all indices)"
+  let nubbedFixedArgIndices = nub fixedArgIndices
+      nonFixedArgIndices = filter (`notElem` fixedArgIndices) validFixedArgIndices
+  fixedArgNames <- replicateM (length nubbedFixedArgIndices) (newName "fixedArg")
+  let fixedArgExps = zip nubbedFixedArgIndices $ map VarE fixedArgNames
+      nonFixedArgExps = zip nonFixedArgIndices $ map (AppE (VarE 'var) . mkIntExp) [0 ..]
+      inClassExps = map snd $ sortOn fst $ fixedArgExps ++ nonFixedArgExps
+  typ <- getFunType name
+  let resultArity = fromMaybe 1 $ case fst (unapplyType (snd (arrowUnapply typ))) of
+          ConT (Name (OccName resultOccConName) _) -> tupleConArity resultOccConName
+          TupleT n           -> Just n
+          _                  -> Nothing
+  let validFixedResultIndices = [1 .. resultArity]
+  when (any (`notElem` validFixedResultIndices) fixedResultIndices) $ fail $
+    "Invalid result index sequence for semi inverse provided (has to be a subsequence of " ++ show validFixedResultIndices ++ ")"
+  let nubbedFixedResultIndices = nub fixedResultIndices
+      nonFixedResultIndices = filter (`notElem` fixedResultIndices) validFixedResultIndices
+  fixedResultNames <- replicateM (length nubbedFixedResultIndices) (newName "fixedResult")
+  let fixedResultExps = zip nubbedFixedResultIndices $ map VarE fixedResultNames
+      nonFixedResultExps = zip nonFixedResultIndices $ map (AppE (VarE 'var) . mkIntExp) [originalArity ..]
+      outClassExps = map snd $ sortOn fst $ fixedResultExps ++ nonFixedResultExps
+      outClassExp = if resultArity > 1 then mkTupleE outClassExps else head outClassExps
+      fixedResultPats = if length fixedResultExps > 1 then [mkTupleP (map VarP fixedResultNames)] else take 1 (map VarP fixedResultNames)
+  g <- newName "g"
+  invE <- genInOutClassInv gnf name (map return inClassExps) (return outClassExp)
+  let (argTys, resTy) = arrowUnapply typ
+      resTys = case unapplyType resTy of
+          (ConT (Name (OccName resultOccConName) _), tys) | Just _ <- tupleConArity resultOccConName -> tys
+          (TupleT _, tys) -> tys
+          _ -> [resTy]
+      indexedResTys = zip [1 ..] resTys
+      indexedArgTys = zip [1 ..] argTys
+      fixedResTys = filter (\(i, _) -> i `elem` nubbedFixedResultIndices) indexedResTys
+      fixedResTupleTy = if length fixedResTys > 1 then [mkTupleT (map snd fixedResTys)] else take 1 (map snd fixedResTys)
+      fixedArgTys = filter (\(i, _) -> i `elem` nubbedFixedArgIndices) indexedArgTys
+      unfixedArgTys = filter (\(i, _) -> i `notElem` nubbedFixedArgIndices) indexedArgTys
+      unfixedResTys = filter (\(i, _) -> i `notElem` nubbedFixedResultIndices) indexedResTys
+      context = nub $ map (AppT (ConT ''Argument) . snd) unfixedArgTys ++
+                return (AppT (ConT ''Result) resTy) ++
+                map (AppT (ConT ''To) . snd) fixedArgTys
+      invTy = ForallT [] context $ foldr mkArrowT (AppT ListT $ mkTupleT $ map snd $ unfixedArgTys ++ unfixedResTys) $ map snd fixedArgTys ++ fixedResTupleTy
+  return $ LetE [SigD g invTy, FunD g [Clause (map VarP fixedArgNames ++ fixedResultPats) (NormalB invE) []]] (VarE g)-}
 
 genWeakInv :: Bool -> Name -> ExpQ
 genWeakInv gnf name = [| foldr const (error "no weak inverse") . $(genInv gnf name) |]
@@ -79,7 +285,7 @@ genWeakInv gnf name = [| foldr const (error "no weak inverse") . $(genInv gnf na
 type Class = ExpQ
 
 --TODO: appFL verwenden
-genInOutClassInv :: Bool -> Name -> [Class] -> ExpQ -> ExpQ
+genInOutClassInv :: Bool -> Name -> [Class] -> Class -> ExpQ
 genInOutClassInv gnf name inClassExpQs outClassExpQ = do
   originalArity <- getFunArity name
   let numInClasses = length inClassExpQs
@@ -96,7 +302,7 @@ genInOutClassInv gnf name inClassExpQs outClassExpQ = do
       freeNames = map (fst . snd) mapping
       doExp = DoE Nothing [NoBindS nonStrictUnifyExp, NoBindS (AppE (VarE (if gnf then 'groundNormalFormFL else 'normalFormFL)) returnExp)]
       returnExp = mkLiftedTupleE (map VarE freeNames)
-      bodyExp = applyExp (VarE 'map) [VarE 'fromFLVal, AppE (VarE 'evalFL) doExp]
+      bodyExp = AppE (VarE 'fromFL) doExp
   bNm <- newName "b"
   let letDecs = [FunD bNm [Clause (map VarP freeNames) (NormalB bodyExp) []]]
   return $ LetE letDecs (applyExp (VarE bNm) (map (snd . snd) mapping))

@@ -25,8 +25,7 @@
 module Plugin.Effect.Monad where
 
 import Control.Applicative    (Alternative(..))
-import Control.Exception      (Exception, throw, catch, evaluate)
-import Control.Monad.Identity
+import Control.Exception      (Exception, SomeException, throw, catch, evaluate, mapException)
 import Control.Monad.State
 
 #ifdef USE_PS
@@ -187,7 +186,7 @@ class HasPrimitiveInfo a where
 
 type ID = Int
 
-data FLVal (a :: Type) where
+data FLVal a where
   Var        :: HasPrimitiveInfo a => ID -> FLVal a
   Val        :: a -> FLVal a
   HaskellVal :: To b => b -> FLVal (Lifted FL b)
@@ -247,27 +246,62 @@ dereference = go []
 
 instantiateVar :: forall a. HasPrimitiveInfo a => ID -> FL a
 instantiateVar i = case primitiveInfo @a of
-  NoPrimitive -> msum (map (bindTo i) enumerate)
+  --NoPrimitive -> msum (map (bindTo i) enumerate)
+  --NoPrimitive -> sequence enumerate >>= \x -> msum (map (bindTo i . return) x)
+  NoPrimitive -> do
+    msum (map (\fl -> fl >>= \x -> bindTo i (Val x)) enumerate)
+  Primitive -> FL $ do
+    FLState { .. } <- get
+    unFL $ msum (map (\x -> bindToPrimitive i (Val x)) (generate i constraintStore))
+  --NoPrimitive -> msum (map (\fl -> fl >>= \x -> bindTo i (return x)) enumerate)
+  --Primitive   ->
+
+instantiateVarSame :: forall a. HasPrimitiveInfo a => ID -> a -> FL a
+instantiateVarSame i x = case primitiveInfo @a of
+  NoPrimitive -> enumerateSame x >>= bindTo i . Val
+  Primitive   -> undefined --TODO: fix
+
+{-bindTo2 :: forall a. HasPrimitiveInfo a => ID -> FLVal a -> FL ()
+bindTo2 i flVal = case primitiveInfo @a of
+  NoPrimitive -> FL $ do
+    FLState { .. } <- get
+    put (FLState { varMap = insertBinding i (FL (return flVal)) varMap
+                , .. })
+    return flVal
   Primitive   -> FL $ do
     FLState { .. } <- get
-    unFL $ msum (map (bindToPrimitive i) (generate i constraintStore))
+    let c = eqConstraint (Var i) flVal
+        constraintStore' = insertConstraint c [i] constraintStore
+    if isConsistent constraintStore'
+      then do
+        put (FLState { varMap = insertBinding i (FL (return x)) varMap
+                     , constraintStore = constraintStore'
+                     , .. })
+        return (Val ())
+      else empty-}
 
-bindTo :: ID -> FL a -> FL a
-bindTo i fl = FL $ do
-  Val x <- unFL fl
+bindTo :: ID -> FLVal a -> FL a
+bindTo i flVal = FL $ do
   FLState { .. } <- get
-  put (FLState { varMap = insertBinding i (return x) varMap
+  put (FLState { varMap = insertBinding i (FL (return flVal)) varMap
                , .. })
-  return (Val x)
-
-bindToPrimitive :: (HasPrimitiveInfo a, Constrainable a) => ID -> a -> FL a
-bindToPrimitive i x = FL $ do
-  let c = eqConstraint (Var i) (Val x)
+  return flVal
+{-bindTo :: ID -> FL a -> FL a
+bindTo i fl = FL $ do
+  flVal <- unFL fl
   FLState { .. } <- get
-  put (FLState { varMap = insertBinding i (return x) varMap
+  put (FLState { varMap = insertBinding i (FL (return flVal)) varMap
+               , .. })
+  return flVal --unFL fl-}
+
+bindToPrimitive :: (HasPrimitiveInfo a, Constrainable a) => ID -> FLVal a -> FL a
+bindToPrimitive i flVal = FL $ do
+  let c = eqConstraint (Var i) flVal
+  FLState { .. } <- get
+  put (FLState { varMap = insertBinding i (FL (return flVal)) varMap
                , constraintStore = insertConstraint c [i] constraintStore
                , .. })
-  return (Val x)
+  return flVal
 
 instance Monad FL where
   fl >>= f = FL $ dereference (unFL fl) >>= \case
@@ -365,6 +399,7 @@ showFree x = showsFree x ""
 showsFree :: ShowFree a => a -> ShowS
 showsFree = showsFreePrec 0
 
+{-# NOINLINE showsFreePrec #-}
 showsFreePrec :: ShowFree a => Int -> a -> ShowS
 showsFreePrec d x s = unsafePerformIO $ (evaluate x >>= \x' -> return (showsFreePrec' d x' s)) `catch` (\ (FreeVariableException i) -> return $ showsVarPrec d i s)
 
@@ -382,10 +417,12 @@ to = toWith toFL
 
 toFL :: To a => a -> FL (Lifted FL a)
 toFL x = FL (return (HaskellVal x))
--- Alternatively: toFL x = return (to x)
+-- Alternatively:
+-- toFL x = return undefined --(to x)
 
 class From a where
-  from :: Lifted FL a -> a
+  fromWith :: (forall b. From b => FL (Lifted FL b) -> b) -> Lifted FL a -> a
+  -- TODO: from and from'
 
 data FreeVariableException = FreeVariableException ID
 
@@ -399,15 +436,18 @@ instance Exception FreeVariableException
 decomposeInjectivity :: Lifted FL a ~ Lifted FL b => a :~: b
 decomposeInjectivity = unsafeCoerce Refl
 
-fromFLVal :: forall a. From a => FLVal (Lifted FL a) -> a
-fromFLVal = \case
-   Val x -> from x
+fromFLValWith :: forall a. From a => (forall b. From b => FL (Lifted FL b) -> b) -> FLVal (Lifted FL a) -> a
+fromFLValWith f = \case
+   Val x -> fromWith f x
    Var i -> throw (FreeVariableException i)
-   HaskellVal (x :: b) -> case decomposeInjectivity :: a :~: b of
+   HaskellVal (x :: c) -> case decomposeInjectivity :: a :~: c of
      Refl -> x
 
-fromFL :: From a => FL (Lifted FL a) -> a
-fromFL fl = fromFLVal (head (evalFL fl))
+fromFL :: From a => FL (Lifted FL a) -> [a]
+fromFL fl = map (fromFLValWith (head . fromFL)) (evalFL fl)
+
+from :: From a => Lifted FL a -> a
+from = fromWith (head . fromFL)
 
 --------------------------------------------------------------------------------
 
@@ -424,47 +464,53 @@ unifyFL :: forall a. Unifiable a => FL a -> FL a -> FL ()
 unifyFL fl1 fl2 = FL $ do
   flVal1 <- dereference (unFL fl1)
   flVal2 <- dereference (unFL fl2)
-  FLState { .. } <- get
-  case (flVal1, flVal2) of
-    (Var i, Var j)
-      | i == j -> return (Val ())
-      | otherwise -> case primitiveInfo :: PrimitiveInfo a of
-        NoPrimitive -> do
-          put (FLState { varMap = insertBinding i (FL (return flVal2)) varMap
-                       , .. })
-          return (Val ())
-        Primitive -> let c = eqConstraint flVal1 flVal2
-                         constraintStore' = insertConstraint c [i, j] constraintStore
-                     in if isUnconstrained i constraintStore || isUnconstrained j constraintStore || isConsistent constraintStore'
-                          then do
-                            put (FLState { varMap = insertBinding i (FL (return flVal2)) varMap
-                                         , constraintStore = constraintStore'
-                                         , .. })
-                            return (Val ())
-                          else empty
-    (Var i, Val y) -> unFL $ unifyWithVar y i
-    (Val x, Var j) -> unFL $ unifyWithVar x j
-    (Val x, Val y) -> unFL $ unify x y
-    (Var i, HaskellVal y) -> unFL $ unifyWithVar (to y) i
-    (Val x, HaskellVal y) -> unFL $ unify x (to y)
-    (HaskellVal x, Var j) -> unFL $ unifyWithVar (to x) j
-    (HaskellVal x, Val y) -> unFL $ unify (to x) y
-    (HaskellVal x, HaskellVal y) -> unFL $ unify (to x) (to y)
+  unFL $ case (flVal1, flVal2) of
+    (Var i, Var j) -> unifyVars @a i j
+    (Var i, Val y) -> unifyWithVar y i
+    (Val x, Var j) -> unifyWithVar x j
+    (Val x, Val y) -> unify x y
+    (Var i, HaskellVal y) -> unifyWithVar (to y) i
+    (Val x, HaskellVal y) -> unify x (to y)
+    (HaskellVal x, Var j) -> unifyWithVar (to x) j
+    (HaskellVal x, Val y) -> unify (to x) y
+    (HaskellVal x, HaskellVal y) -> unify (to x) (to y)
+
+unifyVars :: forall a. HasPrimitiveInfo a => ID -> ID -> FL ()
+unifyVars i j | i == j    = return ()
+              | otherwise = case primitiveInfo :: PrimitiveInfo a of
+                  NoPrimitive -> do
+                    _ <- bindTo i (Var j :: FLVal a)
+                    return ()
+                  Primitive -> FL $ do
+                    FLState { .. } <- get
+                    let newConstraint = eqConstraint (Var @a i) (Var j)
+                        newConstraintStore = insertConstraint newConstraint [i, j] constraintStore
+                    if isUnconstrained i constraintStore || isUnconstrained j constraintStore || isConsistent newConstraintStore
+                      then do
+                        put (FLState { varMap = insertBinding i (FL (return (Var @a j))) varMap
+                                     , constraintStore = newConstraintStore
+                                     , .. })
+                        return (Val ())
+                      else empty
 
 unifyWithVar :: forall a. (Unifiable a, HasPrimitiveInfo a) => a -> ID -> FL ()
 unifyWithVar x i = case primitiveInfo @a of
-  NoPrimitive -> bindTo i (enumerateSame x) >>= unify x
+  --NoPrimitive -> bindTo i (enumerateSame x) >>= unify x --TODO: KAI
+  NoPrimitive -> do
+    y <- enumerateSame x
+    _ <- bindTo i (Val y)
+    unify x y
   Primitive -> FL $ do
     FLState { .. } <- get
     let c = eqConstraint (Var i) (Val x)
         constraintStore' = insertConstraint c [i] constraintStore
-    if isUnconstrained i constraintStore || isConsistent constraintStore'
+    if isConsistent constraintStore' -- Here, we omit the check for unconstrained i, because we want the consistency check to take place in order to be strict
       then do
         put (FLState { varMap = insertBinding i (return x) varMap
                      , constraintStore = constraintStore'
                      , .. })
         return (Val ())
-      else empty --TODO: auslagern
+      else empty --TODO: auslagern bindtoprimtive verwenden
 
 -- output class lohnt sich für: $(inOutClassInv 'sort (Out [| [LT, var 1, GT] |] [| var 1 : var 2 |]))
 -- $(inOutClassInv 'sort (Out [| [LT, var 1, GT] |] [| var 2 | ]))
@@ -475,68 +521,73 @@ unifyWithVar x i = case primitiveInfo @a of
 
 --TODO: check nonStrictUnifyFL (x, failed) (y,y)
 nonStrictUnifyFL :: forall a. Unifiable a => FL a -> FL a -> FL ()
-nonStrictUnifyFL fl1 fl2 = FL $ dereference (unFL fl1) >>= \case
-  Var i -> case primitiveInfo @a of
-    NoPrimitive -> do
-      FLState { .. } <- get
-      put (FLState { varMap = insertBinding i fl2 varMap
-                    , .. })
-      return (Val ())
-    Primitive   -> do
-      FLState { constraintStore = cs } <- get
-      if isUnconstrained i cs
-        then do
-          FLState { .. } <- get
-          put (FLState { varMap = insertBinding i fl2 varMap
-                        , .. })
-          return (Val ())
-        else do --i ist constrained, also müssen wir uns den anderen wert anschauen, um zu checken, ob er einem bereits bestehenden constraint widerspricht
-          flVal2 <- dereference (unFL fl2)
-          FLState { .. } <- get
-          case flVal2 of
-            Var j -> --TODO: kai: add check if i == j. und außerdem kann es sein, dass j unconstrained ist. dann kann j nichts ändern
-              let c = eqConstraint @a (Var i) (Var j)
-                  constraintStore' = insertConstraint c [i, j] constraintStore
-              in if isUnconstrained j constraintStore || isConsistent constraintStore'
-                    then do
-                      put (FLState { varMap = insertBinding i (FL (return (Var @a j))) varMap
-                                  , constraintStore = constraintStore'
-                                  , .. })
-                      return (Val ())
-                    else empty
-            Val y ->
-              let c = eqConstraint (Var i) (Val y)
-                  constraintStore' = insertConstraint c [i] constraintStore
-              in if isConsistent constraintStore'
-                    then do
-                      put (FLState { varMap = insertBinding i (return y) varMap
-                                  , constraintStore = constraintStore'
-                                  , .. })
-                      return (Val ())
-                    else empty
-            HaskellVal y ->
-              let y' = to y in
-              let c = eqConstraint (Var i) (Val y')
-                  constraintStore' = insertConstraint c [i] constraintStore
-              in if isConsistent constraintStore'
-                    then do
-                      put (FLState { varMap = insertBinding i (return y') varMap
-                                  , constraintStore = constraintStore'
-                                  , .. })
-                      return (Val ())
-                    else empty
-  Val x  -> dereference (unFL fl2) >>= \case
-    Var j        -> unFL $ nonStrictUnifyWithVar x j
-    Val y        -> unFL $ nonStrictUnify x y
-    HaskellVal y -> unFL $ nonStrictUnify x (to y)
-  HaskellVal x -> dereference (unFL fl2) >>= \case
-    Var j        -> unFL $ nonStrictUnifyWithVar (to x) j
-    Val y        -> unFL $ nonStrictUnify (to x) y
-    HaskellVal y -> unFL $ nonStrictUnify (to x) (to y)
+nonStrictUnifyFL fl1 fl2 = FL $ do
+  flVal1 <- dereference (unFL fl1)
+  case flVal1 of
+    Var i -> case primitiveInfo @a of
+      NoPrimitive -> do
+        FLState { .. } <- get
+        put (FLState { varMap = insertBinding i fl2 varMap
+                      , .. })
+        return (Val ())
+      Primitive   -> do
+        FLState { constraintStore = cs } <- get
+        if isUnconstrained i cs
+          then do
+            FLState { .. } <- get
+            put (FLState { varMap = insertBinding i fl2 varMap
+                          , .. })
+            return (Val ())
+          else do --i ist constrained, also müssen wir uns den anderen wert anschauen, um zu checken, ob er einem bereits bestehenden constraint widerspricht
+            flVal2 <- dereference (unFL fl2)
+            FLState { .. } <- get
+            case flVal2 of
+              Var j -> --TODO: kai: add check if i == j. und außerdem kann es sein, dass j unconstrained ist. dann kann j nichts ändern
+                let c = eqConstraint @a (Var i) (Var j)
+                    constraintStore' = insertConstraint c [i, j] constraintStore
+                in if isUnconstrained j constraintStore || isConsistent constraintStore'
+                      then do
+                        put (FLState { varMap = insertBinding i (FL (return (Var @a j))) varMap
+                                    , constraintStore = constraintStore'
+                                    , .. })
+                        return (Val ())
+                      else empty
+              Val y ->
+                let c = eqConstraint (Var i) (Val y)
+                    constraintStore' = insertConstraint c [i] constraintStore
+                in if isConsistent constraintStore'
+                      then do
+                        put (FLState { varMap = insertBinding i (return y) varMap
+                                    , constraintStore = constraintStore'
+                                    , .. })
+                        return (Val ())
+                      else empty
+              HaskellVal y ->
+                let y' = to y in
+                let c = eqConstraint (Var i) (Val y')
+                    constraintStore' = insertConstraint c [i] constraintStore
+                in if isConsistent constraintStore'
+                      then do
+                        put (FLState { varMap = insertBinding i (return y') varMap
+                                    , constraintStore = constraintStore'
+                                    , .. })
+                        return (Val ())
+                      else empty
+    Val x  -> dereference (unFL fl2) >>= \case
+      Var j        -> unFL $ nonStrictUnifyWithVar x j
+      Val y        -> unFL $ nonStrictUnify x y
+      HaskellVal y -> unFL $ nonStrictUnify x (to y)
+    HaskellVal x -> dereference (unFL fl2) >>= \case
+      Var j        -> unFL $ nonStrictUnifyWithVar (to x) j
+      Val y        -> unFL $ nonStrictUnify (to x) y
+      HaskellVal y -> unFL $ nonStrictUnify (to x) (to y)
 
 nonStrictUnifyWithVar :: forall a. (Unifiable a, HasPrimitiveInfo a) => a -> ID -> FL ()
 nonStrictUnifyWithVar x i = case primitiveInfo @a of
-  NoPrimitive -> bindTo i (enumerateSame x) >>= nonStrictUnify x
+  NoPrimitive -> do
+    y <- enumerateSame x
+    _ <- bindTo i (Val y)
+    nonStrictUnify x y
   Primitive -> FL $ do
     FLState { .. } <- get
     let c = eqConstraint (Var i) (Val x)
@@ -580,8 +631,23 @@ type instance Lifted m (->) = (-->) m
 type instance Lifted m ((->) a) = (-->) m (Lifted m a)
 type instance Lifted m ((->) a b) = (-->) m (Lifted m a) (Lifted m b)
 
-instance (From a, NormalForm (Lifted FL a), To b) => To (a -> b) where
-  toWith _ f = Func $ \fl -> groundNormalFormFL fl >>= \x -> toFL' (f (from x))
+instance (From a, To a, NormalForm (Lifted FL a), To b) => To (a -> b) where
+  {-
+  --alt:
+  --toWith _ f = Func $ \fl -> groundNormalFormFL fl >>= \x -> toFL' (f (from x))
+  -}
+  {-
+  --mit isBottom:
+  --toWith _ f = Func $ \fl -> groundNormalFormFL fl >>= \x -> toFL' (f (fromFL (toFL'' (from x))))
+  -}
+  --toWith _ f = Func $ \fl -> groundNormalFormFL fl >>= \x -> toFL'' (f (from x))
+  toWith _ !f = Func $ \fl -> groundNormalFormFL fl >>= \x -> toFL2 (f (fromFL2 (return x)))
+  -- ohne NichtStrikt-Anpassung: Verhalten richtig, aber eventuell zu strikt (es werden Teile getriggert, die von f vllt gar nicht gebraucht werden)
+  -- mit der Anpassung: fromFL überarbeiten und dann auch toFL
+
+fromFL2 :: From a => FL (Lifted FL a) -> a
+fromFL2 fl = mapException ArgumentException $
+  fromFLValWith fromFL2 (head (evalFL fl))
 
 appFL :: Monad m => m ((-->) m a b) -> m a -> m b
 mf `appFL` mx = mf >>= \ (Func f) -> f mx
@@ -589,11 +655,26 @@ mf `appFL` mx = mf >>= \ (Func f) -> f mx
 appShareFL :: MonadShare m => m ((-->) m a b) -> m a -> m b
 appShareFL mf mx = share mx >>= appFL mf
 
+{-
 -- This function incorporates the improvement from the paper for
 -- partial values in the context of partial inversion with higher-order functions.
 toFL' :: To a => a -> FL (Lifted FL a)
+toFL' x = if isBottom x then empty else return (toWith toFL' x)
+
+
+
 toFL' x | isBottom x = empty
         | otherwise  = return (toWith toFL' x)
+-}
+toFL2 :: To a => a -> FL (Lifted FL a)
+toFL2 x = mapException (\ (ArgumentException e) -> e) $
+  if isBottom x then empty else (return (toWith toFL2 x))
+--TODO: rename to toFLHO
+
+data ArgumentException = ArgumentException SomeException
+  deriving Show
+
+instance Exception ArgumentException
 
 type Transform (a :: k) = (Lifted FL a :: k)
 type Argument a = (HasPrimitiveInfo (Transform a), NormalForm (Transform a), From a)

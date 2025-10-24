@@ -1,7 +1,6 @@
-{-# OPTIONS_GHC -fplugin Plugin.InversionPlugin #-}
-{-# OPTIONS_GHC -ddump-tc #-}
+{-# OPTIONS_GHC -fplugin Plugin.InversionPlugin -fforce-recomp #-}
 
 module Test where
 
-($$$) :: (a -> b) -> a -> b
-f $$$ x = f x
+id2 :: a -> a
+id2 x = x

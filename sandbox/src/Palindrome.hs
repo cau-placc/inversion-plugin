@@ -18,15 +18,9 @@ fromPalindromes2 xs | all (\x -> not (null x) && isPalindrome x) xs && ensureNoD
         ensureNoDoubles [_]      = True
         ensureNoDoubles (x:y:xs) = x /= y && ensureNoDoubles (y : xs)
 
-data C = A | B | O | T
-  deriving (Show)
+data C = A | B | C
+  deriving (Eq, Show)
 
---TODO: Remove quick fix
-instance Eq C where
-  A == A = True
-  B == B = True
-  O == O = True
-  T == T = True
-  _ == _ = False
+word = [A,B,C,B,A,A,B,A,A,B,C,B,A,A,B,A,A,B,C,B,A,A,B,A]
 
 -- Test with: head $ $(inv 'fromPalindromes2 True) "abba"

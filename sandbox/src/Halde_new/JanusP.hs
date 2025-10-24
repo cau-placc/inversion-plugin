@@ -147,6 +147,9 @@ fibrec n | Just res <- run [("fibrec", fibrecStm)] [("n", n)] (Call "fibrec") >>
 fibrecPair :: P -> (P, P)
 fibrecPair n | Just res <- run [("fibrec", fibrecStm)] [("n", n)] (Call "fibrec") >>= \env -> return (find "x1" env, find "x2" env) = res
 
+fibrecUncall :: P -> P -> P
+fibrecUncall x1 x2 | Just res <- run [("fibrec", fibrecStm)] [("x1", x1), ("x2", x2)] (Uncall "fibrec") >>= return . find "n" = res
+
 {-
 // Computes the n-th Fibonacci number in x1 and the (n+1)-th Fibonacci number in x2
 procedure fibiter

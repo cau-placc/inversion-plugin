@@ -88,6 +88,7 @@ what4SolverFeatures = case show (typeRep (Proxy @What4Solver)) of
 instance SolverLibrary where
   type Constraint = What4Constraint
 
+  {-# NOINLINE checkConsistency #-}
   checkConsistency cs = unsafePerformIO $ do
     Some (ng :: NonceGenerator IO x) <- newIONonceGenerator
     sym <- newExprBuilder FloatIEEERepr Proxy ng

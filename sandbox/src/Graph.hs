@@ -1,19 +1,11 @@
-{-# OPTIONS_GHC -fplugin Plugin.InversionPlugin #-}
+{-# OPTIONS_GHC -fplugin Plugin.InversionPlugin -fforce-recomp #-}
 
 -- Example from "Principles of Inverse Computation and the Universal Resolving Algorithm"
 
 module Graph where
 
 data Node = A | B | C | D
-  deriving (Show)
-
---TODO: Remove quick fix
-instance Eq Node where
-  A == A = True
-  B == B = True
-  C == C = True
-  D == D = True
-  _ == _ = False
+  deriving (Eq, Show)
 
 type Graph = [(Node, [Node])]
 
@@ -34,19 +26,12 @@ graph = [ (A, [B,C])
         , (C, [])
         , (D, [A,C])]
 
--- Test with:
--- $(partialInv 'isWalk True [0]) graph True (should result in 17 cycle-free walks)
--- $(partialInv 'isWalk True [0]) graph False (should result in an infinite number of cyclic walks)
--- $(partialInv 'isWalk False [0]) graph False (should result in 52/54 representants of cyclic walks)
+-- Tests:
 
+-- $(partialInv 'isWalk [0]) graph True (should result in 17 cycle-free walks)
 
-{-
-[Solo "",Solo "a",Solo "b",Solo "c",Solo "d",Solo "ab",Solo "ac",Solo "bd",Solo "da",Solo "dc",Solo "abd",Solo "dab",Solo "bda",Solo "dac",Solo "bdc",Solo "abdc",Solo "bdac"]
+-- $(partialInv 'isWalk [0]) graph False (should result in an infinite number of cyclic walks)
 
-[Solo [],Solo [A],Solo [B],Solo [C],Solo [D],Solo [A,B],Solo [A,C],Solo [B,D],Solo [D,C],Solo [A,B,D],Solo [B,D,C],Solo [A,B,D,C]]
-
-Missing: DA, DAB, BDA, DAC, BDAC
-Common: subpath: DA
-
-:set -fplugin-opt Plugin.InversionPlugin:dump-pattern-matched
--}
+-- map showFree $ $(partialInvFree 'isWalk [0]) graph False
+-- This should result in 52 representants of cyclic walks. The original paper spoke of 54 solutions, but never listed the actual values.
+-- This seems to be an error in the original paper (we spoke with the author).

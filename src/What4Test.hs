@@ -18,6 +18,7 @@ import What4.Protocol.SMTLib2
 import What4.Solver
 import What4.Utils.StringLiteral
 
+{-# NOINLINE unsafeGetChars #-}
 unsafeGetChars :: [Char]
 unsafeGetChars = unsafePerformIO $ do
     Some (ng :: NonceGenerator IO x) <- newIONonceGenerator
