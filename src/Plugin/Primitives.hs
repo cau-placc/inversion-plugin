@@ -4,7 +4,6 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE TypeApplications      #-}
-
 module Plugin.Primitives
   ( Transform, Argument, Result, inv, To, partialInv, semiInv, weakInv
   , Class, inOutClassInv, inClassInv, var
@@ -82,30 +81,40 @@ genPartialInv gnf name fixedArgIndices = do
   funPatExp <- genLiftedApply (VarE liftedName) argExps
   let resExp = AppE (VarE 'toFL) (VarE resArgName)
       nonStrictUnifyExp = applyExp (VarE 'nonStrictUnifyFL) [funPatExp, resExp]
-      doExp = DoE Nothing [NoBindS nonStrictUnifyExp, NoBindS (AppE (VarE (if gnf then 'groundNormalFormFL else 'normalFormFL)) returnExp)]
+      shareFrees = map (\nm -> BindS (VarP nm) (AppE (VarE 'share) (VarE 'free))) nonFixedArgNames
+      doExp = DoE Nothing $ shareFrees ++ [NoBindS nonStrictUnifyExp, NoBindS (AppE (VarE (if gnf then 'groundNormalFormFL else 'normalFormFL)) returnExp)]
       returnExp = mkLiftedTupleE $ map snd nonFixedArgExps
       bodyExp = AppE (VarE 'fromFL) doExp
   bNm <- newName "b"
-  let letDecs = [FunD bNm [Clause (map VarP nonFixedArgNames) (NormalB bodyExp) []]]
-  let freeExps = take (length nonFixedArgExps) $ map (AppE (ConE 'FL) . AppE (VarE 'return) . AppE (ConE 'Var) . mkIntExp) [0 ..]
-  let invExp = LetE letDecs (applyExp (VarE bNm) freeExps)
-
   typ <- getFunType name
+  ctxt <- getFunContext name
+
   let (argTys, resTy) = arrowUnapply typ
       indexedArgTys = zip [1 ..] argTys
       fixedArgTys = filter (\(i, _) -> i `elem` nubbedFixedArgIndices) indexedArgTys
       unfixedArgTys = filter (\(i, _) -> i `notElem` nubbedFixedArgIndices) indexedArgTys
-  ctxt <- getFunContext name
-  let invContext = context ++ map (AppT (ConT ''Transform)) ctxt
+      invContext = context ++ map (AppT (ConT ''Transform)) ctxt
       context = nub $ map (AppT (ConT ''Argument) . snd) unfixedArgTys ++
                 return (AppT (ConT ''Result) resTy) ++
                 map (AppT (ConT ''To) . snd) fixedArgTys
-      invTy = ForallT [] invContext $ foldr mkArrowT (AppT ListT $ mkTupleT $ map snd unfixedArgTys) $ map snd fixedArgTys ++ [resTy]
+      bTy = ForallT [] invContext $ foldr mkArrowT (AppT ListT $ mkTupleT $ map snd unfixedArgTys) $ map (AppT (ConT ''FL) . AppT (ConT ''Transform) . snd) unfixedArgTys
 
-  --return $ LamE (map VarP $ fixedArgNames ++ [resArgName]) invExp
+  let freeExps = take (length nonFixedArgExps) $ map (AppE (ConE 'FL) . AppE (VarE 'return) . AppE (ConE 'Var) . mkIntExp) [0 ..]
+  let letDecs = zipWith (\nm e -> FunD nm [Clause [] (NormalB e) []]) nonFixedArgNames freeExps ++
+                zipWith (\nm ty -> SigD nm (ForallT
+                                             (map (\n -> PlainTV n SpecifiedSpec) (allTyVars ty))
+                                             [((AppT (ConT ''HasPrimitiveInfo) . AppT (ConT ''Transform)) ty)]
+                                             ((AppT (ConT ''FL) . AppT (ConT ''Transform)) ty)))
+                          nonFixedArgNames (map snd unfixedArgTys)
+  let invExp = bodyExp
+
+  let invTyNoForall = foldr mkArrowT (AppT ListT $ mkTupleT $ map snd unfixedArgTys) $ map snd fixedArgTys ++ [resTy]
+      invTy = ForallT (map (\n -> PlainTV n SpecifiedSpec) (allTyVars invTyNoForall)) invContext invTyNoForall
+
+  -- return $ (LamE (map VarP $ fixedArgNames ++ [resArgName]) invExp)
   return $ LetE [
     SigD g invTy,
-    FunD g [Clause (map VarP $ fixedArgNames ++ [resArgName]) (NormalB invExp) []]] (VarE g)
+    FunD g [Clause (map VarP $ fixedArgNames ++ [resArgName]) (NormalB invExp) []]] ((VarE g) )
   {-params <- replicateM (length fixedArgNames + 1) (newName "param")
   return $ LamE (map VarP params) $ LetE [
     SigD g invTy,
@@ -215,7 +224,8 @@ genSemiInv gnf name fixedArgIndices fixedResIndices = do
                 map (AppT (ConT ''From) . snd) unfixedResTys ++
                 map (AppT (ConT ''HasPrimitiveInfo) . AppT (ConT ''Transform) . snd) unfixedResTys ++-}
                 map (AppT (ConT ''To) . snd) (fixedArgTys ++ fixedResTys)
-      invTy = ForallT [] invContext $ foldr mkArrowT (AppT ListT $ mkTupleT $ map snd $ unfixedArgTys ++ unfixedResTys) $ map snd fixedArgTys ++ fixedResTupleTy
+      invTyNoForall = foldr mkArrowT (AppT ListT $ mkTupleT $ map snd $ unfixedArgTys ++ unfixedResTys) $ map snd fixedArgTys ++ fixedResTupleTy
+      invTy = ForallT [] invContext invTyNoForall
 
   let resPs | length fixedResExps > 1 = [mkTupleP (map VarP fixedResNames)]
             | length fixedResExps == 1 = [VarP (head fixedResNames)]
@@ -281,6 +291,11 @@ genSemiInv gnf name fixedArgIndices fixedResultIndices = do
 
 genWeakInv :: Bool -> Name -> ExpQ
 genWeakInv gnf name = [| foldr const (error "no weak inverse") . $(genInv gnf name) |]
+
+allTyVars :: Type -> [Name]
+allTyVars = map (\(VarT n) -> n) . nub . listify (\case
+  VarT n -> True
+  _      -> False)
 
 type Class = ExpQ
 
