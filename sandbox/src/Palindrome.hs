@@ -23,4 +23,4 @@ data C = A | B | C
 
 word = [A,B,C,B,A,A,B,A,A,B,C,B,A,A,B,A,A,B,C,B,A,A,B,A]
 
--- Test with: head $ $(inv 'fromPalindromes2 True) "abba"
+-- Test with: head $ $(inv 'fromPalindromes2) "abba"
