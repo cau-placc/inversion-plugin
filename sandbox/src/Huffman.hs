@@ -1,4 +1,6 @@
-{-# OPTIONS_GHC -fplugin Plugin.InversionPlugin #-}
+{-# OPTIONS_GHC -fplugin Plugin.InversionPlugin -fforce-recomp #-}
+
+-- This example demonstrates, using Huffman encoding as a case study, how partial inversion can be used to derive a decoder from an encoder.
 
 module Huffman where
 

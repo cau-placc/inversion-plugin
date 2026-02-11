@@ -1,16 +1,14 @@
-{-# OPTIONS_GHC -fplugin Plugin.InversionPlugin #-}
+{-# OPTIONS_GHC -fplugin Plugin.InversionPlugin -fforce-recomp #-}
 
--- Example from "Principles of Inverse Computation and the Universal Resolving Algorithm" and "Rebuilding a Tree from Its Traversals: A Case Study of Program Inversion"
+-- This example is from the paper "Principles of Inverse Computation and the Universal Resolving Algorithm" by Sergei Abramov and Robert Glück.
+
+-- This example from "Principles of Inverse Computation and the Universal Resolving Algorithm" and "Rebuilding a Tree from Its Traversals: A Case Study of Program Inversion"
 
 module TreeTraversal where
 
 data Tree a = Empty
             | Node (Tree a) a (Tree a)
   deriving Show
-
-depth :: Tree a -> Int
-depth Empty = 0
-depth (Node l _ r) = 1 + max (depth l) (depth r)
 
 preorder :: Tree a -> [a]
 preorder Empty        = []
@@ -20,16 +18,11 @@ inorder :: Tree a -> [a]
 inorder Empty        = []
 inorder (Node l x r) = inorder l ++ [x] ++ inorder r
 
-inorder' :: Int -> Tree a -> [a]
-inorder' n Empty        | n >= 0 = []
-inorder' n (Node l x r) | n > 0  = inorder' (n - 1) l ++ [x] ++ inorder' (n - 1) r
-
 inporder :: Tree a -> ([a], [a])
 inporder t = (inorder t, preorder t)
 
 pinorder :: Tree a -> ([a], [a])
 pinorder t = (preorder t, inorder t)
-
 exampleTree :: Tree Char
 exampleTree = Node (Node (Node Empty 'a' Empty) 'b' (Node Empty 'c' Empty)) 'd' (Node (Node Empty 'e' Empty) 'f' Empty)
 
@@ -49,3 +42,12 @@ exampleTree = Node (Node (Node Empty 'a' Empty) 'b' (Node Empty 'c' Empty)) 'd' 
 
 -- $(inv 'pinorder) (pinorder exampleTree)
 -- Finds one solution and terminates because the inverse of preorder, which gets computed first, terminates.
+
+
+depth :: Tree a -> Int
+depth Empty        = 0
+depth (Node l _ r) = 1 + max (depth l) (depth r)
+
+inorder' :: Int -> Tree a -> [a]
+inorder' n Empty        | n >= 0 = []
+inorder' n (Node l x r) | n > 0  = inorder' (n - 1) l ++ [x] ++ inorder' (n - 1) r
