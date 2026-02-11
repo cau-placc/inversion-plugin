@@ -203,8 +203,8 @@ liftMonadPlugin mdopts env = do
 
     setGblEnv env6 $ do
 
-      ((env7, lcl7), constraints) <- captureConstraints $ tcTopSrcDecls rn
-      evBinds <- setGblEnv env7 $ setLclEnv lcl7 $ simplifyTop constraints
+      ((env7, lcl7), constraints') <- captureConstraints $ tcTopSrcDecls rn
+      evBinds <- setGblEnv env7 $ setLclEnv lcl7 $ simplifyTop constraints'
       (_, evbinds7, binds7, _, _, _) <- zonkTopDecls evBinds (tcg_binds env7) [] [] []
 
       dumpWith DumpGenInstancesTyped dopts binds7
