@@ -161,6 +161,8 @@ myLast _                                        = error "myLast: empty list"
 
 A sandbox project is available to play around with in `sandbox/`.
 It can be loaded by executing `stack repl sandbox` from the root of the project.
+After you have loaded the sandbox project, you can test the plugin by loading examples from the `sandbox/src` directory, e.g., via `:l FunctionalPatterns`.
+Note that you have to enable the language extensions `TemplateHaskell` and `FlexibleContexts` in GHCi (can be done via `:set -XTemplateHaskell -XFlexibleContexts`) in order to use inverted functions and functional patterns in GHCi.
 
 ## Known Issues
 
