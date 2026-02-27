@@ -18,7 +18,7 @@ The idea behind this plugin is originally described in the paper ["Haskell⁻¹:
     - [Semi-Inverted Functions](#semi-inverted-functions)
     - [Functional Patterns](#functional-patterns)
   - [Sandbox Project](#sandbox-project)
-  - [Known Issues](#known-issues)
+  - [Known Issues/Limitations](#known-issueslimitations)
   - [Debugging](#debugging)
 
 ## Compatibility
@@ -96,6 +96,11 @@ splits = $(inv 'myAppend)
 -- [([],[True,False]),([True],[False]),([True,False],[])]
 ```
 
+Note that you either need to enable the language extension `NoMonomorphismRestriction` or provide an explicit type signature for inverted functions to avoid type inference errors.
+In the example above, we opted for the latter.
+Alternatively, you can define inverted functions point-wise, i.e.,we could have defined `splits` as `splits xs = $(inv 'myAppend) xs`.
+Most of the time, you also want to enable the language extension `LocalMonoBinds` in order to reduce the number of type inference warnings.
+
 ### Partially Inverted Functions
 
 ```haskell
@@ -150,9 +155,9 @@ import ToBeInverted
 -- used in the functional pattern.
 -- The second argument is a list of quasi-quoted patterns,
 -- whose length has to match the arity of the function in the functional pattern.
-myLast :: (Argument [a], Result [a]) => [a] -> a
+myLast :: (Argument a, Result a) => [a] -> a
 myLast $(funPat 'myAppend [[p| _ |], [p| [x] |]]) = x
-myLast _                                        = error "myLast: empty list"
+myLast _                                          = error "myLast: empty list"
 -- ghci> myLast [1,2,3]
 -- 3
 ```
@@ -165,7 +170,7 @@ After you have loaded the sandbox project, you can test the plugin by loading ex
 Note that you have to enable the language extensions `TemplateHaskell` and `FlexibleContexts` in GHCi (this can be done via `:set -XTemplateHaskell -XFlexibleContexts`) in order to use inverted functions and functional patterns in GHCi.
 For referencing inverted functions directly in GHCi, you need to import the module `Plugin.InversionPlugin` via `import Plugin.InversionPlugin` in GHCi.
 
-## Known Issues
+## Known Issues/Limitations
 
 * Compile time for the first module might take some time.
 However, this is not the case for any subsequent modules that use the plugin.

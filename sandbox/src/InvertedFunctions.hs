@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, FlexibleContexts #-}
+{-# LANGUAGE TemplateHaskell, FlexibleContexts, NoMonomorphismRestriction, MonoLocalBinds #-}
 module InvertedFunctions where
 
 import Plugin.InversionPlugin

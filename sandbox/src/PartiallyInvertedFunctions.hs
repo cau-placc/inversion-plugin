@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, FlexibleContexts #-}
+{-# LANGUAGE TemplateHaskell, FlexibleContexts, MonoLocalBinds #-}
 module PartiallyInvertedFunctions where
 
 import Plugin.InversionPlugin
